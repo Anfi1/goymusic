@@ -2,6 +2,7 @@ export interface CacheEntry {
     url: string;
     expires: number;
     loudness?: number;
+    watchtimeUrl?: string;
 }
 
 class DbCache {
@@ -61,10 +62,10 @@ class DbCache {
         });
     }
 
-    async set(id: string, url: string, expires: number, loudness: number = 0) {
+    async set(id: string, url: string, expires: number, loudness: number = 0, watchtimeUrl?: string) {
         if (!this.db || !id || !url) return;
         const transaction = this.db.transaction(this.storeName, 'readwrite');
-        transaction.objectStore(this.storeName).put({ url, expires, loudness }, id);
+        transaction.objectStore(this.storeName).put({ url, expires, loudness, watchtimeUrl }, id);
     }
 
     async isFresh(id: string): Promise<boolean> {

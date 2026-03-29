@@ -1372,6 +1372,7 @@ def handle_request(request):
             
             stream_url = None
             loudness = 0.0
+            watchtime_url = None
             method = "None"
             
             # 1. ПРИОРИТЕТ: pytubefix (0.3с)
@@ -1379,15 +1380,19 @@ def handle_request(request):
                 # Use a very short timeout for pytubefix
                 tube = YouTube(url, use_oauth=False, allow_oauth_cache=True)
                 stream_url = tube.streams.get_audio_only().url
-                
+
                 # Извлекаем громкость (Content Loudness)
                 raw_loudness = extract_loudness(tube.vid_info)
                 if raw_loudness is None:
                     raw_loudness = extract_loudness(tube.streaming_data)
-                
+
                 if raw_loudness is not None:
                     loudness = float(raw_loudness)
-                
+
+                pt = (tube.vid_info or {}).get('playbackTracking', {})
+                watchtime_url = pt.get('videostatsWatchtimeUrl', {}).get('baseUrl') or None
+                print(f"[watchtime] got watchtimeUrl for {video_id}: {'YES' if watchtime_url else 'NO'}", file=sys.stderr)
+
                 method = "pytubefix"
             except Exception as e:
                 print(f"[debug] pytubefix failed for {video_id}: {e}", file=sys.stderr)
@@ -1429,11 +1434,41 @@ def handle_request(request):
 
             total_time = time.time() - start_time
             print(f"[perf] get_stream_url ({method}) for {video_id}: {total_time:.3f}s (loudness: {loudness})", file=sys.stderr)
-            
+
             if stream_url:
-                safe_print({'status': 'ok', 'url': stream_url, 'loudness': loudness, 'callId': call_id})
+                safe_print({'status': 'ok', 'url': stream_url, 'loudness': loudness,
+                            'watchtimeUrl': watchtime_url, 'callId': call_id})
             else:
                 safe_print({'status': 'error', 'message': 'Failed to obtain stream URL', 'callId': call_id})
+
+        elif command == 'send_watchtime':
+            wt_url = request.get('watchtimeUrl')
+            if not wt_url:
+                safe_print({'status': 'error', 'message': 'No watchtimeUrl', 'callId': call_id})
+            else:
+                rt = request.get('rt', 0)
+                params = {
+                    'fmt': 0, 'fs': 0, 'euri': '', 'ver': 2,
+                    'cbr': 'Chrome', 'cbrver': '134.0.0.0',
+                    'c': 'WEB_REMIX', 'cver': '1.20260324.11.00',
+                    'cplayer': 'UNIPLAYER', 'cos': 'Windows', 'cosver': '10.0',
+                    'cplatform': 'DESKTOP', 'hl': 'en_US',
+                    'afmt': 140, 'muted': 0, 'vis': 10, 'volume': 100,
+                    'cpn': request.get('cpn'),
+                    'cmt': request.get('cmt'),
+                    'st': request.get('st'),
+                    'et': request.get('et'),
+                    'state': request.get('state', 'playing'),
+                    'len': request.get('len'),
+                    'rt': rt,
+                    'rtn': round(rt + 40, 3),
+                    'rti': rt,
+                    'lact': request.get('lact', 0),
+                }
+                params = {k: v for k, v in params.items() if v is not None}
+                r = requests.get(wt_url, params=params, timeout=10)
+                print(f"[watchtime] {request.get('state')} cmt={request.get('cmt')} -> {r.status_code}", file=sys.stderr)
+                safe_print({'status': 'ok', 'httpStatus': r.status_code, 'callId': call_id})
 
         elif command == 'search_alternatives':
             query = request.get('query', '')

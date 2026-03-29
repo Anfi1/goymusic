@@ -51,6 +51,13 @@ class PlayerStore {
     private playbackId: number = 0;
     private consecutiveErrors: number = 0;
 
+    private wtUrl: string | null = null;
+    private wtCpn: string | null = null;
+    private wtSessionStart: number = 0;
+    private wtSegStart: number = 0;
+    private wtNextFlushAt: number = 10;
+    private wtPrevMediaTime: number = 0;
+
     constructor() {
         this.audioA = new Audio();
         this.audioB = new Audio();
@@ -415,6 +422,8 @@ class PlayerStore {
             audio.addEventListener('ended', () => {
                 if (this.activePlayer !== playerLabel) return;
                 console.log(`[player] Player ${playerLabel} ended`);
+                this.wtFlush('ended');
+                this.wtUrl = null;
                 if (this.repeat === 'one') {
                     audio.currentTime = 0;
                     audio.play();
@@ -499,6 +508,42 @@ class PlayerStore {
         }
     }
 
+    private initWatchtime(url: string) {
+        const a = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
+        this.wtUrl = url;
+        this.wtCpn = Array.from({length: 16}, () => a[Math.floor(Math.random() * 64)]).join('');
+        this.wtSessionStart = Date.now();
+        this.wtSegStart = 0;
+        this.wtNextFlushAt = 10;
+        this.wtPrevMediaTime = 0;
+    }
+
+    private wtAdvanceSchedule() {
+        const next = [10, 20, 30].find(t => t > this.wtNextFlushAt);
+        this.wtNextFlushAt = next ?? (this.wtNextFlushAt + 40);
+    }
+
+    private wtFlush(state: 'playing' | 'paused' | 'ended') {
+        if (!this.wtUrl || !this.wtCpn) return;
+        const cmt = this.currentTime;
+        const st = this.wtSegStart;
+        const rt = (Date.now() - this.wtSessionStart) / 1000;
+        this.wtSegStart = cmt;
+        this.wtAdvanceSchedule();
+        (window as any).bridge.pyCall('send_watchtime', {
+            watchtimeUrl: this.wtUrl,
+            cpn: this.wtCpn,
+            cmt: Math.round(cmt * 1000) / 1000,
+            st: st.toFixed(3),
+            et: cmt.toFixed(3),
+            state,
+            len: Math.round(this.duration),
+            rt: Math.round(rt * 1000) / 1000,
+            lact: Math.round(rt * 1000),
+            callId: Math.random().toString(36).slice(2),
+        }).catch(() => {});
+    }
+
     private startTimer() {
         this.stopTimer();
         const active = this.activeAudio;
@@ -510,9 +555,18 @@ class PlayerStore {
                 if (this.duration > 0 && (this.duration - this.currentTime) <= 5) {
                     this.preloadNextTrack();
                 }
-                this.notify('tick'); 
+                if (this.wtUrl) {
+                    const diff = this.currentTime - this.wtPrevMediaTime;
+                    if (diff > 2 || diff < -0.1) {
+                        while (this.wtNextFlushAt <= this.currentTime) this.wtAdvanceSchedule();
+                        this.wtSegStart = this.currentTime;
+                    }
+                    this.wtPrevMediaTime = this.currentTime;
+                    if (this.currentTime >= this.wtNextFlushAt) this.wtFlush('playing');
+                }
+                this.notify('tick');
             } else {
-                this.stopTimer(); 
+                this.stopTimer();
             }
         }, 600); // 600ms interval for better efficiency
     }
@@ -757,6 +811,8 @@ class PlayerStore {
         this.currentTime = 0;
         this.duration = this.parseDuration(track.duration);
         this.buffered = [];
+        this.wtFlush('paused');
+        this.wtUrl = null;
         this.saveState();
         this.notify('state'); 
         
@@ -799,10 +855,12 @@ class PlayerStore {
                     this.isStreamLoading = false;
                     this.consecutiveErrors = 0;
                     this.errorSkipCount = 0;
+                    console.log(`[watchtime] onCanPlay: isPlaying=${this.isPlaying} watchtimeUrl=${entry.watchtimeUrl ? 'YES' : 'NO'}`);
                     if (!this.isPlaying) { this.notify('state'); return; }
                     try {
                         if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
                         await this.audioA.play();
+                        if (entry.watchtimeUrl) this.initWatchtime(entry.watchtimeUrl);
                         this.prefetchBuffer();
                     } catch (e: any) {
                         if (e.name === 'NotSupportedError' && this.isPlaying) this.next();
@@ -945,6 +1003,8 @@ class PlayerStore {
 
         if (!this.shuffle && this.preloadedTrackId === nextTrack.id) {
             const prevAudio = this.activeAudio;
+            this.wtFlush('paused');
+            this.wtUrl = null;
             this.activePlayer = this.activePlayer === 'A' ? 'B' : 'A';
             const nextAudio = this.activeAudio;
 
@@ -953,17 +1013,18 @@ class PlayerStore {
             this.duration = this.parseDuration(nextTrack.duration);
             this.currentTime = 0;
             this.preloadedTrackId = null;
-            
+
             nextAudio.volume = this.volume / 100;
             const entry = await streamCache.get(nextTrack.id);
             this.applyNormalization(entry?.loudness || 0);
 
             try {
                 await nextAudio.play();
+                if (entry?.watchtimeUrl) this.initWatchtime(entry.watchtimeUrl);
                 prevAudio.pause();
                 prevAudio.removeAttribute('src');
                 prevAudio.load();
-                
+
                 this.saveState();
                 this.notify('state');
                 this.prefetchBuffer();

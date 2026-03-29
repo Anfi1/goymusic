@@ -58,9 +58,10 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Pro
             if (res.status === 'ok' && res.url) {
                 const expires = getExpirationFromUrl(res.url);
                 const loudness = res.loudness || 0;
-                await streamCache.set(videoId, res.url, expires, loudness);
+                const watchtimeUrl = res.watchtimeUrl as string | undefined;
+                await streamCache.set(videoId, res.url, expires, loudness, watchtimeUrl);
                 console.log(`[stream] Python fetch: ${videoId} -> Done (loudness: ${loudness})`);
-                return { url: res.url, expires, loudness };
+                return { url: res.url, expires, loudness, watchtimeUrl };
             } else {
                 if (res.message !== 'Cancelled by client') {
                     console.warn(`[stream] Python fetch: ${videoId} -> Failed`, res);
