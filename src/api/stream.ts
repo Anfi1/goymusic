@@ -1,5 +1,5 @@
 import { streamCache, CacheEntry } from './cache';
-import { getOverride } from './localOverrides';
+import { getOverride, setOverride } from './localOverrides';
 import { createCallId } from './callId';
 
 /**
@@ -87,9 +87,32 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
 
     const override = await getOverride(videoId);
     if (override) {
-        const fileUrl = await (window as any).bridge.getSongFileUrl(override.filename);
-        console.log(`[stream] Local override for ${videoId}: ${override.filename}`);
-        return { url: fileUrl, expires: 9999999999, loudness: override.gainDb };
+        const fileExists = await (window as any).bridge.songFileExists(override.filename);
+        if (fileExists) {
+            const fileUrl = await (window as any).bridge.getSongFileUrl(override.filename);
+            console.log(`[stream] Local override for ${videoId}: ${override.filename}`);
+            return { url: fileUrl, expires: 9999999999, loudness: override.gainDb };
+        }
+        console.warn(`[stream] Local file missing for ${videoId}, falling back to stream`);
+        if (override.sourceType !== 'local' && override.sourceType !== 'youtube' && override.sourceUrl) {
+            (async () => {
+                try {
+                    const songsPath = await (window as any).bridge.getSongsPath();
+                    const res = await (window as any).bridge.pyCall('download_track', {
+                        url: override.sourceUrl,
+                        videoId: override.videoId,
+                        songsPath,
+                        callId: createCallId(),
+                    });
+                    if (res.status === 'ok') {
+                        await setOverride({ ...override, filename: res.filename });
+                        console.log(`[stream] Re-downloaded missing file for ${videoId}`);
+                    }
+                } catch (e) {
+                    console.warn(`[stream] Re-download failed for ${videoId}:`, e);
+                }
+            })();
+        }
     }
 
     if (!forceBypassCache) {

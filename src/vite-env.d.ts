@@ -32,6 +32,7 @@ interface Window {
     clearCache: () => Promise<any>;
     getSongsPath: () => Promise<string>;
     setSongsPath: (path: string) => Promise<any>;
+    songFileExists: (filename: string) => Promise<boolean>;
     getSongFileUrl: (filename: string) => Promise<string>;
     openSongsFolder: (filename?: string) => Promise<any>;
     pickSongsFolder: () => Promise<string | null>;

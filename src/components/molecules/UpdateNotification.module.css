@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  z-index: 1000;
+  z-index: 9999;
   backdrop-filter: blur(20px);
   animation: slideUp 0.3s ease-out;
   min-width: 320px;

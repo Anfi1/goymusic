@@ -46,6 +46,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         setPathWarning(true);
     };
 
+    const handleResetSongsFolder = async () => {
+        await (window as any).bridge.setSongsPath('');
+        const newPath = await (window as any).bridge.getSongsPath();
+        setSongsPath(newPath);
+        setPathWarning(false);
+    };
+
     const clearCache = () => {
         player.reset();
         (window as any).bridge.clearCache().then(() => {
@@ -250,6 +257,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                         </button>
                         <button className={styles.btnSecondary} onClick={handleChangeSongsFolder}>
                             Change
+                        </button>
+                        <button className={styles.btnSecondary} onClick={handleResetSongsFolder}>
+                            Reset
                         </button>
                     </div>
                 </div>

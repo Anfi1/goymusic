@@ -181,10 +181,11 @@ function tryNextPython(candidates: string[], index: number, scriptPath: string, 
   try {
     const proc = spawn(pyPath, [scriptPath], {
       cwd: root,
-      env: { 
-        ...process.env, 
+      env: {
+        ...process.env,
         PYTHONUNBUFFERED: '1',
-        PYTHONIOENCODING: 'utf-8' 
+        PYTHONIOENCODING: 'utf-8',
+        GOYMUSIC_USER_DATA: getUserDataDir()
       }
     });
 
@@ -482,7 +483,7 @@ ipcMain.handle('update:download', async () => {
 
 ipcMain.handle('update:install', async () => {
   exitPyProc()
-  autoUpdater.quitAndInstall(false, true)
+  autoUpdater.quitAndInstall(true, true)
 })
 
 // RPC Update handler
@@ -625,7 +626,7 @@ ipcMain.handle('auth:start', async () => {
           };
 
           try {
-            const root = getAppRoot();
+            const root = getUserDataDir();
             const path = join(root, 'browser.json');
             writeFileSync(path, JSON.stringify(browserData, null, 4));
             
@@ -714,7 +715,7 @@ function getSongsPath(): string {
   } catch (e) {
     logToFile(`getSongsPath error: ${e}`);
   }
-  const defaultPath = join(getAppRoot(), 'songs');
+  const defaultPath = join(getUserDataDir(), 'songs');
   mkdirSync(defaultPath, { recursive: true });
   return defaultPath;
 }
@@ -734,13 +735,17 @@ ipcMain.handle('songs:get-path', () => {
 ipcMain.handle('songs:set-path', (event, newPath: string) => {
   try {
     const cfg: any = readWindowConfig();
-    cfg.songsPath = newPath;
+    cfg.songsPath = newPath || '';
     writeWindowConfig(cfg);
-    mkdirSync(newPath, { recursive: true });
+    if (newPath) mkdirSync(newPath, { recursive: true });
     return { status: 'ok' };
   } catch (e) {
     return { status: 'error', message: String(e) };
   }
+})
+
+ipcMain.handle('songs:file-exists', (event, filename: string) => {
+  return existsSync(join(getSongsPath(), filename));
 })
 
 ipcMain.handle('songs:get-file-url', (event, filename: string) => {

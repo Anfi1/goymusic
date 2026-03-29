@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('bridge', {
   clearCache: () => ipcRenderer.invoke('app:clear-cache'),
   getSongsPath: () => ipcRenderer.invoke('songs:get-path'),
   setSongsPath: (path: string) => ipcRenderer.invoke('songs:set-path', path),
+  songFileExists: (filename: string) => ipcRenderer.invoke('songs:file-exists', filename),
   getSongFileUrl: (filename: string) => ipcRenderer.invoke('songs:get-file-url', filename),
   openSongsFolder: (filename?: string) => ipcRenderer.invoke('songs:open-folder', filename),
   pickSongsFolder: () => ipcRenderer.invoke('songs:pick-folder'),

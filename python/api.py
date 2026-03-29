@@ -27,8 +27,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OAUTH_FILE = os.path.join(BASE_DIR, 'oauth.json')
-BROWSER_FILE = os.path.join(BASE_DIR, 'browser.json')
+USER_DATA_DIR = os.environ.get('GOYMUSIC_USER_DATA', BASE_DIR)
+OAUTH_FILE = os.path.join(USER_DATA_DIR, 'oauth.json')
+BROWSER_FILE = os.path.join(USER_DATA_DIR, 'browser.json')
 
 # Credentials (not used if using browser.json)
 CLIENT_ID = None
