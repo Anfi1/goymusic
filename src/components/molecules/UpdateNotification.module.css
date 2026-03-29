@@ -1,6 +1,6 @@
 .updateBar {
   position: fixed;
-  bottom: 80px;
+  bottom: 92px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(137, 180, 250, 0.15);

@@ -48,6 +48,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "differentialPackage": true,
       "uninstallDisplayName": "GoyMusic",
       "artifactName": "GoyMusic-Setup-${version}.${ext}"
     },
