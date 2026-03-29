@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="512" cy="512" r="512" fill="#09090f"/>
+  
+  <!-- Content group with proper centering and scaling (0.85) to avoid "rushed" edges -->
+  <g transform="translate(512, 512) scale(0.85) translate(-512, -512)">
+    <!-- The "G" shape arc (perfectly circular radii 288 288) -->
+    <path d="M 800 512 A 288 288 0 1 1 680 230" 
+          stroke="white" 
+          stroke-width="180" 
+          stroke-linecap="round"/>
+          
+    <!-- Play button triangle -->
+    <path d="M 430 322 L 780 512 L 430 702 Z" 
+          fill="url(#paint_red)" 
+          stroke="url(#paint_red)" 
+          stroke-width="20" 
+          stroke-linejoin="round"/>
+  </g>
+  
+  <defs>
+    <linearGradient id="paint_red" x1="430" y1="322" x2="780" y2="702" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF3333"/>
+      <stop offset="1" stop-color="#CC0000"/>
+    </linearGradient>
+  </defs>
+</svg>

@@ -1,0 +1,55 @@
+.visualizer {
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    height: 14px;
+    width: 14px;
+    contain: layout style;
+}
+
+.visualizer.playing {
+    display: flex;
+}
+
+.bar {
+    width: 3px;
+    background-color: var(--accent);
+    border-radius: 2px;
+    transform-origin: bottom;
+    opacity: 1;
+    min-height: 3px;
+    will-change: transform;
+    transform: scaleY(0.2);
+}
+
+/* Run animation ONLY when playing class is present on parent */
+.playing .bar {
+    animation: bounce 0.8s infinite ease-in-out alternate;
+    backface-visibility: hidden;
+}
+
+.playing .bar:nth-child(1) {
+    height: 40%;
+    animation-delay: 0.1s;
+}
+
+.playing .bar:nth-child(2) {
+    height: 100%;
+    animation-delay: -0.4s;
+}
+
+.playing .bar:nth-child(3) {
+    height: 60%;
+    animation-delay: 0.2s;
+}
+
+@keyframes bounce {
+    0% {
+        transform: scaleY(0.2);
+    }
+
+    100% {
+        transform: scaleY(1);
+    }
+}

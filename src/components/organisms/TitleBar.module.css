@@ -1,0 +1,210 @@
+.titleBar {
+    grid-area: title;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 400px 1fr; /* Fixed width for search area */
+    align-items: center;
+    height: var(--title-height); /* Uses variable from theme.css */
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    user-select: none;
+    -webkit-app-region: drag;
+    z-index: 9999;
+}
+
+.leftControls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-left: 1rem;
+    -webkit-app-region: no-drag;
+    justify-self: start;
+}
+
+.searchRegion {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+    -webkit-app-region: no-drag;
+}
+
+.searchWrapper {
+    position: relative;
+    width: 100%;
+    max-width: 360px;
+}
+
+.searchForm {
+    width: 100%;
+}
+
+.inputIconWrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--bg-mantle);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0 10px;
+    transition: all 0.2s ease;
+}
+
+.inputIconWrapper:focus-within {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 0 3px rgba(137, 180, 250, 0.1);
+}
+
+.searchIcon {
+    color: var(--text-secondary);
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.searchInput {
+    flex: 1;
+    height: 24px;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: 0.85rem;
+    outline: none;
+    width: 100%;
+}
+
+@keyframes slideDownFade {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.suggestionsDropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--bg-mantle);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    backdrop-filter: blur(24px);
+    z-index: 10000;
+    animation: slideDownFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.suggestionItem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: var(--text-main);
+    font-size: 0.85rem;
+}
+
+.suggestionItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+    padding-left: 18px; /* Subtle slide effect on hover */
+    color: var(--accent);
+}
+
+.suggestionIcon {
+    opacity: 0.4;
+}
+
+.suggestionSelected {
+    background: rgba(137, 180, 250, 0.1);
+    padding-left: 18px;
+    color: var(--accent, #89b4fa);
+}
+
+.suggestionSelected .suggestionIcon {
+    opacity: 0.7;
+}
+
+.suggestionLoading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    color: var(--text-sub, #a6adc8);
+    font-size: 0.82rem;
+    opacity: 0.6;
+}
+
+.searchIconSpinner {
+    color: var(--text-secondary);
+    margin-right: 8px;
+    flex-shrink: 0;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.windowControls {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    -webkit-app-region: no-drag;
+    justify-self: end;
+    height: 100%;
+}
+
+.controlBtn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary, #9399b2); /* Fallback color for visibility during init */
+    width: 46px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.controlBtn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+}
+
+:global([data-theme="light"]) .controlBtn:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.closeBtn:hover {
+    background-color: #ef4444 !important;
+    color: white !important;
+}
+
+.themeToggle {
+    margin-right: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.divider {
+    width: 1px;
+    height: 16px;
+    background-color: var(--border-subtle);
+    margin: 0 0.5rem;
+}
+
+.loadingTitle {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.8;
+}

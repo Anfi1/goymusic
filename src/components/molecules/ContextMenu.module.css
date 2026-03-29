@@ -1,0 +1,189 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 999998;
+}
+
+.menu {
+    position: fixed;
+    min-width: 200px;
+    max-width: 320px;
+    background: rgba(30, 30, 46, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 999999;
+    animation: menuAppear 0.1s ease-out;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* Убираем overflow, чтобы подменю не обрезалось */
+    overflow: visible;
+}
+
+/* Скроллбар только для подменю */
+.subMenu::-webkit-scrollbar {
+    width: 4px;
+}
+
+.subMenu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.subMenu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.subMenu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+@keyframes menuAppear {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #cdd6f4;
+    font-size: 0.85rem;
+    position: relative;
+    white-space: nowrap;
+}
+
+.item:hover {
+    background: rgba(137, 180, 250, 0.15);
+    color: #89b4fa;
+}
+
+.icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    width: 16px;
+    height: 16px;
+}
+
+.item:hover .icon {
+    opacity: 1;
+}
+
+.label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chevron {
+    margin-left: 8px;
+    opacity: 0.5;
+}
+
+.subMenu {
+    position: absolute;
+    min-width: 200px;
+    max-width: 280px;
+    max-height: 210px; 
+    background: rgba(30, 30, 46, 0.98);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: subMenuAppear 0.15s ease-out;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 1000000;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: auto;
+}
+
+.subMenu.leaving {
+    opacity: 0;
+    transform: translateX(10px);
+    pointer-events: none;
+}
+
+@keyframes subMenuAppear {
+    from {
+        opacity: 0;
+        transform: translateX(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.item.skeleton {
+    pointer-events: none;
+}
+
+.skeletonBar {
+    height: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.skeletonBar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    animation: skeletonPulse 1.5s infinite;
+}
+
+@keyframes skeletonPulse {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+}
+
+.divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 4px 6px;
+}
+
+.item.danger:hover {
+    background: rgba(243, 139, 168, 0.15);
+    color: #f38ba8;
+}

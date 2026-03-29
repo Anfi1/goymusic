@@ -1,0 +1,224 @@
+.container {
+    position: relative;
+}
+
+.active {
+    color: #89b4fa !important;
+    background: rgba(137, 180, 250, 0.1) !important;
+}
+
+.menu {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: 320px;
+    background: #1e1e2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    padding: 16px;
+    z-index: 1000;
+    animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    min-height: 32px;
+}
+
+.presetSelector {
+    position: relative;
+    flex: 1;
+}
+
+.saveForm {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.saveForm input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: #cdd6f4;
+    font-size: 13px;
+    outline: none;
+}
+
+.saveForm input:focus {
+    border-color: #89b4fa;
+}
+
+.saveBtn {
+    color: #89b4fa;
+}
+
+.presetBtn {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: #cdd6f4;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.presetBtn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.presetsDropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background: #181825;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 10;
+}
+
+.presetItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: #cdd6f4;
+    cursor: pointer;
+}
+
+.presetItem:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.presetActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #89b4fa;
+}
+
+.deleteIcon {
+    color: #f38ba8;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.deleteIcon:hover {
+    opacity: 1;
+}
+
+.visualizer {
+    position: relative;
+    width: 100%;
+    height: 140px;
+    background: #11111b;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    cursor: crosshair;
+}
+
+.spectrum {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.curve {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.controls {
+    min-height: 80px;
+}
+
+.hint {
+    text-align: center;
+    font-size: 12px;
+    color: #7f849c;
+    margin-top: 20px;
+}
+
+.bandEditor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.info {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 4px;
+}
+
+.info span:first-child {
+    font-size: 12px;
+    font-weight: 700;
+    color: #89b4fa;
+    text-transform: uppercase;
+}
+
+.info span:last-child {
+    font-size: 12px;
+    font-weight: 600;
+    color: #cdd6f4;
+    opacity: 0.7;
+}
+
+.typeGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+
+.typeBtn {
+    padding: 8px 4px;
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    color: #7f849c;
+    cursor: pointer;
+    text-transform: capitalize;
+    transition: all 0.2s;
+}
+
+.typeBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.typeActive {
+    background: rgba(137, 180, 250, 0.1);
+    color: #89b4fa;
+    border-color: rgba(137, 180, 250, 0.3);
+}

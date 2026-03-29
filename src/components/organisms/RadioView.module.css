@@ -1,0 +1,511 @@
+.container {
+    padding: 24px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.headerIcon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #89b4fa 0%, #b4befe 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1e1e2e;
+    flex-shrink: 0;
+}
+
+.heading {
+    font-size: 22px;
+    font-weight: 700;
+    color: #cdd6f4;
+    margin: 0 0 2px 0;
+}
+
+.subheading {
+    font-size: 12px;
+    color: #6c7086;
+    margin: 0;
+}
+
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+}
+
+.groupCard {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: background 0.15s;
+}
+
+.groupCard:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.cardMain {
+    cursor: pointer;
+    padding: 0;
+}
+
+.thumbWrap {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+}
+
+.thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.thumbOverlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.cardMain:hover .thumbOverlay,
+.thumbOverlayVisible {
+    opacity: 1;
+}
+
+.playIcon {
+    color: #ffffff;
+}
+
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.cardInfo {
+    padding: 10px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cardTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6f4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cardSub {
+    font-size: 11px;
+    color: #6c7086;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.subList {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 4px 0;
+}
+
+.subItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.subItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.subPlayIcon {
+    color: #89b4fa;
+    flex-shrink: 0;
+}
+
+.subTitle {
+    font-size: 12px;
+    color: #a6adc8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.error {
+    color: #f38ba8;
+    font-size: 14px;
+}
+
+/* ── Active card indicator ───────────────────────────────────────────────── */
+
+.groupCardActive {
+    border-color: rgba(137, 180, 250, 0.4) !important;
+    background: rgba(137, 180, 250, 0.06) !important;
+}
+
+.activeIndicator {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    background: #89b4fa;
+    color: #1e1e2e;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.subItemActive .subPlayIcon {
+    color: #89b4fa;
+}
+
+/* ── Mode toggle ─────────────────────────────────────────────────────────── */
+
+.modeToggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #a6adc8;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.modeToggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #cdd6f4;
+}
+
+/* ── Simple mode: two-column layout ─────────────────────────────────────── */
+
+.simpleLayout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: hidden;
+}
+
+.genreList {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.genrePill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.05);
+    color: #6c7086;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.genrePill:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #a6adc8;
+}
+
+.genrePillActive {
+    background: color-mix(in srgb, var(--mood-color) 12%, transparent) !important;
+    border-color: color-mix(in srgb, var(--mood-color) 35%, transparent) !important;
+    color: color-mix(in srgb, var(--mood-color) 90%, #cdd6f4) !important;
+}
+
+.genreEmoji {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.genreLabel {
+    white-space: nowrap;
+}
+
+.genrePlaying {
+    color: #89b4fa;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.mixGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+}
+
+.mixRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.mixRow:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.mixRowActive {
+    background: rgba(137, 180, 250, 0.08) !important;
+}
+
+.mixThumb {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.mixThumbSuper {
+    box-shadow: 0 0 0 2px #f9e2af;
+}
+
+.mixSuperStar {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    font-size: 16px;
+    line-height: 1;
+    color: #f9e2af;
+    text-shadow: 0 0 6px rgba(0,0,0,0.95);
+}
+
+.mixPlayingOverlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mixBars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 22px;
+}
+
+.mixBar {
+    width: 4px;
+    background: #ffffff;
+    border-radius: 2px;
+    transform-origin: bottom;
+    animation: mixBarBounce 0.8s infinite ease-in-out alternate;
+}
+
+.mixBar:nth-child(1) { height: 40%; animation-delay: 0.1s; }
+.mixBar:nth-child(2) { height: 100%; animation-delay: -0.4s; }
+.mixBar:nth-child(3) { height: 60%; animation-delay: 0.2s; }
+
+@keyframes mixBarBounce {
+    0%   { transform: scaleY(0.2); }
+    100% { transform: scaleY(1); }
+}
+
+.mixThumbImg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.mixInfo {
+    flex: 1;
+    min-width: 0;
+    padding-left: 2px;
+}
+
+.mixTitle {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #cdd6f4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mixRowSuper {}
+
+.mixAction {
+    flex-shrink: 0;
+    width: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: width 0.15s;
+}
+
+.mixRow:hover .mixAction {
+    width: 26px;
+}
+
+.mixPlayIcon {
+    color: #89b4fa;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.mixRow:hover .mixPlayIcon {
+    opacity: 1;
+}
+
+/* ── Simple mode: mood grid (legacy, kept for skeleton) ──────────────────── */
+
+.moodGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.moodCard {
+    display: flex;
+    flex-direction: column;
+}
+
+.moodTile {
+    position: relative;
+    height: 100px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mood-color) 25%, #1e1e2e), color-mix(in srgb, var(--mood-color) 10%, #09090f));
+    border: 1px solid color-mix(in srgb, var(--mood-color) 30%, transparent);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    overflow: hidden;
+    user-select: none;
+}
+
+.moodTile:hover {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mood-color) 35%, #1e1e2e), color-mix(in srgb, var(--mood-color) 18%, #09090f));
+    transform: translateY(-2px);
+}
+
+.moodTile:active {
+    transform: translateY(0);
+}
+
+.moodEmoji {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    font-size: 26px;
+    line-height: 1;
+}
+
+.moodLabel {
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6f4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.moodChevron,
+.moodPlay {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    color: color-mix(in srgb, var(--mood-color) 80%, #ffffff);
+    opacity: 0.8;
+}
+
+.moodStar {
+    margin-left: auto;
+    font-size: 11px;
+    color: #f9e2af;
+    flex-shrink: 0;
+}
+
+.moodSpinner {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+.moodSubList {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    padding: 4px 0;
+    margin-top: -4px;
+}
+
+.moodSubItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.moodSubItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+}

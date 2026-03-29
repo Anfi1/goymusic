@@ -1,0 +1,308 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    color: var(--text-main);
+    background: transparent;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ── Tab bar ──────────────────────────────────────────── */
+
+.tabBar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 2rem 8px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.tab {
+    background: none;
+    border: none;
+    color: var(--text-sub, #a6adc8);
+    cursor: pointer;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.15s;
+}
+
+.tab:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+
+.tabActive {
+    background: rgba(137, 180, 250, 0.15);
+    color: var(--accent, #89b4fa);
+}
+
+.correction {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    opacity: 0.6;
+}
+
+.correctionLink {
+    background: none;
+    border: none;
+    color: var(--accent, #89b4fa);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0;
+    font-style: italic;
+}
+.correctionLink:hover { text-decoration: underline; }
+
+/* ── Main (All) results ───────────────────────────────── */
+
+.searchContent {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 0.5rem;
+    padding-bottom: 2rem;
+}
+
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0 2rem;
+}
+
+.sectionTitle {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+}
+
+.sectionTitleBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--text-main);
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s;
+}
+
+.sectionTitleBtn:hover { color: var(--accent, #89b4fa); }
+
+.sectionArrow {
+    opacity: 0;
+    transition: opacity 0.15s, transform 0.15s;
+}
+
+.sectionTitleBtn:hover .sectionArrow {
+    opacity: 1;
+    transform: translateX(3px);
+}
+
+/* Top Result */
+.topResultCard {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    max-width: 420px;
+}
+
+.topResultCard:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: var(--accent, #89b4fa);
+}
+
+.topResultThumbWrapper {
+    width: 88px;
+    height: 88px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.topResultThumb { width: 100%; height: 100%; object-fit: cover; }
+.topResultThumb.round { border-radius: 50%; }
+
+.topResultInfo { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.topResultTitle { font-size: 1.15rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topResultMeta { font-size: 0.82rem; opacity: 0.6; }
+.capitalize { text-transform: capitalize; }
+
+/* Horizontal scroll */
+.scrollWrapper { position: relative; width: 100%; }
+
+.horizontalScroll {
+    display: flex;
+    gap: 1.5rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+}
+.horizontalScroll::-webkit-scrollbar { display: none; }
+
+.scrollNavBtn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-60%);
+    z-index: 10;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: white;
+    opacity: 0;
+    transition: all 0.2s;
+    backdrop-filter: blur(10px);
+}
+.scrollWrapper:hover .scrollNavBtn { opacity: 1; }
+.scrollNavBtn.left { left: -20px; }
+.scrollNavBtn.right { right: -20px; }
+
+/* Album cards (horizontal) */
+.albumCard {
+    width: 150px;
+    flex-shrink: 0;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 12px;
+    transition: background 0.2s;
+}
+.albumCard:hover { background: rgba(255,255,255,0.05); }
+.albumThumb { width: 134px; height: 134px; border-radius: 10px; object-fit: cover; display: block; }
+.albumTitle {
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 6px;
+}
+.albumArtists {
+    font-size: 0.78rem;
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.songLink { cursor: pointer; }
+.songLink:hover { color: var(--accent, #89b4fa); text-decoration: underline; }
+
+.trackList { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+
+/* ── Filtered track list (QueueItem) ─────────────────── */
+
+.queueItemWrapper {
+    padding: 0 1rem;
+}
+
+/* ── Albums grid (filtered) ──────────────────────────── */
+
+.albumsGrid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    padding: 1rem 2rem 2rem;
+    align-content: start;
+}
+
+.albumCardGrid {
+    cursor: pointer;
+    padding: 10px;
+    border-radius: 12px;
+    transition: background 0.2s;
+    min-width: 0;
+}
+.albumCardGrid:hover { background: rgba(255,255,255,0.05); }
+
+.albumThumbGrid {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    object-fit: cover;
+    display: block;
+}
+
+.loadMoreBtn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-sub);
+    cursor: pointer;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    grid-column: 1 / -1;
+    width: fit-content;
+    margin: 0 auto;
+    transition: background 0.15s;
+}
+.loadMoreBtn:hover { background: rgba(255,255,255,0.1); }
+
+/* ── Skeletons ────────────────────────────────────────── */
+
+.skeletonTrackList {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.skeletonRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.skeletonRowInfo {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.albumCardSkeleton {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.albumSkeletonImg {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}

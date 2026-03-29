@@ -1,0 +1,41 @@
+.container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+    color: var(--text-main);
+}
+
+.container:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.container.active {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 500;
+}
+
+:global([data-theme="light"]) .container:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.label {
+    font-size: 14px;
+}
+
+.icon {
+    flex-shrink: 0;
+}
+
+/* Collapsed state: center icon when label is empty */
+.container:has(.label:empty) {
+    justify-content: center;
+    padding: 10px 0;
+    gap: 0;
+}

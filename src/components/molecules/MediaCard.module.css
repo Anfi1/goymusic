@@ -1,0 +1,228 @@
+.card {
+  width: 160px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s ease;
+  padding: 0.5rem;
+  border-radius: 12px;
+}
+
+.card:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ROW VARIANT */
+.row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+  padding: 8px;
+}
+
+.row .thumbWrapper {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.row .info {
+  justify-content: center;
+  overflow: hidden;
+}
+
+.row .title {
+  font-size: 0.9rem;
+}
+
+.row .subtitle {
+  -webkit-line-clamp: 1;
+}
+
+.thumbWrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Unified shading layer */
+.thumbWrapper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Multi-stage shading:
+   1. Light shade when card is hovered
+   2. Darker shade when thumbnail itself is hovered
+   3. Always dark when active or loading
+*/
+.card:hover .thumbWrapper::after {
+  opacity: 0.4;
+}
+
+.thumbWrapper:hover::after,
+.active .thumbWrapper::after,
+.loading .thumbWrapper::after {
+  opacity: 1 !important;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb.round {
+  border-radius: 50%;
+}
+
+.thumbPlaceholder {
+  width: 100%;
+  height: 100%;
+  background: #282828;
+}
+
+.pinnedBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(15, 15, 15, 0.9); /* Opaque background instead of blur */
+  color: rgba(255, 255, 255, 0.9);
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.playOverlay, .activeOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.playOverlay {
+  background: none;
+  opacity: 0;
+  z-index: 3;
+}
+
+/* Show play button only on thumbnail hover */
+.thumbWrapper:hover .playOverlay {
+  opacity: 1;
+}
+
+.activeOverlay {
+  background: none;
+  opacity: 1;
+  z-index: 2;
+}
+
+/* Loading state always shows its overlay (spinner) */
+.isLoading {
+  background: none;
+  opacity: 1 !important;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.playOverlay svg {
+  transform: scale(0.8);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block;
+}
+
+.thumbWrapper:hover .playOverlay svg {
+  transform: scale(1);
+}
+
+/* No static transform here - it kills animation! */
+.isLoading svg {
+  opacity: 1;
+}
+
+.playOverlay:hover svg {
+  transform: scale(1.1);
+  color: #fff;
+}
+
+/* Spinner logic - animation handles both scale and rotation */
+.spinner {
+  animation: card-spin-scale 1s linear infinite !important;
+}
+
+@keyframes card-spin-scale {
+  from { transform: scale(1) rotate(0deg); }
+  to { transform: scale(1) rotate(360deg); }
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: #b3b3b3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.active .title {
+  color: var(--accent);
+}
+
+.artistLink {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.1s ease;
+}
+
+.artistLink:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.yearTag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.4;
+  margin-top: 2px;
+  letter-spacing: 0.5px;
+}

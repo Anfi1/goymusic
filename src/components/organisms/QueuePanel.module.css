@@ -1,0 +1,134 @@
+.panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-layer-1);
+    border-left: 1px solid var(--border-color);
+    width: 100%;
+}
+
+.header {
+    padding: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.header h4 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.list {
+    flex: 1;
+    min-height: 0;
+    /* Optimization for Virtuoso and large lists: reduces CPU usage and layer resizing lag */
+    contain: strict;
+    content-visibility: auto;
+}
+
+.queueItemWrapper {
+    padding: 0 4px;
+}
+
+.section {
+    padding: 0 4px;
+}
+
+.sectionHeader {
+    padding: 1.5rem 0.75rem 0.75rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    opacity: 0.9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.refreshBtn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    opacity: 0.6;
+}
+
+.refreshBtn:hover:not(:disabled) {
+    background: rgba(137, 180, 250, 0.1);
+    opacity: 1;
+}
+
+.refreshBtn:disabled {
+    cursor: default;
+    opacity: 0.3;
+}
+
+.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.emptyState {
+    padding: 2rem;
+    text-align: center;
+    opacity: 0.5;
+    font-size: 0.9rem;
+}
+
+.autoplayBtn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.autoplayBtn:hover {
+    background: var(--hover-bg);
+}
+
+.autoplayBtn.active {
+    background: rgba(137, 180, 250, 0.1);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Drag and Drop Styles */
+.dragging {
+    opacity: 0.25 !important;
+    transform: scale(0.96);
+    filter: grayscale(0.5);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.dragOverUp {
+    border-top: 2px solid var(--accent);
+    background: rgba(137, 180, 250, 0.05);
+}
+
+.dragOverDown {
+    border-bottom: 2px solid var(--accent);
+    background: rgba(137, 180, 250, 0.05);
+}

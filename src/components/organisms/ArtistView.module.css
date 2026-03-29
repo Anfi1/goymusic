@@ -1,0 +1,345 @@
+.container {
+    padding: 2rem;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+}
+
+.header {
+    flex-shrink: 0;
+}
+
+.bannerWrapper {
+    height: 300px;
+    width: 100%;
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+    background-color: var(--bg-layer-2);
+}
+
+.bannerImage {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+}
+
+.bannerPlaceholder {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-layer-2);
+}
+
+.bannerOverlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(9, 9, 15, 0.9) 0%, transparent 100%);
+    display: flex;
+    align-items: flex-end;
+    padding: 2.5rem;
+}
+
+.name {
+    font-size: 4rem;
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    line-height: 1.1;
+    margin: 0;
+}
+
+.section {
+    display: flex;
+    flex-direction: column;
+}
+
+.sectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.sectionTitle {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.seeAllBtn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    padding: 0.4rem 1rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: all 0.2s;
+}
+
+.seeAllBtn:hover {
+    background: var(--hover-bg);
+    color: var(--text-main);
+    border-color: var(--text-secondary);
+}
+
+.scrollWrapper {
+    position: relative;
+    width: 100%;
+}
+
+.horizontalScroll {
+    display: flex;
+    gap: 1.5rem;
+    overflow-x: auto;
+    padding: 8px 0 1rem 0;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+}
+
+.horizontalScroll::-webkit-scrollbar {
+    display: none;
+}
+
+.scrollNavBtn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+    backdrop-filter: blur(10px);
+}
+
+.scrollWrapper:hover .scrollNavBtn {
+    opacity: 1;
+}
+
+.scrollNavBtn:hover {
+    background: var(--accent);
+    transform: translateY(-50%) scale(1.1);
+}
+
+.scrollNavBtn.left {
+    left: -20px;
+}
+
+.scrollNavBtn.right {
+    right: -20px;
+}
+
+.trackList {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed; /* ВАЖНО: предотвращает расширение таблицы */
+}
+
+.tableHeader {
+    background: #09090f;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.tableHeader th {
+    padding: 8px 12px 14px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    opacity: 0.5;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 600;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Колонки: индекс, название, альбом, время */
+.tableHeader th:nth-child(1) { width: 48px; text-align: center; }
+.tableHeader th:nth-child(2) { width: 45%; }
+.tableHeader th:nth-child(3) { width: 35%; }
+.tableHeader th:nth-child(4) { 
+    width: 110px; 
+    text-align: right;
+    padding-right: 24px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.viewHeader {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.viewTitle {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--text-main);
+    margin: 0;
+}
+
+.viewSwitcher {
+    display: flex;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.4rem;
+    border-radius: 18px;
+    width: fit-content;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.viewTab {
+    padding: 0.6rem 1.2rem;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.viewTab:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.viewTab.active {
+    background: var(--bg-layer-3);
+    color: var(--accent);
+    border-color: rgba(137, 180, 250, 0.4);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    transform: scale(1.05);
+}
+
+.backBtn {
+    background: var(--bg-layer-2);
+    border: none;
+    color: var(--text-main);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.headerActions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.subscribeBtn {
+    background: #fff;
+    color: #000;
+    border: none;
+    padding: 0.7rem 2rem;
+    border-radius: 24px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 140px;
+    justify-content: center;
+}
+
+.subscribeBtn:hover {
+    transform: scale(1.05);
+    background: #f0f0f0;
+}
+
+.subscribeBtn.subscribed {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.stats {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.5rem;
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+}
+
+.statItem {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.bioContainer {
+    position: relative;
+    max-width: 800px;
+}
+
+.bio {
+    opacity: 0.7;
+    line-height: 1.8;
+    font-size: 1rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    margin: 0;
+}
+
+.bio.expanded {
+    -webkit-line-clamp: unset;
+    display: block;
+}
+
+.expandBtn {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 0.5rem 0;
+    margin-top: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.expandBtn:hover {
+    text-decoration: underline;
+}

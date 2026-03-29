@@ -1,0 +1,107 @@
+.container {
+    padding: 1rem 1.5rem;
+    height: 100%;
+    overflow-y: auto;
+    background: linear-gradient(180deg, rgba(137, 180, 250, 0.05) 0%, transparent 600px);
+}
+
+.header {
+    margin-bottom: 1.5rem;
+}
+
+.titleInfo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between; /* Allow space for badge */
+    width: 100%;
+    gap: 16px;
+}
+
+.titleWrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.updatingBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.65rem;
+    color: var(--accent);
+    font-weight: 700;
+    background: rgba(137, 180, 250, 0.1);
+    padding: 0.15rem 0.6rem;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.icon {
+    color: var(--accent);
+    filter: drop-shadow(0 0 12px rgba(137, 180, 250, 0.6));
+}
+
+.titleInfo h1 {
+    font-size: 2.2rem; /* Slightly smaller to match tightened layout */
+    font-weight: 900;
+    margin: 0;
+    letter-spacing: -0.03em;
+    background: linear-gradient(to right, #fff, var(--text-main));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.section {
+    margin-bottom: 2.5rem; /* Reduced from 4.5rem */
+}
+
+.sectionTitle {
+    font-size: 1.45rem; /* Matched HomeView */
+    font-weight: 800;
+    margin-bottom: 1.25rem; /* Reduced from 2rem */
+    opacity: 0.95;
+    position: relative;
+    padding-left: 20px;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+}
+
+.sectionTitle::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 4px; /* Slightly thinner */
+    background: var(--accent);
+    border-radius: 10px;
+    box-shadow: 0 0 12px var(--accent);
+}
+
+.grid {
+    display: grid;
+    /* Card size preserved as requested: 175px */
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    gap: 24px; /* Slightly tighter gap */
+    width: 100%;
+}
+
+/* Ensure MediaCard behaves inside grid */
+.grid > div {
+    min-width: 0; 
+    width: 100% !important;
+}
+
+.cardSkeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}

@@ -1,0 +1,219 @@
+/* GoyMusic Official Theme Variables */
+:root,
+[data-theme="dark"] {
+    /* Colors - Catppuccin Mocha inspired palette */
+    --bg-base: #09090f;
+    --bg-mantle: #11111b;
+    --bg-crust: #000000;
+
+    --text-main: #cdd6f4;
+    --text-sub: #a6adc8;
+    --text-dim: rgba(205, 214, 244, 0.4);
+
+    --accent: #89b4fa;
+    --accent-soft: rgba(137, 180, 250, 0.1);
+    --danger: #f38ba8;
+
+    --panel-bg: rgba(10, 10, 16, 0.85);
+    --border-color: rgba(255, 255, 255, 0.05);
+
+    /* Glassmorphism */
+    --glass-blur: 24px; /* Restoring the beautiful blur */
+    --glass-opacity: 0.015; 
+    --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
+    --border-subtle: rgba(255, 255, 255, 0.05);
+
+    /* Enhanced Glass Surfaces */
+    --glass-surface: rgba(10, 10, 16, 0.3);
+    --glass-surface-main: rgba(10, 10, 16, 0.4);
+    --bg-main-glass: rgba(10, 10, 16, 0.6);
+    --glass-surface-player: rgba(10, 10, 16, 0.7);
+}
+
+[data-theme="light"] {
+    /* Colors - Light Mode (Latte inspired) */
+    --bg-base: #eff1f5;
+    --bg-mantle: #e6e9ef;
+    --bg-crust: #dce0e8;
+
+    --text-main: #4c4f69;
+    --text-sub: #5c5f77;
+    --text-dim: rgba(76, 79, 105, 0.4);
+
+    --accent: #1e66f5;
+    --accent-soft: rgba(30, 102, 245, 0.1);
+
+    --panel-bg: rgba(255, 255, 255, 0.85);
+    --border-color: rgba(0, 0, 0, 0.05);
+
+    /* Glassmorphism - Light Adjustments */
+    --glass-opacity: 0.4;
+    --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
+    --border-subtle: rgba(0, 0, 0, 0.05);
+
+    /* Enhanced Glass Surfaces - Light */
+    --glass-surface: rgba(255, 255, 255, 0.3);
+    --glass-surface-main: rgba(255, 255, 255, 0.4);
+    --bg-main-glass: rgba(255, 255, 255, 0.6);
+    --glass-surface-player: rgba(255, 255, 255, 0.7);
+}
+
+:root {
+    /* Layout */
+    --sidebar-width: 220px;
+    --right-panel-width: 260px;
+    --player-height: 90px;
+    --title-height: 36px;
+    --app-min-width: 1024px;
+    --app-min-height: 700px;
+
+    /* Spacing & Radii */
+    --radius-lg: 16px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --space-xl: 40px;
+    --space-lg: 24px;
+    --space-md: 16px;
+    --space-sm: 8px;
+}
+
+/* Base Styles */
+.glass-panel {
+    background: var(--glass-surface);
+    border: 1px solid var(--border-subtle);
+    
+    /* Optimization: Force static layers */
+    isolation: isolate; 
+    contain: strict; /* More aggressive than 'paint' */
+    backface-visibility: hidden;
+}
+
+/* Disable animations for users who prefer reduced motion or to save CPU in idle */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.scroll-area::-webkit-scrollbar {
+    width: 6px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+/* --- Global Animations --- */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.4s ease-out both;
+}
+
+.animate-slide-up {
+    animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-scale-in {
+    animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Easter Egg: Mushroom Bad Trip animations */
+body.mushroom-trip {
+    animation: colorshift 5s infinite alternate, wobble 10s infinite linear;
+    filter: hue-rotate(90deg) saturate(300%) contrast(150%) blur(1px);
+}
+
+body.mushroom-trip * {
+    animation: float 3s infinite ease-in-out alternate;
+    box-shadow: 0 0 20px rgba(255, 0, 255, 0.5), inset 0 0 10px rgba(0, 255, 255, 0.5) !important;
+    text-shadow: 2px 2px 5px red, -2px -2px 5px blue !important;
+    border-radius: 50% !important;
+    transition: all 0.5s ease-in-out;
+}
+
+body.mushroom-trip img {
+    filter: invert(100%) sepia(100%) saturate(1000%) hue-rotate(180deg);
+}
+
+@keyframes colorshift {
+    0% {
+        filter: hue-rotate(0deg) saturate(200%);
+    }
+
+    50% {
+        filter: hue-rotate(180deg) saturate(400%);
+    }
+
+    100% {
+        filter: hue-rotate(360deg) saturate(200%);
+    }
+}
+
+@keyframes wobble {
+    0% {
+        transform: perspective(500px) rotateX(0deg) rotateY(0deg) scale(1);
+    }
+
+    25% {
+        transform: perspective(500px) rotateX(5deg) rotateY(5deg) scale(1.05);
+    }
+
+    50% {
+        transform: perspective(500px) rotateX(0deg) rotateY(10deg) scale(1.1);
+    }
+
+    75% {
+        transform: perspective(500px) rotateX(-5deg) rotateY(5deg) scale(1.05);
+    }
+
+    100% {
+        transform: perspective(500px) rotateX(0deg) rotateY(0deg) scale(1);
+    }
+}
+
+@keyframes float {
+    0% {
+        transform: translateY(0px) rotate(0deg);
+    }
+
+    100% {
+        transform: translateY(-10px) rotate(3deg);
+    }
+}

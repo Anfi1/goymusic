@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --font-main: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    margin: 0;
+    font-family: var(--font-main);
+    background-color: #000;
+    color: var(--text-primary);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    user-select: none;
+}
+
+#root {
+    height: 100%;
+    width: 100%;
+}
+
+/* ── Global styled tooltip ───────────────────────────────────────────────── */
+.global-tooltip {
+    position: fixed;
+    background: #1e1e2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #cdd6f4;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-main);
+    padding: 5px 10px;
+    border-radius: 7px;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 99999;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+    user-select: none;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+/* Remove default focus outlines */
+*:focus {
+    outline: none;
+}
+
+/* Base button resets */
+button {
+    font-family: inherit;
+}
+
+/* Hide native scrollbar for the main app container if needed */
+.app-window {
+    overflow: hidden;
+}
+
+@keyframes lazyImageShimmer {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
