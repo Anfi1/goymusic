@@ -170,14 +170,13 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
       
       <div className={styles.info}>
         <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
-        <div className={styles.artist}>
+        <div className={styles.artist} data-tooltip={artists.join(', ')} data-tooltip-overflow="">
           {artists.map((name, i) => {
             const aid = artistIds[i];
             return (
               <React.Fragment key={i}>
                 <span
                   className={aid && onSelectArtist ? styles.link : ''}
-                  data-tooltip={name}
                   onClick={aid && onSelectArtist ? (e) => { e.stopPropagation(); onSelectArtist(aid); } : undefined}
                 >{name}</span>
                 {i < artists.length - 1 && ', '}

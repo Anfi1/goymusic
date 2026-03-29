@@ -128,12 +128,12 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
       </div>
       <div className={styles.trackInfo}>
         <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="">{track?.title || 'No track selected'}</div>
-        <div className={styles.artist}>
+        <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="">
           {track?.artists?.map((artist: string, i: number) => {
             const id = track.artistIds?.[i];
             return (
               <Fragment key={i}>
-                <span className={id ? styles.link : ''} onClick={(e) => { if (id) { e.stopPropagation(); onSelectArtist?.(id); } }} data-tooltip={artist} data-tooltip-overflow="">{artist}</span>
+                <span className={id ? styles.link : ''} onClick={(e) => { if (id) { e.stopPropagation(); onSelectArtist?.(id); } }}>{artist}</span>
                 {i < (track.artists?.length || 0) - 1 && ', '}
               </Fragment>
             );

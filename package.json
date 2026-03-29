@@ -54,7 +54,8 @@
     "publish": {
       "provider": "github",
       "owner": "Anfi1",
-      "repo": "goymusic"
+      "repo": "goymusic",
+      "releaseType": "release"
     }
   },
   "devDependencies": {

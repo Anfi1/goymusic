@@ -189,7 +189,7 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
       </div>
       <div className={styles.info}>
         <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
-        <div className={styles.subtitle}>
+        <div className={styles.subtitle} data-tooltip={artists && artists.length > 0 ? artists.join(', ') : undefined}>
           {renderSubtitle()}
         </div>
       </div>

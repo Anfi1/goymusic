@@ -94,6 +94,7 @@ function migrateUserData() {
     if (existsSync(oldPath) && !existsSync(newPath)) {
       try {
         copyFileSync(oldPath, newPath);
+        unlinkSync(oldPath);
         logToFile(`Migrated ${file} to ${newRoot}`);
       } catch (e) {
         logToFile(`Failed to migrate ${file}: ${e}`);
@@ -310,11 +311,14 @@ function initAutoUpdater() {
     win?.webContents.send('update:error', { message: err.message })
   })
 
-  setTimeout(() => {
+  const safeCheck = () => {
     autoUpdater.checkForUpdates().catch((err: any) => {
       logToFile(`Update check failed: ${err.message}`)
     })
-  }, 5000)
+  }
+
+  setTimeout(safeCheck, 5000)
+  setInterval(safeCheck, 60 * 60 * 1000)
 }
 
 function getWindowConfigPath() {
