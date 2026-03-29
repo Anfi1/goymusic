@@ -5,6 +5,7 @@ from ._utils import *
 from .albums import parse_album_playlistid_if_exists
 from .artists import parse_artists_runs
 from .songs import *
+from .browsing import parse_menu_tokens
 
 ALL_RESULT_TYPES = [
     "album",
@@ -145,6 +146,9 @@ def parse_search_result(data: JsonDict, result_type: str | None, category: str |
     elif result_type == "song":
         search_result["album"] = None
         search_result.update(parse_song_menu_data(data))
+        _, _, like_status, _, _ = parse_menu_tokens(data)
+        if like_status:
+            search_result["likeStatus"] = like_status
 
     elif result_type == "upload":
         browse_id = nav(data, NAVIGATION_BROWSE_ID, True)
@@ -207,6 +211,11 @@ def parse_search_result(data: JsonDict, result_type: str | None, category: str |
             search_result["date"] = runs[0]["text"]
 
         search_result["podcast"] = parse_id_name(runs[has_date * 2])
+
+    if result_type == "video" and "likeStatus" not in search_result:
+        _, _, like_status, _, _ = parse_menu_tokens(data)
+        if like_status:
+            search_result["likeStatus"] = like_status
 
     search_result["thumbnails"] = nav(data, THUMBNAILS, True)
 

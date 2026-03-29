@@ -154,6 +154,10 @@ def parse_song_menu_data(data: JsonDict) -> JsonDict:
             case "REMOVE_FROM_HISTORY":
                 song_data["feedbackToken"] = feedback_token("serviceEndpoint")
 
+    like_status = nav(data, MENU_LIKE_STATUS, True)
+    if like_status:
+        song_data["likeStatus"] = like_status
+
     return song_data
 
 
