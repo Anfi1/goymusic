@@ -5,6 +5,7 @@ import { spawn, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
+import { autoUpdater } from 'electron-updater'
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
@@ -64,14 +65,41 @@ if (!gotTheLock) {
     logToFile(`Packaged: ${app.isPackaged}`);
     logToFile(`AppData: ${app.getPath('userData')}`);
 
+    migrateUserData()
+
     createPyProc()
     createWindow()
     initRPC()
+    initAutoUpdater()
   })
 }
 
 function getAppRoot() {
   return app.isPackaged ? process.resourcesPath : process.cwd();
+}
+
+function getUserDataDir() {
+  return app.getPath('userData');
+}
+
+function migrateUserData() {
+  if (!app.isPackaged) return;
+  const oldRoot = getAppRoot();
+  const newRoot = getUserDataDir();
+  const filesToMigrate = ['browser.json', 'window-config.json'];
+
+  for (const file of filesToMigrate) {
+    const oldPath = join(oldRoot, file);
+    const newPath = join(newRoot, file);
+    if (existsSync(oldPath) && !existsSync(newPath)) {
+      try {
+        copyFileSync(oldPath, newPath);
+        logToFile(`Migrated ${file} to ${newRoot}`);
+      } catch (e) {
+        logToFile(`Failed to migrate ${file}: ${e}`);
+      }
+    }
+  }
 }
 
 // Discord RPC
@@ -247,8 +275,50 @@ function exitPyProc() {
   }
 }
 
+function initAutoUpdater() {
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    logToFile(`Update available: ${info.version}`)
+    win?.webContents.send('update:available', {
+      version: info.version,
+      releaseNotes: info.releaseNotes
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    logToFile('No update available')
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    win?.webContents.send('update:progress', {
+      percent: progress.percent,
+      speed: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total
+    })
+  })
+
+  autoUpdater.on('update-downloaded', () => {
+    logToFile('Update downloaded, ready to install')
+    win?.webContents.send('update:downloaded')
+  })
+
+  autoUpdater.on('error', (err) => {
+    logToFile(`Auto-updater error: ${err.message}`)
+    win?.webContents.send('update:error', { message: err.message })
+  })
+
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err: any) => {
+      logToFile(`Update check failed: ${err.message}`)
+    })
+  }, 5000)
+}
+
 function getWindowConfigPath() {
-  return join(getAppRoot(), 'window-config.json');
+  return join(getUserDataDir(), 'window-config.json');
 }
 
 function readWindowConfig(): any {
@@ -389,6 +459,27 @@ app.on('activate', () => {
 })
 
 app.on('will-quit', exitPyProc)
+app.on('before-quit', exitPyProc)
+
+// Auto-updater IPC handlers
+ipcMain.handle('update:check', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    return result ? { version: result.updateInfo.version } : null
+  } catch (e: any) {
+    logToFile(`Manual update check error: ${e.message}`)
+    return null
+  }
+})
+
+ipcMain.handle('update:download', async () => {
+  await autoUpdater.downloadUpdate()
+})
+
+ipcMain.handle('update:install', async () => {
+  exitPyProc()
+  autoUpdater.quitAndInstall(false, true)
+})
 
 // RPC Update handler
 ipcMain.on('rpc:set', (event, data) => {

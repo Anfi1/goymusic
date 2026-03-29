@@ -1,6 +1,6 @@
 {
   "name": "goymusic",
-  "version": "4.1.1",
+  "version": "4.2.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,10 @@
   "author": "",
   "license": "ISC",
   "description": "GoyMusic Player",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Anfi1/goymusic.git"
+  },
   "build": {
     "appId": "com.goymusic.app",
     "productName": "GoyMusic",
@@ -29,15 +33,28 @@
         "from": "python",
         "to": "python",
         "filter": [
-          "**/*"
+          "**/*",
+          "!__pycache__/**",
+          "!test_moods.py"
         ]
       }
     ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        "zip"
+        "nsis"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "uninstallDisplayName": "GoyMusic",
+      "artifactName": "GoyMusic-Setup-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Anfi1",
+      "repo": "goymusic"
     }
   },
   "devDependencies": {
@@ -57,6 +74,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
     "discord-rpc": "^4.0.1",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.575.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

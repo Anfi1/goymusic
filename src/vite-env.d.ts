@@ -37,5 +37,12 @@ interface Window {
     pickSongsFolder: () => Promise<string | null>;
     deleteSongFile: (filename: string) => Promise<any>;
     importSongFile: () => Promise<any>;
+    checkForUpdates: () => Promise<{ version: string } | null>;
+    downloadUpdate: () => Promise<void>;
+    installUpdate: () => Promise<void>;
+    onUpdateAvailable: (callback: (info: { version: string; releaseNotes?: any }) => void) => () => void;
+    onUpdateProgress: (callback: (progress: { percent: number; speed: number; transferred: number; total: number }) => void) => () => void;
+    onUpdateDownloaded: (callback: () => void) => () => void;
+    onUpdateError: (callback: (err: { message: string }) => void) => () => void;
   }
 }

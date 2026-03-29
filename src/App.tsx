@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from './components/templates/AppLayout';
 import { Sidebar } from './components/organisms/Sidebar';
 import { PlayerBar } from './components/organisms/PlayerBar';
+import { UpdateNotification } from './components/molecules/UpdateNotification';
 import { QueuePanel } from './components/organisms/QueuePanel';
 import { MainView } from './components/organisms/MainView';
 import { ArtistView } from './components/organisms/ArtistView';
@@ -401,6 +402,7 @@ function App() {
 
   return (
     <ToastProvider>
+      <UpdateNotification />
       <AppLayout
         titleBar={titleBarComp}
         sidebar={sidebarComp}
