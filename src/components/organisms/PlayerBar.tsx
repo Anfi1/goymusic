@@ -35,7 +35,8 @@ const LikeButton = memo(({ trackId, initialLikeStatus }: { trackId: string, init
 
   useEffect(() => {
     setLikeStatus(initialLikeStatus);
-  }, [initialLikeStatus]);
+    setIsLiking(false);
+  }, [trackId, initialLikeStatus]);
 
   useEffect(() => {
     const handleGlobalLikeStart = (e: CustomEvent) => {

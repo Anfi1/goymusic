@@ -58,6 +58,7 @@ export const useQueue = () => {
           currentIndex: player.queueIndex
         };
         lastStateRef.current = newState;
+        lastQueueRef.current = player.queue;
         setState(newState);
       }
     };

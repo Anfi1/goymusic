@@ -1171,13 +1171,17 @@ class PlayerStore {
 
     async rateCurrentTrack(status: 'LIKE' | 'DISLIKE' | 'INDIFFERENT') {
         if (!this.currentTrack) return;
-        
-        const success = await likedManager.toggleLike(this.currentTrack, this.currentTrack.likeStatus || 'INDIFFERENT');
-        
+        // Capture before await — currentTrack may change if user switches tracks
+        const track = this.currentTrack;
+        const success = await likedManager.toggleLike(track, track.likeStatus || 'INDIFFERENT');
+
         if (success) {
-            const newStatus = this.currentTrack.likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
-            this.currentTrack.likeStatus = newStatus;
-            if (this.queueIndex >= 0 && this.queue[this.queueIndex]) this.queue[this.queueIndex].likeStatus = newStatus;
+            const newStatus = track.likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
+            track.likeStatus = newStatus;
+            // Only update queue entry if it still belongs to the same track
+            if (this.queueIndex >= 0 && this.queue[this.queueIndex]?.id === track.id) {
+                this.queue[this.queueIndex].likeStatus = newStatus;
+            }
             this.notify('state');
             this.saveState();
         }
