@@ -33,6 +33,7 @@ export const useQueue = () => {
   });
 
   const lastStateRef = useRef(state);
+  const lastQueueRef = useRef(player.queue);
 
   useEffect(() => {
     const update = (event: any) => {
@@ -40,10 +41,10 @@ export const useQueue = () => {
 
       // SURGICAL CHECK: Only update if structural data changed
       // We IGNORE isPlaying changes here to save CPU
-      const hasChanged = 
+      const hasChanged =
         player.currentTrack?.id !== lastStateRef.current.nowPlaying?.id ||
         player.queueIndex !== lastStateRef.current.currentIndex ||
-        player.queue !== player.queue || // Reference check
+        player.queue !== lastQueueRef.current ||
         player.recommendations !== lastStateRef.current.recommendations ||
         player.isRecommendationsLoading !== lastStateRef.current.isRecommendationsLoading;
 

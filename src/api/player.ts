@@ -650,6 +650,8 @@ class PlayerStore {
             this.queueSourceType = sourceType || this.detectSourceType(sourceId);
             this.recommendationPlaylistId = this.resolveContextId(targetTrack, recommendationId, sourceId);
             this.recommendations = [];
+            this.errorSkipCount = 0;
+            this.consecutiveErrors = 0;
             if (this.shuffle) {
                 this.originalQueue = [...availableTracks];
                 this.queue = [...availableTracks];
@@ -690,14 +692,27 @@ class PlayerStore {
             if (this.shuffle) {
                 // Update originalQueue and patch track data in shuffled queue without reordering
                 this.originalQueue = availableTracks;
-                this.queue = this.queue.map(t => availableTracks.find(u => u.id === t.id) || t);
+                // Preserve in-memory likeStatus — API data may be stale
+                this.queue = this.queue.map(t => {
+                    const fresh = availableTracks.find(u => u.id === t.id);
+                    return fresh ? { ...fresh, likeStatus: t.likeStatus ?? fresh.likeStatus } : t;
+                });
                 // queueIndex stays — it refers to position in the shuffled queue
             } else {
                 if (this.currentTrack) {
                     const newIndex = availableTracks.findIndex(t => t.id === this.currentTrack?.id);
                     if (newIndex !== -1) this.queueIndex = newIndex;
                 }
-                this.queue = availableTracks;
+                // Preserve in-memory likeStatus — API data may be stale
+                const prevQueue = this.queue;
+                this.queue = availableTracks.map(t => {
+                    const existing = prevQueue.find(u => u.id === t.id);
+                    return existing ? { ...t, likeStatus: existing.likeStatus ?? t.likeStatus } : t;
+                });
+            }
+            // Keep currentTrack reference in sync with queue object
+            if (this.currentTrack && this.queueIndex >= 0 && this.queue[this.queueIndex]?.id === this.currentTrack.id) {
+                this.currentTrack = this.queue[this.queueIndex];
             }
             this.saveState();
             this.notify('state');
@@ -770,7 +785,9 @@ class PlayerStore {
         this.currentTrack = track;
         this.queue = [track];
         this.queueIndex = 0;
-        this.recommendations = []; 
+        this.recommendations = [];
+        this.errorSkipCount = 0;
+        this.consecutiveErrors = 0;
         await this.startPlayback(track);
     }
 
@@ -969,15 +986,17 @@ class PlayerStore {
                 if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD'))) {
                     const currentIndex = tracks.findIndex(t => t.id === videoId);
                     if (currentIndex !== -1) {
-                        const currentTrackItem = tracks[currentIndex];
+                        // Preserve in-memory likeStatus so the API response doesn't overwrite user-toggled state
+                        const currentTrackItem = { ...tracks[currentIndex], likeStatus: this.currentTrack?.likeStatus ?? tracks[currentIndex].likeStatus };
                         const otherTracks = tracks.filter(t => t.id !== videoId);
                         this.queue = [currentTrackItem, ...otherTracks];
                         this.queueIndex = 0;
-                        this.recommendations = []; 
+                        this.currentTrack = this.queue[0];
+                        this.recommendations = [];
                         this.recommendationPlaylistId = null;
                         this.saveState();
                         this.notify('state');
-                        return; 
+                        return;
                     }
                 }
                 const availableTracks = tracks.filter(t => t.isAvailable !== false && !qIds.has(t.id));
