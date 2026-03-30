@@ -52,6 +52,8 @@ class PlayerStore {
     private consecutiveErrors: number = 0;
 
     private wtUrl: string | null = null;
+    private originalQueue: YTMTrack[] = [];
+
     private wtCpn: string | null = null;
     private wtSessionStart: number = 0;
     private wtSegStart: number = 0;
@@ -279,6 +281,11 @@ class PlayerStore {
             if (savedQueueIndex !== null) {
                 this.queueIndex = parseInt(savedQueueIndex, 10);
             }
+
+            if (this.shuffle) {
+                const savedOriginalQueue = localStorage.getItem('ytm-original-queue');
+                this.originalQueue = savedOriginalQueue ? JSON.parse(savedOriginalQueue) : [...this.queue];
+            }
         } catch (e) {
             console.error('Failed to load player state:', e);
         }
@@ -306,6 +313,12 @@ class PlayerStore {
                 const queueToSave = this.queue.length > 500 ? this.queue.slice(0, 500) : this.queue;
                 localStorage.setItem('ytm-queue', JSON.stringify(queueToSave));
                 localStorage.setItem('ytm-queue-index', this.queueIndex.toString());
+                if (this.shuffle && this.originalQueue.length > 0) {
+                    const origToSave = this.originalQueue.length > 500 ? this.originalQueue.slice(0, 500) : this.originalQueue;
+                    localStorage.setItem('ytm-original-queue', JSON.stringify(origToSave));
+                } else {
+                    localStorage.removeItem('ytm-original-queue');
+                }
             } catch (e) {
                 console.error('Failed to save player state:', e);
             }
@@ -636,9 +649,22 @@ class PlayerStore {
             this.queueSourceId = sourceId;
             this.queueSourceType = sourceType || this.detectSourceType(sourceId);
             this.recommendationPlaylistId = this.resolveContextId(targetTrack, recommendationId, sourceId);
-            this.queue = availableTracks;
-            this.queueIndex = newIndex;
-            this.recommendations = []; 
+            this.recommendations = [];
+            if (this.shuffle) {
+                this.originalQueue = [...availableTracks];
+                this.queue = [...availableTracks];
+                for (let i = this.queue.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
+                }
+                // move selected track to front
+                const si = this.queue.findIndex(t => t.id === targetTrack.id);
+                if (si > 0) [this.queue[0], this.queue[si]] = [this.queue[si], this.queue[0]];
+                this.queueIndex = 0;
+            } else {
+                this.queue = availableTracks;
+                this.queueIndex = newIndex;
+            }
             await this.playCurrentTrack();
         }
     }
@@ -661,11 +687,18 @@ class PlayerStore {
                 if (isIdentical) return;
             }
 
-            if (this.currentTrack) {
-                const newIndex = availableTracks.findIndex(t => t.id === this.currentTrack?.id);
-                if (newIndex !== -1) this.queueIndex = newIndex;
+            if (this.shuffle) {
+                // Update originalQueue and patch track data in shuffled queue without reordering
+                this.originalQueue = availableTracks;
+                this.queue = this.queue.map(t => availableTracks.find(u => u.id === t.id) || t);
+                // queueIndex stays — it refers to position in the shuffled queue
+            } else {
+                if (this.currentTrack) {
+                    const newIndex = availableTracks.findIndex(t => t.id === this.currentTrack?.id);
+                    if (newIndex !== -1) this.queueIndex = newIndex;
+                }
+                this.queue = availableTracks;
             }
-            this.queue = availableTracks;
             this.saveState();
             this.notify('state');
         }
@@ -673,7 +706,8 @@ class PlayerStore {
 
     addToQueue(track: YTMTrack) {
         if (track.isAvailable === false) return;
-        this.queue = [...this.queue, track]; 
+        this.queue = [...this.queue, track];
+        if (this.shuffle) this.originalQueue = [...this.originalQueue, track];
         this.recommendations = this.recommendations.filter(t => t.id !== track.id);
         this.saveState();
         this.notify('state');
@@ -681,8 +715,10 @@ class PlayerStore {
 
     removeFromQueue(index: number) {
         if (index < 0 || index >= this.queue.length) return;
+        const removedId = this.queue[index].id;
         const newQueue = [...this.queue];
         newQueue.splice(index, 1);
+        if (this.shuffle) this.originalQueue = this.originalQueue.filter(t => t.id !== removedId);
         if (index === this.queueIndex) {
             this.queue = newQueue;
             this.next();
@@ -719,6 +755,7 @@ class PlayerStore {
             const newQueue = [...this.queue];
             newQueue.splice(this.queueIndex + 1, 0, track);
             this.queue = newQueue;
+            if (this.shuffle) this.originalQueue = [...this.originalQueue, track];
             this.recommendations = this.recommendations.filter(t => t.id !== track.id);
             this.saveState();
             this.notify('state');
@@ -981,21 +1018,17 @@ class PlayerStore {
         let nextIndex = this.queueIndex;
         let isSeamless = false;
 
-        if (this.shuffle) {
-            nextIndex = Math.floor(Math.random() * this.queue.length);
-        } else {
-            nextIndex++;
-            if (nextIndex >= this.queue.length) {
-                if (this.repeat === 'all') nextIndex = 0;
-                else if (this.autoplay && this.recommendations.length > 0) {
-                    const nextTrack = this.recommendations[0];
-                    this.queue = [...this.queue, nextTrack];
-                    this.recommendations = this.recommendations.slice(1);
-                } else {
-                    this.isPlaying = false;
-                    this.hasStreamError = fromError;
-                    this.notify('state'); this.saveState(); return;
-                }
+        nextIndex++;
+        if (nextIndex >= this.queue.length) {
+            if (this.repeat === 'all') nextIndex = 0;
+            else if (this.autoplay && this.recommendations.length > 0) {
+                const nextTrack = this.recommendations[0];
+                this.queue = [...this.queue, nextTrack];
+                this.recommendations = this.recommendations.slice(1);
+            } else {
+                this.isPlaying = false;
+                this.hasStreamError = fromError;
+                this.notify('state'); this.saveState(); return;
             }
         }
 
@@ -1071,7 +1104,33 @@ class PlayerStore {
         else { this.setVolume(this.lastVolume || 80); }
     }
 
-    toggleShuffle() { this.shuffle = !this.shuffle; this.saveState(); this.notify('state'); }
+    toggleShuffle() {
+        this.shuffle = !this.shuffle;
+        if (this.shuffle) {
+            this.originalQueue = [...this.queue];
+            const shuffled = [...this.queue];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            // Move current track to front so upcoming queue is fully visible
+            if (this.currentTrack) {
+                const idx = shuffled.findIndex(t => t.id === this.currentTrack!.id);
+                if (idx > 0) [shuffled[0], shuffled[idx]] = [shuffled[idx], shuffled[0]];
+            }
+            this.queue = shuffled;
+            this.queueIndex = 0;
+        } else {
+            this.queue = [...this.originalQueue];
+            this.originalQueue = [];
+            if (this.currentTrack) {
+                const idx = this.queue.findIndex(t => t.id === this.currentTrack!.id);
+                this.queueIndex = idx !== -1 ? idx : 0;
+            }
+        }
+        this.saveState();
+        this.notify('state');
+    }
     toggleRepeat() {
         const modes: Array<'off' | 'all' | 'one'> = ['off', 'all', 'one'];
         this.repeat = modes[(modes.indexOf(this.repeat) + 1) % modes.length];
