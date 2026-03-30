@@ -784,6 +784,7 @@ class PlayerStore {
         this.recommendationPlaylistId = this.resolveContextId(track, recommendationId, sourceId);
         this.currentTrack = track;
         this.queue = [track];
+        this.originalQueue = [track];
         this.queueIndex = 0;
         this.recommendations = [];
         this.errorSkipCount = 0;
@@ -962,6 +963,7 @@ class PlayerStore {
         this.recommendationPlaylistId = 'RDAMVM' + track.id;
         this.currentTrack = track;
         this.queue = [track];
+        this.originalQueue = [track];
         this.queueIndex = 0;
         this.recommendations = [];
         this.notify('state');
