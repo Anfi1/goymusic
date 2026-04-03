@@ -21,7 +21,7 @@ let prefetchTimeout: any = null;
 /**
  * Извлекает UNIX-время истечения ссылки из URL YouTube.
  */
-function getExpirationFromUrl(url: string): number {
+export function getExpirationFromUrl(url: string): number {
     try {
         const urlObj = new URL(url);
         const expire = urlObj.searchParams.get('expire');
