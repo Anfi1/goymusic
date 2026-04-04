@@ -1,6 +1,6 @@
 import { YTMTrack, getQueueRecommendations, rateSong } from './yt';
 import { streamCache } from './cache';
-import { getStreamUrl, prefetchStreamUrl } from './stream';
+import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
 
@@ -842,7 +842,7 @@ class PlayerStore {
         for (const id of targets) { if (id) await prefetchStreamUrl(id); }
     }
 
-    private async startPlayback(track: YTMTrack, isRetry: boolean = false) {
+    private async startPlayback(track: YTMTrack, isRetry: boolean = false, startTime: number = 0) {
         const currentPlaybackId = ++this.playbackId;
 
         this.isStreamLoading = true;
@@ -863,7 +863,7 @@ class PlayerStore {
         this.isCurrentTrackLocal = false;
 
         await this.initAudioContext();
-        this.currentTime = 0;
+        this.currentTime = startTime;
         this.duration = this.parseDuration(track.duration);
         this.buffered = [];
         this.wtFlush('paused');
@@ -896,10 +896,10 @@ class PlayerStore {
                         // File missing — remove override and retry with YTM stream
                         this.isCurrentTrackLocal = false;
                         await deleteOverride(track.id);
-                        this.startPlayback(track, true);
+                        this.startPlayback(track, true, startTime);
                         return;
                     }
-                    if (!isRetry) this.startPlayback(track, true);
+                    if (!isRetry) this.startPlayback(track, true, startTime);
                     else this.handleFinalError();
                 };
 
@@ -914,6 +914,10 @@ class PlayerStore {
                     if (!this.isPlaying) { this.notify('state'); return; }
                     try {
                         if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
+                        if (startTime > 0) {
+                            this.audioA.currentTime = startTime;
+                            this.currentTime = startTime;
+                        }
                         await this.audioA.play();
                         if (entry.watchtimeUrl) this.initWatchtime(entry.watchtimeUrl);
                         this.prefetchBuffer();
@@ -925,12 +929,12 @@ class PlayerStore {
                 this.audioA.addEventListener('error', onMediaError);
                 this.audioA.addEventListener('canplay', onCanPlay);
             } else {
-                if (!isRetry) this.startPlayback(track, true);
+                if (!isRetry) this.startPlayback(track, true, startTime);
                 else this.handleFinalError();
             }
         } catch (e) {
             if (currentPlaybackId === this.playbackId) {
-                if (!isRetry) this.startPlayback(track, true);
+                if (!isRetry) this.startPlayback(track, true, startTime);
                 else this.handleFinalError();
             }
         }
@@ -1028,7 +1032,20 @@ class PlayerStore {
             this.notify('state');
             return;
         }
-        if (this.hasStreamError || (!this.audioA.src && !this.audioB.src)) { await this.startPlayback(this.currentTrack); return; }
+
+        const currentUrl = this.activeAudio.src;
+        // Check if URL is expired or close to it (within 30 seconds)
+        // Local files (file:///) don't expire.
+        const isExpired = currentUrl && 
+                         !this.isCurrentTrackLocal && 
+                         getExpirationFromUrl(currentUrl) < Math.floor(Date.now() / 1000) + 30;
+
+        if (this.hasStreamError || (!this.audioA.src && !this.audioB.src) || isExpired) { 
+            const savedTime = this.activeAudio.currentTime;
+            await this.startPlayback(this.currentTrack, false, isExpired ? savedTime : 0); 
+            return; 
+        }
+
         if (this.isPlaying) this.activeAudio.pause();
         else await this.activeAudio.play();
     }
@@ -1175,14 +1192,19 @@ class PlayerStore {
         if (!this.currentTrack) return;
         // Capture before await — currentTrack may change if user switches tracks
         const track = this.currentTrack;
-        const success = await likedManager.toggleLike(track, track.likeStatus || 'INDIFFERENT');
+        const currentStatus = track.likeStatus || 'INDIFFERENT';
+
+        // Route to correct toggle based on desired new status
+        const isDislikeAction = status === 'DISLIKE' || (status === 'INDIFFERENT' && currentStatus === 'DISLIKE');
+        const success = isDislikeAction
+            ? await likedManager.toggleDislike(track, currentStatus)
+            : await likedManager.toggleLike(track, currentStatus);
 
         if (success) {
-            const newStatus = track.likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
-            track.likeStatus = newStatus;
+            track.likeStatus = status;
             // Only update queue entry if it still belongs to the same track
             if (this.queueIndex >= 0 && this.queue[this.queueIndex]?.id === track.id) {
-                this.queue[this.queueIndex].likeStatus = newStatus;
+                this.queue[this.queueIndex].likeStatus = status;
             }
             this.notify('state');
             this.saveState();

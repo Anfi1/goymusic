@@ -225,6 +225,7 @@
 
 .row:hover .likeBtn,
 .likeBtn.isLiked,
+.likeBtn.isDisliked,
 .likeBtn.isLiking {
     opacity: 1;
 }

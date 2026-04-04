@@ -84,8 +84,10 @@ export const SearchView: React.FC<SearchViewProps> = ({
   // Clear cache when query changes
   useEffect(() => {
     filterCache.current = {};
+    likeOverridesRef.current = {};
     setFilterState({ items: [], offset: 0, hasMore: true });
     setActiveFilter('all');
+    setLikeOverrides({});
   }, [searchQuery]);
 
   // Restore or init state when switching filter
@@ -130,6 +132,9 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, item: any } | null>(null);
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
   const [isPlaying, setIsPlaying] = useState<boolean>(player.isPlaying);
+  // Синхронные переопределения likeStatus — ref чтобы были доступны сразу при ремаунте Virtuoso
+  const likeOverridesRef = useRef<Record<string, string>>({});
+  const [likeOverrides, setLikeOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
     return player.subscribe((event) => {
@@ -137,6 +142,32 @@ export const SearchView: React.FC<SearchViewProps> = ({
       setActiveTrackId(player.currentTrack?.id);
       setIsPlaying(player.isPlaying);
     });
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      const { id, status, likeStatus: newStatus } = e.detail;
+      if (status !== 'success') return;
+      // Обновляем ref синхронно (доступен при ремаунте элементов Virtuoso до перерендера)
+      likeOverridesRef.current = { ...likeOverridesRef.current, [id]: newStatus };
+      setLikeOverrides({ ...likeOverridesRef.current });
+      // Обновляем filterState и кэш для вкладок songs/videos
+      setFilterState(prev => ({
+        ...prev,
+        items: prev.items.map(item => item.id === id ? { ...item, likeStatus: newStatus } : item)
+      }));
+      Object.keys(filterCache.current).forEach(key => {
+        const cached = filterCache.current[key];
+        if (cached) {
+          filterCache.current[key] = {
+            ...cached,
+            items: cached.items.map(item => item.id === id ? { ...item, likeStatus: newStatus } : item)
+          };
+        }
+      });
+    };
+    window.addEventListener('track-like-updated', handler as EventListener);
+    return () => window.removeEventListener('track-like-updated', handler as EventListener);
   }, []);
 
   // Reset to 'all' when search query changes
@@ -292,6 +323,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                           key={track.id}
                           index={i + 1}
                           {...track}
+                          likeStatus={likeOverrides[track.id] ?? track.likeStatus}
                           isActive={activeTrackId === track.id}
                           isPlaying={isPlaying}
                           onClick={() => player.playTrackList(tracks, i, searchQuery)}
@@ -378,26 +410,29 @@ export const SearchView: React.FC<SearchViewProps> = ({
               data={filteredItems}
               endReached={loadFilteredPage}
               overscan={400}
-              itemContent={(index, track) => (
-                <div className={styles.queueItemWrapper}>
-                  <QueueItem
-                    key={track.id}
-                    id={track.id}
-                    index={index}
-                    title={track.title}
-                    artists={track.artists}
-                    artistIds={track.artistIds}
-                    thumbUrl={track.thumbUrl}
-                    duration={track.duration}
-                    likeStatus={track.likeStatus}
-                    isActive={activeTrackId === track.id}
-                    trackData={track}
-                    onClick={() => player.playTrackList(filteredItems, index, searchQuery)}
-                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
-                    onSelectArtist={onSelectArtist}
-                  />
-                </div>
-              )}
+              itemContent={(index, track) => {
+                const effectiveLikeStatus = likeOverridesRef.current[track.id] ?? track.likeStatus;
+                return (
+                  <div className={styles.queueItemWrapper}>
+                    <QueueItem
+                      key={track.id}
+                      id={track.id}
+                      index={index}
+                      title={track.title}
+                      artists={track.artists}
+                      artistIds={track.artistIds}
+                      thumbUrl={track.thumbUrl}
+                      duration={track.duration}
+                      likeStatus={effectiveLikeStatus}
+                      isActive={activeTrackId === track.id}
+                      trackData={{ ...track, likeStatus: effectiveLikeStatus }}
+                      onClick={() => player.playTrackList(filteredItems, index, searchQuery)}
+                      onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
+                      onSelectArtist={onSelectArtist}
+                    />
+                  </div>
+                );
+              }}
               components={{
                 Footer: () => isLoadingMore ? (
                   <div className={styles.skeletonTrackList} style={{ padding: '0 1rem' }}>

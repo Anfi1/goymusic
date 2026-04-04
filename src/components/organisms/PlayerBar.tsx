@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, Fragment, memo, useMemo, useRef } from 'react';
 import {
   Shuffle, SkipBack, Pause, Play, SkipForward, Repeat, Repeat1,
-  ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HardDriveDownload, AlertCircle
+  ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HeartCrack, HardDriveDownload, AlertCircle
 } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
 import { ProgressBar, ProgressBarRef } from '../atoms/ProgressBar';
@@ -31,56 +31,76 @@ function formatTime(sec: number): string {
 
 const LikeButton = memo(({ trackId, initialLikeStatus }: { trackId: string, initialLikeStatus?: string }) => {
   const [likeStatus, setLikeStatus] = useState(initialLikeStatus);
-  const [isLiking, setIsLiking] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
   useEffect(() => {
     setLikeStatus(initialLikeStatus);
-    setIsLiking(false);
+    setLoadingAction(null);
   }, [trackId, initialLikeStatus]);
 
   useEffect(() => {
-    const handleGlobalLikeStart = (e: CustomEvent) => {
-      if (e.detail.id === trackId) setIsLiking(true);
-    };
     const handleGlobalLikeUpdated = (e: CustomEvent) => {
       if (e.detail.id === trackId) {
         if (e.detail.status === 'success') setLikeStatus(e.detail.likeStatus);
-        setIsLiking(false);
+        setLoadingAction(null);
       }
     };
-    window.addEventListener('track-like-start', handleGlobalLikeStart as EventListener);
     window.addEventListener('track-like-updated', handleGlobalLikeUpdated as EventListener);
     return () => {
-      window.removeEventListener('track-like-start', handleGlobalLikeStart as EventListener);
       window.removeEventListener('track-like-updated', handleGlobalLikeUpdated as EventListener);
     };
   }, [trackId]);
 
   const handleLike = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isLiking) return;
+    if (loadingAction) return;
+    setLoadingAction('like');
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackId } }));
     try {
       const newStatus = likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
       await player.rateCurrentTrack(newStatus);
-      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackId, status: 'success', likeStatus: newStatus } }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackId, status: 'error' } }));
+    }
+  };
+
+  const handleDislike = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loadingAction) return;
+    setLoadingAction('dislike');
+    window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackId } }));
+    try {
+      const newStatus = likeStatus === 'DISLIKE' ? 'INDIFFERENT' : 'DISLIKE';
+      await player.rateCurrentTrack(newStatus);
     } catch {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackId, status: 'error' } }));
     }
   };
 
   return (
-    <IconButton
-      icon={Heart}
-      size={32}
-      iconSize={18}
-      active={likeStatus === 'LIKE'}
-      isLoading={isLiking}
-      className={styles.likeButton}
-      onClick={handleLike}
-      color={likeStatus === 'LIKE' ? '#f38ba8' : undefined}
-      fill={likeStatus === 'LIKE' ? '#f38ba8' : 'none'}
-    />
+    <>
+      <IconButton
+        icon={Heart}
+        size={32}
+        iconSize={18}
+        active={likeStatus === 'LIKE'}
+        isLoading={loadingAction === 'like'}
+        className={styles.likeButton}
+        onClick={handleLike}
+        color={likeStatus === 'LIKE' ? '#f38ba8' : undefined}
+        fill={likeStatus === 'LIKE' ? '#f38ba8' : 'none'}
+      />
+      <IconButton
+        icon={HeartCrack}
+        size={32}
+        iconSize={18}
+        active={likeStatus === 'DISLIKE'}
+        isLoading={loadingAction === 'dislike'}
+        className={styles.likeButton}
+        onClick={handleDislike}
+        color={likeStatus === 'DISLIKE' ? '#fab387' : undefined}
+      />
+    </>
   );
 });
 

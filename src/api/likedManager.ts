@@ -121,6 +121,37 @@ class LikedManager {
     }
   }
 
+  async toggleDislike(track: YTMTrack, currentStatus: string) {
+    const id = track.id;
+    const newStatus = currentStatus === 'DISLIKE' ? 'INDIFFERENT' : 'DISLIKE';
+
+    window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id } }));
+
+    const success = await rateSong(id, newStatus as any);
+
+    if (success) {
+      // Если трек был лайкнут — убираем из локального стора лайков
+      if (this._isEnabled && currentStatus === 'LIKE') {
+        const virtualCount = await likedStore.getVirtualCount();
+        await likedStore.deleteTrack(id);
+        await likedStore.setVirtualCount(Math.max(0, virtualCount - 1));
+      }
+
+      window.dispatchEvent(new CustomEvent('track-like-updated', {
+        detail: { id, status: 'success', likeStatus: newStatus }
+      }));
+
+      await this.notify();
+      if (this._isEnabled && currentStatus === 'LIKE') {
+        setTimeout(() => this.sync(), 5000);
+      }
+      return true;
+    } else {
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+      return false;
+    }
+  }
+
   async toggleLike(track: YTMTrack, currentStatus: string) {
     const id = track.id;
     const newStatus = currentStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
@@ -138,10 +169,14 @@ class LikedManager {
           await likedStore.putTrack({
             videoId: id,
             track: { ...track, likeStatus: 'LIKE' },
-            originalIndex: minIdx - 1, 
+            originalIndex: minIdx - 1,
             syncedAt: Date.now()
           });
-          await likedStore.setVirtualCount(virtualCount + 1);
+          // Если у трека нет длительности — не обновляем счётчик.
+          // Sync увидит расхождение с YouTube и сделает полный рефетч с правильными данными.
+          if (track.duration) {
+            await likedStore.setVirtualCount(virtualCount + 1);
+          }
         } else {
           await likedStore.deleteTrack(id);
           await likedStore.setVirtualCount(Math.max(0, virtualCount - 1));

@@ -1,5 +1,5 @@
 import React, { useState, forwardRef, Fragment, useEffect, memo, useCallback } from 'react';
-import { Play, Heart, Loader2, HardDriveDownload } from 'lucide-react';
+import { Play, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
 import { prefetchStreamUrl, cancelPrefetchRequest } from '../../api/stream';
@@ -78,73 +78,97 @@ const PlaybackIndicator = memo(({ id, index, isAvailable, isActive: propIsActive
   );
 });
 
-// Isolated Like Button - only re-renders itself on global like events
+// Isolated Like/Dislike Buttons - only re-renders itself on global like events
 const LikeButton = memo(({ trackData }: { trackData: any }) => {
   const [likeStatus, setLikeStatus] = useState<string | undefined>(trackData.likeStatus);
-  const [isLiking, setIsLiking] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
   useEffect(() => { setLikeStatus(trackData.likeStatus); }, [trackData.likeStatus]);
 
   useEffect(() => {
     if (!trackData.id) return;
-    const handleStart = (e: any) => { if (e.detail.id === trackData.id) setIsLiking(true); };
     const handleUpdate = (e: any) => {
       if (e.detail.id === trackData.id) {
         if (e.detail.status === 'success') setLikeStatus(e.detail.likeStatus);
-        setIsLiking(false);
+        setLoadingAction(null);
       }
     };
-    window.addEventListener('track-like-start', handleStart as EventListener);
     window.addEventListener('track-like-updated', handleUpdate as EventListener);
     return () => {
-      window.removeEventListener('track-like-start', handleStart as EventListener);
       window.removeEventListener('track-like-updated', handleUpdate as EventListener);
     };
   }, [trackData.id]);
 
+  const buildTrackObj = (): YTMTrack => ({
+    id: trackData.id,
+    title: trackData.title,
+    artists: trackData.artists || [],
+    artistIds: trackData.artistIds || [],
+    album: trackData.album,
+    albumId: trackData.albumId,
+    duration: trackData.duration,
+    thumbUrl: trackData.thumbUrl || '',
+    likeStatus: likeStatus as any
+  });
+
   const handleLike = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isLiking || !trackData.id) return;
+    if (loadingAction || !trackData.id) return;
+    setLoadingAction('like');
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackData.id } }));
     try {
       const newStatus = likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
-      const trackObj: YTMTrack = {
-        id: trackData.id,
-        title: trackData.title,
-        artists: trackData.artists || [],
-        artistIds: trackData.artistIds || [],
-        album: trackData.album,
-        albumId: trackData.albumId,
-        duration: trackData.duration,
-        thumbUrl: trackData.thumbUrl || '',
-        likeStatus: likeStatus as any
-      };
-      const success = await likedManager.toggleLike(trackObj, likeStatus || 'INDIFFERENT');
+      const success = await likedManager.toggleLike(buildTrackObj(), likeStatus || 'INDIFFERENT');
       if (success) window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'success', likeStatus: newStatus } }));
       else window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
     } catch {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
     }
-  }, [trackData, likeStatus, isLiking]);
+  }, [trackData, likeStatus, loadingAction]);
+
+  const handleDislike = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loadingAction || !trackData.id) return;
+    setLoadingAction('dislike');
+    window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackData.id } }));
+    try {
+      const newStatus = likeStatus === 'DISLIKE' ? 'INDIFFERENT' : 'DISLIKE';
+      const success = await likedManager.toggleDislike(buildTrackObj(), likeStatus || 'INDIFFERENT');
+      if (success) window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'success', likeStatus: newStatus } }));
+      else window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
+    }
+  }, [trackData, likeStatus, loadingAction]);
 
   const isLiked = likeStatus === 'LIKE';
+  const isDisliked = likeStatus === 'DISLIKE';
 
   return (
-    <button 
-      className={`${styles.likeBtn} ${isLiked ? styles.isLiked : ''} ${isLiking ? styles.isLiking : ''}`} 
-      onClick={handleLike} 
-      disabled={isLiking}
-    >
-      {isLiking ? (
-        <Loader2 size={16} className={styles.spinner} />
-      ) : (
-        <Heart 
-          size={16} 
-          color={isLiked ? '#f38ba8' : 'var(--text-sub)'} 
-          fill={isLiked ? '#f38ba8' : 'none'} 
-        />
-      )}
-    </button>
+    <>
+      <button
+        className={`${styles.likeBtn} ${isLiked ? styles.isLiked : ''} ${loadingAction === 'like' ? styles.isLiking : ''}`}
+        onClick={handleLike}
+        disabled={!!loadingAction}
+      >
+        {loadingAction === 'like' ? (
+          <Loader2 size={16} className={styles.spinner} />
+        ) : (
+          <Heart size={16} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />
+        )}
+      </button>
+      <button
+        className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
+        onClick={handleDislike}
+        disabled={!!loadingAction}
+      >
+        {loadingAction === 'dislike' ? (
+          <Loader2 size={16} className={styles.spinner} />
+        ) : (
+          <HeartCrack size={16} color={isDisliked ? '#fab387' : 'var(--text-sub)'} />
+        )}
+      </button>
+    </>
   );
 });
 

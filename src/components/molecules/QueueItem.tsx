@@ -1,6 +1,6 @@
 import { likedManager } from '../../api/likedManager';
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { Play, Pause, Heart, Loader2, HardDriveDownload } from 'lucide-react';
+import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
@@ -50,59 +50,69 @@ const PlaybackOverlay = memo(({ id, isActive }: { id: string, isActive: boolean 
 
 const LikeButton = memo(({ id, initialLikeStatus, trackData }: { id: string, initialLikeStatus?: string, trackData?: any }) => {
   const [likeStatus, setLikeStatus] = useState(initialLikeStatus);
-  const [isLiking, setIsLiking] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
   useEffect(() => { setLikeStatus(initialLikeStatus); }, [initialLikeStatus]);
 
   useEffect(() => {
     const handleGlobalLikeUpdated = (e: any) => {
-      if (e.detail.id === id && e.detail.status === 'success') {
-        setLikeStatus(e.detail.likeStatus);
-        setIsLiking(false);
-      }
-      if (e.detail.id === id && e.detail.status === 'error') {
-        setIsLiking(false);
+      if (e.detail.id === id) {
+        if (e.detail.status === 'success') setLikeStatus(e.detail.likeStatus);
+        setLoadingAction(null);
       }
     };
-    const handleGlobalLikeStart = (e: any) => {
-      if (e.detail.id === id) setIsLiking(true);
-    };
-
     window.addEventListener('track-like-updated', handleGlobalLikeUpdated as EventListener);
-    window.addEventListener('track-like-start', handleGlobalLikeStart as EventListener);
-
     return () => {
       window.removeEventListener('track-like-updated', handleGlobalLikeUpdated as EventListener);
-      window.removeEventListener('track-like-start', handleGlobalLikeStart as EventListener);
     };
   }, [id]);
 
+  const getTrackObj = (): YTMTrack => trackData || { id, title: '', artists: [], likeStatus };
+
   const handleLike = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isLiking) return;
-    setIsLiking(true);
+    if (loadingAction) return;
+    setLoadingAction('like');
     try {
-      // Пытаемся собрать полный объект трека для менеджера
-      const trackObj: YTMTrack = trackData || { id, title: '', artists: [], likeStatus };
-      const success = await likedManager.toggleLike(trackObj, likeStatus || 'INDIFFERENT');
-      // Событие track-like-updated диспатчится самим менеджером (likedManager)
-      // поэтому здесь мы ничего не делаем, useEffect обновит стейт
+      await likedManager.toggleLike(getTrackObj(), likeStatus || 'INDIFFERENT');
     } catch {
-      setIsLiking(false);
+      setLoadingAction(null);
     }
-  }, [id, likeStatus, isLiking, trackData]);
+  }, [id, likeStatus, loadingAction, trackData]);
+
+  const handleDislike = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loadingAction) return;
+    setLoadingAction('dislike');
+    try {
+      await likedManager.toggleDislike(getTrackObj(), likeStatus || 'INDIFFERENT');
+    } catch {
+      setLoadingAction(null);
+    }
+  }, [id, likeStatus, loadingAction, trackData]);
 
   const isLiked = likeStatus === 'LIKE';
+  const isDisliked = likeStatus === 'DISLIKE';
 
   return (
-    <button 
-      className={`${styles.likeBtn} ${isLiked ? styles.isLiked : ''} ${isLiking ? styles.isLiking : ''}`} 
-      onClick={handleLike} 
-      disabled={isLiking}
-      data-tooltip={isLiked ? "Unlike" : "Like"}
-    >
-      {isLiking ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />}
-    </button>
+    <>
+      <button
+        className={`${styles.likeBtn} ${isLiked ? styles.isLiked : ''} ${loadingAction === 'like' ? styles.isLiking : ''}`}
+        onClick={handleLike}
+        disabled={!!loadingAction}
+        data-tooltip={isLiked ? 'Unlike' : 'Like'}
+      >
+        {loadingAction === 'like' ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />}
+      </button>
+      <button
+        className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
+        onClick={handleDislike}
+        disabled={!!loadingAction}
+        data-tooltip={isDisliked ? 'Remove dislike' : 'Dislike'}
+      >
+        {loadingAction === 'dislike' ? <Loader2 size={14} className={styles.spinner} /> : <HeartCrack size={14} color={isDisliked ? '#fab387' : 'var(--text-sub)'} />}
+      </button>
+    </>
   );
 });
 

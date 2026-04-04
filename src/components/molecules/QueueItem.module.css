@@ -157,6 +157,7 @@
 /* Show on hover, if liked, or if liking */
 .item:hover .likeBtn,
 .likeBtn.isLiked,
+.likeBtn.isDisliked,
 .likeBtn.isLiking {
     opacity: 1;
 }
