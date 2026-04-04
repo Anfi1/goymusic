@@ -20,11 +20,13 @@ interface QueueItemProps {
   onClick?: (index?: number) => void;
   onContextMenu?: (e: React.MouseEvent, track: any, index?: number) => void;
   onSelectArtist?: (id: string) => void;
+  onSelectAlbum?: (id: string) => void;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent, index?: number) => void;
   onDragEnd?: (e: React.DragEvent, index?: number) => void;
   className?: string;
   trackData?: any;
+  hideDislike?: boolean;
 }
 
 const PlaybackOverlay = memo(({ id, isActive }: { id: string, isActive: boolean }) => {
@@ -48,7 +50,7 @@ const PlaybackOverlay = memo(({ id, isActive }: { id: string, isActive: boolean 
   );
 });
 
-const LikeButton = memo(({ id, initialLikeStatus, trackData }: { id: string, initialLikeStatus?: string, trackData?: any }) => {
+const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id: string, initialLikeStatus?: string, trackData?: any, hideDislike?: boolean }) => {
   const [likeStatus, setLikeStatus] = useState(initialLikeStatus);
   const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
@@ -104,14 +106,14 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData }: { id: string, ini
       >
         {loadingAction === 'like' ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />}
       </button>
-      <button
+      {!hideDislike && <button
         className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
         onClick={handleDislike}
         disabled={!!loadingAction}
         data-tooltip={isDisliked ? 'Remove dislike' : 'Dislike'}
       >
         {loadingAction === 'dislike' ? <Loader2 size={14} className={styles.spinner} /> : <HeartCrack size={14} color={isDisliked ? '#fab387' : 'var(--text-sub)'} />}
-      </button>
+      </button>}
     </>
   );
 });
@@ -149,7 +151,8 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
   draggable,
   onDragStart,
   className,
-  trackData
+  trackData,
+  hideDislike
 }) => {
 
   const handleItemClick = useCallback(() => {
@@ -198,7 +201,7 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
 
       <div className={styles.rightSection}>
         <OverrideIndicator id={id} />
-        <LikeButton id={id} initialLikeStatus={initialLikeStatus} trackData={trackData} />
+        <div className={styles.likeBtnGroup}><LikeButton id={id} initialLikeStatus={initialLikeStatus} trackData={trackData} hideDislike={hideDislike} /></div>
         {duration && <div className={styles.duration}>{duration}</div>}
       </div>
     </div>

@@ -141,25 +141,38 @@
     opacity: 1;
 }
 
+.likeBtnGroup {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, max-width 0s 0.15s;
+}
+
+.item:hover .likeBtnGroup,
+.likeBtnGroup:has(.isLiked),
+.likeBtnGroup:has(.isDisliked),
+.likeBtnGroup:has(.isLiking) {
+    max-width: 60px;
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.15s ease, max-width 0s 0s;
+}
+
 .likeBtn {
     background: none;
     border: none;
-    padding: 4px;
+    padding: 3px;
     margin: 0;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease;
-    opacity: 0; /* Hidden by default */
-}
-
-/* Show on hover, if liked, or if liking */
-.item:hover .likeBtn,
-.likeBtn.isLiked,
-.likeBtn.isDisliked,
-.likeBtn.isLiking {
-    opacity: 1;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    flex-shrink: 0;
 }
 
 .likeBtn:hover {

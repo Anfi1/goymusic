@@ -3,7 +3,7 @@ import { Play, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-reac
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
 import { prefetchStreamUrl, cancelPrefetchRequest } from '../../api/stream';
-import { rateSong, YTMTrack } from '../../api/yt';
+import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { likedManager } from '../../api/likedManager';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
@@ -33,6 +33,7 @@ interface TrackRowProps {
   onDragEnd?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   hideDuration?: boolean;
+  hideDislike?: boolean;
   className?: string;
   renderOnlyCells?: boolean;
   extraCells?: React.ReactNode[];
@@ -79,7 +80,7 @@ const PlaybackIndicator = memo(({ id, index, isAvailable, isActive: propIsActive
 });
 
 // Isolated Like/Dislike Buttons - only re-renders itself on global like events
-const LikeButton = memo(({ trackData }: { trackData: any }) => {
+const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDislike?: boolean }) => {
   const [likeStatus, setLikeStatus] = useState<string | undefined>(trackData.likeStatus);
   const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
@@ -157,7 +158,7 @@ const LikeButton = memo(({ trackData }: { trackData: any }) => {
           <Heart size={16} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />
         )}
       </button>
-      <button
+      {!hideDislike && <button
         className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
         onClick={handleDislike}
         disabled={!!loadingAction}
@@ -167,7 +168,7 @@ const LikeButton = memo(({ trackData }: { trackData: any }) => {
         ) : (
           <HeartCrack size={16} color={isDisliked ? '#fab387' : 'var(--text-sub)'} />
         )}
-      </button>
+      </button>}
     </>
   );
 });
@@ -200,9 +201,8 @@ const ThumbPlaceholder = <div className={styles.thumbPlaceholder} />;
 
 export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((props, ref) => {
   const { 
-    id, index, title, artists = [], artistIds = [], album, albumId, duration, thumbUrl, 
+    id, index, title, artists = [], artistIds = [], album, albumId, duration, thumbUrl,
     isAvailable = true, isActive: externalIsActive, isPlaying: externalIsPlaying,
-    likeStatus: initialLikeStatus,
     onClick,
     onSelectArtist,
     onSelectAlbum,
@@ -213,6 +213,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     onDragEnd,
     onDrop,
     hideDuration = false,
+    hideDislike = false,
     className,
     renderOnlyCells = false,
     extraCells = []
@@ -303,7 +304,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
         <td className={styles.durationCell}>
           <div className={styles.durationWrapper}>
             <OverrideIndicator id={id} />
-            {id && <LikeButton trackData={props} />}
+            {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike} /></div>}
             <span className={styles.durationText}>{duration}</span>
           </div>
         </td>

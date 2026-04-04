@@ -712,6 +712,26 @@ def handle_request(request):
                     p = playlist_to_dict(item, skip_owner_check=True)
                     if p and len(playlists) < 5:
                         playlists.append(p)
+
+            # Cross-reference: fill missing album names from tracks/albums that have both albumId and name
+            album_name_map = {}
+            for t in tracks:
+                aid = t.get('albumId')
+                aname = t.get('album', '')
+                if aid and aname:
+                    album_name_map[aid] = aname
+            if top_result and top_result.get('albumId') and top_result.get('album'):
+                album_name_map[top_result['albumId']] = top_result['album']
+            for a in albums:
+                aid = a.get('id', '')
+                aname = a.get('title', '')
+                if aid and aname:
+                    album_name_map[aid] = aname
+            for t in tracks:
+                if t.get('albumId') and not t.get('album'):
+                    t['album'] = album_name_map.get(t['albumId'], '')
+            if top_result and top_result.get('albumId') and not top_result.get('album'):
+                top_result['album'] = album_name_map.get(top_result['albumId'], '')
             safe_print({'status': 'ok', 'results': {
                 'top': top_result, 'correction': correction,
                 'tracks': tracks, 'artists': artists, 'albums': albums, 'playlists': playlists

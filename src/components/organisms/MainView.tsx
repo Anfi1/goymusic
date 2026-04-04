@@ -286,7 +286,7 @@ const LargeHeader = memo(({
               )}
             </div>
 
-            <h1 className={styles.title} data-tooltip={metadata?.title} data-tooltip-overflow="">{metadata?.title}</h1>
+            <h1 className={styles.title} data-tooltip={metadata?.title}>{metadata?.title}</h1>
             
             {description && (
               <div className={styles.descriptionText} data-tooltip={description} data-tooltip-overflow="">
@@ -404,7 +404,7 @@ const StickyTitlePanel = memo(({
           </div>
           <div className={styles.stickyTextInfo}>
             <div className={styles.stickyLabel}>{viewLabel}</div>
-            <div className={styles.stickyMainTitle}>
+            <div className={styles.stickyMainTitle} data-tooltip={viewTitle} data-tooltip-overflow="">
               {viewTitle}
               <span className={styles.stickyTrackCount}> • {playlistTracks.length} of {totalReportedCount}</span>
             </div>

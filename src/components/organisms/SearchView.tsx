@@ -8,7 +8,7 @@ import { ArtistCard } from '../molecules/ArtistCard';
 import { TrackRow } from '../molecules/TrackRow';
 import { QueueItem } from '../molecules/QueueItem';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
-import { Play, ChevronLeft, ChevronRight, MoveRight } from 'lucide-react';
+import { Play, ChevronLeft, ChevronRight, MoveRight, ListMusic } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
 import styles from './SearchView.module.css';
 
@@ -180,11 +180,14 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const tracks = searchData?.tracks || [];
   const artists = searchData?.artists || [];
   const albums = searchData?.albums || [];
+  const playlists = searchData?.playlists || [];
 
   const artistsScrollRef = useRef<HTMLDivElement>(null);
   const albumsScrollRef = useRef<HTMLDivElement>(null);
+  const playlistsScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollArtists, setCanScrollArtists] = useState({ left: false, right: true });
   const [canScrollAlbums, setCanScrollAlbums] = useState({ left: false, right: true });
+  const [canScrollPlaylists, setCanScrollPlaylists] = useState({ left: false, right: true });
 
   const checkScroll = useCallback(() => {
     if (artistsScrollRef.current) {
@@ -194,6 +197,10 @@ export const SearchView: React.FC<SearchViewProps> = ({
     if (albumsScrollRef.current) {
       const { scrollLeft, scrollWidth, clientWidth } = albumsScrollRef.current;
       setCanScrollAlbums({ left: scrollLeft > 10, right: scrollLeft < scrollWidth - clientWidth - 10 });
+    }
+    if (playlistsScrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = playlistsScrollRef.current;
+      setCanScrollPlaylists({ left: scrollLeft > 10, right: scrollLeft < scrollWidth - clientWidth - 10 });
     }
   }, []);
 
@@ -208,17 +215,27 @@ export const SearchView: React.FC<SearchViewProps> = ({
     setTimeout(checkScroll, 400);
   };
 
-  const menuItems: ContextMenuItem[] = [{
-    label: 'Play Now', icon: Play,
-    onClick: () => {
-      if (!contextMenu) return;
-      const item = contextMenu.item;
-      if (item.type === 'artist' || item.resultType === 'artist') onSelectArtist(item.id);
-      else if (item.type === 'album' || item.resultType === 'album') onSelectAlbum(item.id);
-      else if (item.type === 'playlist' || item.resultType === 'playlist') onSelectPlaylist(item.id, item.title || item.name);
-      else player.playSingle(item);
-    }
-  }];
+  const menuItems: ContextMenuItem[] = [
+    {
+      label: 'Play Now', icon: Play,
+      onClick: () => {
+        if (!contextMenu) return;
+        const item = contextMenu.item;
+        if (item.type === 'artist' || item.resultType === 'artist') onSelectArtist(item.id);
+        else if (item.type === 'album' || item.resultType === 'album') onSelectAlbum(item.id);
+        else if (item.type === 'playlist' || item.resultType === 'playlist') onSelectPlaylist(item.id, item.title || item.name);
+        else player.playSingle(item);
+      }
+    },
+    ...(contextMenu?.item?.albumId ? [{
+      label: 'Go to Album', icon: ListMusic,
+      onClick: () => { if (contextMenu?.item?.albumId) onSelectAlbum(contextMenu.item.albumId); }
+    }] : []),
+    ...(contextMenu?.item?.id && (contextMenu?.item?.type === 'playlist' || contextMenu?.item?.resultType === 'playlist') ? [{
+      label: 'Go to Playlist', icon: ListMusic,
+      onClick: () => { onSelectPlaylist(contextMenu!.item.id, String(contextMenu!.item.title || contextMenu!.item.name || '')); }
+    }] : []),
+  ];
 
   const tabs: { key: FilterMode; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -327,8 +344,10 @@ export const SearchView: React.FC<SearchViewProps> = ({
                           isActive={activeTrackId === track.id}
                           isPlaying={isPlaying}
                           onClick={() => player.playTrackList(tracks, i, searchQuery)}
+                          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
                           onSelectArtist={onSelectArtist}
                           onSelectAlbum={onSelectAlbum}
+                          hideDislike
                         />
                       ))}
                     </tbody>
@@ -353,6 +372,34 @@ export const SearchView: React.FC<SearchViewProps> = ({
                 </section>
               )}
 
+              {playlists.length > 0 && (
+                <section className={styles.section}>
+                  <h2 className={styles.sectionTitle}>Playlists</h2>
+                  <div className={styles.scrollWrapper}>
+                    {canScrollPlaylists.left && (
+                      <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(playlistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
+                    )}
+                    <div className={styles.horizontalScroll} ref={playlistsScrollRef} onScroll={checkScroll}>
+                      {playlists.map((pl: any) => (
+                        <div
+                          key={pl.id}
+                          className={styles.albumCard}
+                          onClick={() => onSelectPlaylist(pl.id, String(pl.title || ''))}
+                          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...pl, type: 'playlist' } }); }}
+                        >
+                          <LazyImage src={pl.thumbUrl} className={styles.albumThumb} />
+                          <div className={styles.albumTitle} data-tooltip={String(pl.title || '')} data-tooltip-overflow="">{String(pl.title || '')}</div>
+                          <div className={styles.albumArtists} data-tooltip={String(pl.author || pl.count || '')} data-tooltip-overflow="">{String(pl.author || pl.count || '')}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {canScrollPlaylists.right && (
+                      <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(playlistsScrollRef, 'right')}><ChevronRight size={24} /></button>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {albums.length > 0 && (
                 <section className={styles.section}>
                   <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('albums')}>
@@ -371,7 +418,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                           onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...album, type: 'album' } }); }}
                         >
                           <LazyImage src={album.thumbUrl} className={styles.albumThumb} />
-                          <div className={styles.albumTitle}>{album.title}</div>
+                          <div className={styles.albumTitle} data-tooltip={album.title} data-tooltip-overflow="">{album.title}</div>
                           <div className={styles.albumArtists}>
                             {album.artists.map((name: string, idx: number) => (
                               <React.Fragment key={idx}>
@@ -429,6 +476,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                       onClick={() => player.playTrackList(filteredItems, index, searchQuery)}
                       onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
                       onSelectArtist={onSelectArtist}
+                      hideDislike
                     />
                   </div>
                 );
@@ -462,7 +510,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                   onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...album, type: 'album' } }); }}
                 >
                   <LazyImage src={album.thumbUrl} className={styles.albumThumbGrid} />
-                  <div className={styles.albumTitle}>{album.title}</div>
+                  <div className={styles.albumTitle} data-tooltip={album.title} data-tooltip-overflow="">{album.title}</div>
                   <div className={styles.albumArtists}>
                     {(album.artists || []).map((name: string, idx: number) => (
                       <React.Fragment key={idx}>

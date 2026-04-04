@@ -196,6 +196,17 @@ def parse_search_result(data: JsonDict, result_type: str | None, category: str |
         song_info = parse_song_runs(runs, skip_type_spec=True)
         search_result.update(song_info)
 
+    # Fallback: extract album from menu "Go to album" if not in flex columns
+    if result_type == "song" and not (search_result.get("album") or {}).get("id"):
+        for item in nav(data, MENU_ITEMS, True) or []:
+            for v in item.values():
+                browse_id = nav(v, ["navigationEndpoint", "browseEndpoint", "browseId"], True)
+                if browse_id and browse_id.startswith("MPREb"):
+                    search_result["album"] = {"name": "", "id": browse_id}
+                    break
+            if (search_result.get("album") or {}).get("id"):
+                break
+
     if result_type in ["artist", "album", "playlist", "profile", "podcast"]:
         search_result["browseId"] = nav(data, NAVIGATION_BROWSE_ID, True)
 
