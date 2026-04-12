@@ -81,6 +81,12 @@ def parse_top_result(data: JsonDict, search_result_types: list[str]) -> JsonDict
         search_result["podcast"] = parse_id_name(runs[2])
 
     search_result["thumbnails"] = nav(data, THUMBNAILS, True)
+
+    if result_type in ["song", "video", "album"]:
+        _, _, like_status, _, _ = parse_menu_tokens(data)
+        if like_status:
+            search_result["likeStatus"] = like_status
+
     return search_result
 
 

@@ -63,6 +63,8 @@ export const SearchView: React.FC<SearchViewProps> = ({
   onSelectPlaylist,
   onSearchAgain
 }) => {
+  const [activeFilter, setActiveFilter] = useState<FilterMode>('all');
+
   const { data: searchData, isLoading } = useQuery({
     queryKey: ['search', searchQuery],
     queryFn: () => searchMusic(searchQuery),
@@ -71,7 +73,41 @@ export const SearchView: React.FC<SearchViewProps> = ({
     gcTime: 0,
   });
 
-  const [activeFilter, setActiveFilter] = useState<FilterMode>('all');
+  const { data: tracksSection = [], isLoading: isTracksLoading } = useQuery({
+    queryKey: ['search-songs-preview', searchQuery],
+    queryFn: () => searchMore(searchQuery, 0, 'songs'),
+    enabled: !!searchQuery && activeFilter === 'all',
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    select: (data) => data.slice(0, 5),
+  });
+
+  const { data: artistsSection = [], isLoading: isArtistsLoading } = useQuery({
+    queryKey: ['search-artists-preview', searchQuery],
+    queryFn: () => searchMore(searchQuery, 0, 'artists'),
+    enabled: !!searchQuery && activeFilter === 'all',
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    select: (data) => data.slice(0, 8),
+  });
+
+  const { data: albumsSection = [], isLoading: isAlbumsLoading } = useQuery({
+    queryKey: ['search-albums-preview', searchQuery],
+    queryFn: () => searchMore(searchQuery, 0, 'albums'),
+    enabled: !!searchQuery && activeFilter === 'all',
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    select: (data) => data.slice(0, 8),
+  });
+
+  const { data: playlistsSection = [], isLoading: isPlaylistsLoading } = useQuery({
+    queryKey: ['search-playlists-preview', searchQuery],
+    queryFn: () => searchMore(searchQuery, 0, 'playlists'),
+    enabled: !!searchQuery && activeFilter === 'all',
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    select: (data) => data.slice(0, 5),
+  });
 
   // Per-filter cache: preserves results when switching tabs, cleared on new search query
   const filterCache = useRef<Record<string, { items: any[]; offset: number; hasMore: boolean }>>({});
@@ -175,12 +211,15 @@ export const SearchView: React.FC<SearchViewProps> = ({
     setActiveFilter('all');
   }, [searchQuery]);
 
-  const topResult = searchData?.top;
+  const topResultRaw = searchData?.top;
+  const topResult = topResultRaw
+    ? { ...topResultRaw, likeStatus: likeOverrides[topResultRaw.id] ?? topResultRaw.likeStatus }
+    : undefined;
   const correction = searchData?.correction;
-  const tracks = searchData?.tracks || [];
-  const artists = searchData?.artists || [];
-  const albums = searchData?.albums || [];
-  const playlists = searchData?.playlists || [];
+  const tracks = tracksSection;
+  const artists = artistsSection;
+  const albums = albumsSection;
+  const playlists = playlistsSection;
 
   const artistsScrollRef = useRef<HTMLDivElement>(null);
   const albumsScrollRef = useRef<HTMLDivElement>(null);
@@ -268,179 +307,200 @@ export const SearchView: React.FC<SearchViewProps> = ({
       {/* ── All results ────────────────────────────────── */}
       {activeFilter === 'all' && (
         <div className={styles.searchContent}>
+
+          {/* Top Result */}
           {isLoading ? (
-            <>
-              <div className={styles.section}>
-                <Skeleton width={90} height={16} borderRadius={4} />
-                <TopResultSkeleton />
-              </div>
-              <div className={styles.section}>
-                <Skeleton width={60} height={16} borderRadius={4} />
-                <div className={styles.skeletonTrackList}>
-                  {Array.from({ length: 5 }).map((_, i) => <QueueItemSkeleton key={i} />)}
+            <div className={styles.section}>
+              <Skeleton width={90} height={16} borderRadius={4} />
+              <TopResultSkeleton />
+            </div>
+          ) : topResult && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Top Result</h2>
+              <div
+                className={styles.topResultCard}
+                onClick={() => {
+                  if (topResult.resultType === 'artist') onSelectArtist(topResult.id);
+                  else if (topResult.resultType === 'album') onSelectAlbum(topResult.id);
+                  else if (topResult.resultType === 'playlist') onSelectPlaylist(topResult.id, topResult.title || topResult.name);
+                  else player.playSingle(topResult);
+                }}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: topResult }); }}
+              >
+                <div className={styles.topResultThumbWrapper}>
+                  <LazyImage src={topResult.thumbUrl} className={`${styles.topResultThumb} ${topResult.resultType === 'artist' ? styles.round : ''}`} />
+                </div>
+                <div className={styles.topResultInfo}>
+                  <div className={styles.topResultTitle}>{topResult.title || topResult.name}</div>
+                  <div className={styles.topResultMeta}>
+                    <span className={styles.capitalize}>{topResult.resultType}</span>
+                    {topResult.artists && (<>
+                      {' • '}
+                      {topResult.artists.map((name: string, idx: number) => (
+                        <React.Fragment key={idx}>
+                          <span
+                            className={topResult.artistIds?.[idx] ? styles.songLink : ''}
+                            onClick={(e) => { const aid = topResult.artistIds?.[idx]; if (aid) { e.stopPropagation(); onSelectArtist(aid); } }}
+                          >{name}</span>
+                          {idx < topResult.artists.length - 1 && ', '}
+                        </React.Fragment>
+                      ))}
+                    </>)}
+                    {topResult.views && <span> • {topResult.views}</span>}
+                  </div>
                 </div>
               </div>
-            </>
-          ) : (
-            <>
-              {topResult && (
-                <section className={styles.section}>
-                  <h2 className={styles.sectionTitle}>Top Result</h2>
-                  <div
-                    className={styles.topResultCard}
-                    onClick={() => {
-                      if (topResult.resultType === 'artist') onSelectArtist(topResult.id);
-                      else if (topResult.resultType === 'album') onSelectAlbum(topResult.id);
-                      else if (topResult.resultType === 'playlist') onSelectPlaylist(topResult.id, topResult.title || topResult.name);
-                      else player.playSingle(topResult);
-                    }}
-                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: topResult }); }}
-                  >
-                    <div className={styles.topResultThumbWrapper}>
-                      <LazyImage src={topResult.thumbUrl} className={`${styles.topResultThumb} ${topResult.resultType === 'artist' ? styles.round : ''}`} />
+            </section>
+          )}
+
+          {/* Songs */}
+          {isTracksLoading ? (
+            <div className={styles.section}>
+              <Skeleton width={60} height={16} borderRadius={4} />
+              <div className={styles.skeletonTrackList}>
+                {Array.from({ length: 5 }).map((_, i) => <QueueItemSkeleton key={i} />)}
+              </div>
+            </div>
+          ) : tracks.length > 0 && (
+            <section className={styles.section}>
+              <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('songs')}>
+                Songs <MoveRight size={15} className={styles.sectionArrow} />
+              </button>
+              <table className={styles.trackList} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%' }}>
+                <colgroup>
+                  <col style={{ width: 48 }} />
+                  <col style={{ width: '45%' }} />
+                  <col style={{ width: '35%' }} />
+                  <col style={{ width: 100 }} />
+                </colgroup>
+                <tbody>
+                  {tracks.map((track, i) => (
+                    <TrackRow
+                      key={track.id}
+                      index={i + 1}
+                      {...track}
+                      likeStatus={likeOverrides[track.id] ?? track.likeStatus}
+                      isActive={activeTrackId === track.id}
+                      isPlaying={isPlaying}
+                      onClick={() => player.playTrackList(tracks, i, searchQuery)}
+                      onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
+                      onSelectArtist={onSelectArtist}
+                      onSelectAlbum={onSelectAlbum}
+                      hideDislike
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {/* Artists */}
+          {isArtistsLoading ? (
+            <div className={styles.section}>
+              <Skeleton width={80} height={16} borderRadius={4} />
+              <div className={styles.horizontalScroll} style={{ display: 'flex', gap: 16, overflow: 'hidden' }}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, minWidth: 100 }}>
+                    <Skeleton width={100} height={100} borderRadius={50} />
+                    <Skeleton width={70} height={12} borderRadius={4} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : artists.length > 0 && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Artists</h2>
+              <div className={styles.scrollWrapper}>
+                {canScrollArtists.left && (
+                  <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(artistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
+                )}
+                <div className={styles.horizontalScroll} ref={artistsScrollRef} onScroll={checkScroll}>
+                  {artists.map(artist => <ArtistCard key={artist.id} {...artist} onClick={() => onSelectArtist(artist.id)} />)}
+                </div>
+                {canScrollArtists.right && (
+                  <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(artistsScrollRef, 'right')}><ChevronRight size={24} /></button>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Playlists */}
+          {!isPlaylistsLoading && playlists.length > 0 && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Playlists</h2>
+              <div className={styles.scrollWrapper}>
+                {canScrollPlaylists.left && (
+                  <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(playlistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
+                )}
+                <div className={styles.horizontalScroll} ref={playlistsScrollRef} onScroll={checkScroll}>
+                  {playlists.map((pl: any) => (
+                    <div
+                      key={pl.id}
+                      className={styles.albumCard}
+                      onClick={() => onSelectPlaylist(pl.id, String(pl.title || ''))}
+                      onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...pl, type: 'playlist' } }); }}
+                    >
+                      <LazyImage src={pl.thumbUrl} className={styles.albumThumb} />
+                      <div className={styles.albumTitle} data-tooltip={String(pl.title || '')} data-tooltip-overflow="">{String(pl.title || '')}</div>
+                      <div className={styles.albumArtists} data-tooltip={String(pl.author || pl.count || '')} data-tooltip-overflow="">{String(pl.author || pl.count || '')}</div>
                     </div>
-                    <div className={styles.topResultInfo}>
-                      <div className={styles.topResultTitle}>{topResult.title || topResult.name}</div>
-                      <div className={styles.topResultMeta}>
-                        <span className={styles.capitalize}>{topResult.resultType}</span>
-                        {topResult.artists && (<>
-                          {' • '}
-                          {topResult.artists.map((name: string, idx: number) => (
-                            <React.Fragment key={idx}>
-                              <span
-                                className={topResult.artistIds?.[idx] ? styles.songLink : ''}
-                                onClick={(e) => { const aid = topResult.artistIds?.[idx]; if (aid) { e.stopPropagation(); onSelectArtist(aid); } }}
-                              >{name}</span>
-                              {idx < topResult.artists.length - 1 && ', '}
-                            </React.Fragment>
-                          ))}
-                        </>)}
-                        {topResult.views && <span> • {topResult.views}</span>}
+                  ))}
+                </div>
+                {canScrollPlaylists.right && (
+                  <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(playlistsScrollRef, 'right')}><ChevronRight size={24} /></button>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Albums */}
+          {isAlbumsLoading ? (
+            <div className={styles.section}>
+              <Skeleton width={70} height={16} borderRadius={4} />
+              <div style={{ display: 'flex', gap: 16, overflow: 'hidden' }}>
+                {Array.from({ length: 5 }).map((_, i) => <AlbumCardSkeleton key={i} />)}
+              </div>
+            </div>
+          ) : albums.length > 0 && (
+            <section className={styles.section}>
+              <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('albums')}>
+                Albums <MoveRight size={15} className={styles.sectionArrow} />
+              </button>
+              <div className={styles.scrollWrapper}>
+                {canScrollAlbums.left && (
+                  <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(albumsScrollRef, 'left')}><ChevronLeft size={24} /></button>
+                )}
+                <div className={styles.horizontalScroll} ref={albumsScrollRef} onScroll={checkScroll}>
+                  {albums.map(album => (
+                    <div
+                      key={album.id}
+                      className={styles.albumCard}
+                      onClick={() => onSelectAlbum(album.id)}
+                      onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...album, type: 'album' } }); }}
+                    >
+                      <LazyImage src={album.thumbUrl} className={styles.albumThumb} />
+                      <div className={styles.albumTitle} data-tooltip={album.title} data-tooltip-overflow="">{album.title}</div>
+                      <div className={styles.albumArtists}>
+                        {album.artists.map((name: string, idx: number) => (
+                          <React.Fragment key={idx}>
+                            <span
+                              className={album.artistIds?.[idx] ? styles.songLink : ''}
+                              onClick={(e) => { const aid = album.artistIds?.[idx]; if (aid) { e.stopPropagation(); onSelectArtist(aid); } }}
+                            >{name}</span>
+                            {idx < album.artists.length - 1 && ', '}
+                          </React.Fragment>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                </section>
-              )}
-
-              {tracks.length > 0 && (
-                <section className={styles.section}>
-                  <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('songs')}>
-                    Songs <MoveRight size={15} className={styles.sectionArrow} />
-                  </button>
-                  <table className={styles.trackList} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%' }}>
-                    <colgroup>
-                      <col style={{ width: 48 }} />
-                      <col style={{ width: '45%' }} />
-                      <col style={{ width: '35%' }} />
-                      <col style={{ width: 100 }} />
-                    </colgroup>
-                    <tbody>
-                      {tracks.map((track, i) => (
-                        <TrackRow
-                          key={track.id}
-                          index={i + 1}
-                          {...track}
-                          likeStatus={likeOverrides[track.id] ?? track.likeStatus}
-                          isActive={activeTrackId === track.id}
-                          isPlaying={isPlaying}
-                          onClick={() => player.playTrackList(tracks, i, searchQuery)}
-                          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
-                          onSelectArtist={onSelectArtist}
-                          onSelectAlbum={onSelectAlbum}
-                          hideDislike
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </section>
-              )}
-
-              {artists.length > 0 && (
-                <section className={styles.section}>
-                  <h2 className={styles.sectionTitle}>Artists</h2>
-                  <div className={styles.scrollWrapper}>
-                    {canScrollArtists.left && (
-                      <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(artistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
-                    )}
-                    <div className={styles.horizontalScroll} ref={artistsScrollRef} onScroll={checkScroll}>
-                      {artists.map(artist => <ArtistCard key={artist.id} {...artist} onClick={() => onSelectArtist(artist.id)} />)}
-                    </div>
-                    {canScrollArtists.right && (
-                      <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(artistsScrollRef, 'right')}><ChevronRight size={24} /></button>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {playlists.length > 0 && (
-                <section className={styles.section}>
-                  <h2 className={styles.sectionTitle}>Playlists</h2>
-                  <div className={styles.scrollWrapper}>
-                    {canScrollPlaylists.left && (
-                      <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(playlistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
-                    )}
-                    <div className={styles.horizontalScroll} ref={playlistsScrollRef} onScroll={checkScroll}>
-                      {playlists.map((pl: any) => (
-                        <div
-                          key={pl.id}
-                          className={styles.albumCard}
-                          onClick={() => onSelectPlaylist(pl.id, String(pl.title || ''))}
-                          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...pl, type: 'playlist' } }); }}
-                        >
-                          <LazyImage src={pl.thumbUrl} className={styles.albumThumb} />
-                          <div className={styles.albumTitle} data-tooltip={String(pl.title || '')} data-tooltip-overflow="">{String(pl.title || '')}</div>
-                          <div className={styles.albumArtists} data-tooltip={String(pl.author || pl.count || '')} data-tooltip-overflow="">{String(pl.author || pl.count || '')}</div>
-                        </div>
-                      ))}
-                    </div>
-                    {canScrollPlaylists.right && (
-                      <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(playlistsScrollRef, 'right')}><ChevronRight size={24} /></button>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {albums.length > 0 && (
-                <section className={styles.section}>
-                  <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('albums')}>
-                    Albums <MoveRight size={15} className={styles.sectionArrow} />
-                  </button>
-                  <div className={styles.scrollWrapper}>
-                    {canScrollAlbums.left && (
-                      <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(albumsScrollRef, 'left')}><ChevronLeft size={24} /></button>
-                    )}
-                    <div className={styles.horizontalScroll} ref={albumsScrollRef} onScroll={checkScroll}>
-                      {albums.map(album => (
-                        <div
-                          key={album.id}
-                          className={styles.albumCard}
-                          onClick={() => onSelectAlbum(album.id)}
-                          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...album, type: 'album' } }); }}
-                        >
-                          <LazyImage src={album.thumbUrl} className={styles.albumThumb} />
-                          <div className={styles.albumTitle} data-tooltip={album.title} data-tooltip-overflow="">{album.title}</div>
-                          <div className={styles.albumArtists}>
-                            {album.artists.map((name: string, idx: number) => (
-                              <React.Fragment key={idx}>
-                                <span
-                                  className={album.artistIds?.[idx] ? styles.songLink : ''}
-                                  onClick={(e) => { const aid = album.artistIds?.[idx]; if (aid) { e.stopPropagation(); onSelectArtist(aid); } }}
-                                >{name}</span>
-                                {idx < album.artists.length - 1 && ', '}
-                              </React.Fragment>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {canScrollAlbums.right && (
-                      <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(albumsScrollRef, 'right')}><ChevronRight size={24} /></button>
-                    )}
-                  </div>
-                </section>
-              )}
-            </>
+                  ))}
+                </div>
+                {canScrollAlbums.right && (
+                  <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(albumsScrollRef, 'right')}><ChevronRight size={24} /></button>
+                )}
+              </div>
+            </section>
           )}
+
         </div>
       )}
 

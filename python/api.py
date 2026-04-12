@@ -227,7 +227,7 @@ def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playl
             'thumbUrl': res_thumb,
             'views': t.get('views'),
             'isAvailable': t.get('isAvailable', True),
-            'likeStatus': t.get('likeStatus'),
+            'likeStatus': t.get('likeStatus') or ('LIKE' if t.get('inLibrary') else None),
             'menu_tokens': t.get('menu_tokens'),
             'isPinned': t.get('isPinned') or t.get('pinnedToListenAgain', False),
             'description': t.get('description'),
