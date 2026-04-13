@@ -38,6 +38,12 @@ contextBridge.exposeInMainWorld('bridge', {
   deleteSongFile: (filename: string) => ipcRenderer.invoke('songs:delete-file', filename),
   importSongFile: () => ipcRenderer.invoke('songs:import-file'),
 
+  onDeepLink: (callback: (url: string) => void) => {
+    const listener = (_e: any, url: string) => callback(url);
+    ipcRenderer.on('deep-link', listener);
+    return () => ipcRenderer.removeListener('deep-link', listener);
+  },
+
   // Auto-updater
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),

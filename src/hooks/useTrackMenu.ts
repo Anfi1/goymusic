@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Play, ListMusic, Plus, Trash2, PlusCircle, Radio, ListVideo, HardDriveDownload } from 'lucide-react';
+import { Play, ListMusic, Plus, Trash2, PlusCircle, Radio, ListVideo, HardDriveDownload, Link } from 'lucide-react';
+import { getTrackLink } from '../api/trackLink';
 import { player } from '../api/player';
 import { 
   addPlaylistItems, 
@@ -110,6 +111,18 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
       items.push({
         label: 'Go to Playlist', icon: ListMusic,
         onClick: () => onSelectPlaylist?.(tid, track.album || 'Playlist')
+      });
+    }
+
+    // Copy Link
+    if (track.id) {
+      items.push({
+        label: 'Copy Link',
+        icon: Link,
+        onClick: () => {
+          navigator.clipboard.writeText(getTrackLink(track.id));
+          showToast('Link copied!', 'success');
+        }
       });
     }
 

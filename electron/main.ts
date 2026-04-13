@@ -45,11 +45,13 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (win) {
       if (win.isMinimized()) win.restore()
       win.focus()
     }
+    const url = argv.find(arg => arg.startsWith('goymusic://'))
+    if (url) handleDeepLink(url)
   })
 
   app.whenReady().then(() => {
@@ -67,11 +69,33 @@ if (!gotTheLock) {
 
     migrateUserData()
 
+    // В dev-режиме нужно явно передать путь к скрипту, иначе Electron
+    // получит URL как первый аргумент и попытается загрузить его как модуль
+    // Регистрация протокола только в packaged-сборке.
+    // В dev-режиме (vite) setAsDefaultProtocolClient работает некорректно —
+    // протокол тестируется через npm run dist.
+    if (app.isPackaged) {
+      app.setAsDefaultProtocolClient('goymusic')
+    }
+
     createPyProc()
     createWindow()
     initRPC()
     initAutoUpdater()
+
+    // Открытие по протоколу при холодном старте (приложение не было запущено)
+    const startUrl = process.argv.find(arg => arg.startsWith('goymusic://'))
+    if (startUrl) {
+      win?.webContents.once('did-finish-load', () => handleDeepLink(startUrl))
+    }
   })
+}
+
+function handleDeepLink(url: string) {
+  if (!win || !url.startsWith('goymusic://')) return
+  win.webContents.send('deep-link', url)
+  if (win.isMinimized()) win.restore()
+  win.focus()
 }
 
 function getAppRoot() {

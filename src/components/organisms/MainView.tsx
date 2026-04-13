@@ -14,6 +14,7 @@ import {
   YTMUser
 } from '../../api/yt';
 import { player } from '../../api/player';
+import { getAlbumLink } from '../../api/trackLink';
 import { usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
 import { likedManager } from '../../api/likedManager';
 import { ActiveView } from '../../types';
@@ -201,7 +202,7 @@ const LargeHeader = memo(({
   const { showToast } = useToast();
   
   const handleShare = useCallback(() => {
-    const url = `https://music.youtube.com/browse/${metadata?.id}`;
+    const url = getAlbumLink(metadata?.id ?? '');
     navigator.clipboard.writeText(url);
     showToast('Link copied to clipboard', 'success');
   }, [metadata?.id, showToast]);

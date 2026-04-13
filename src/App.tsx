@@ -18,6 +18,7 @@ import { ImageViewer } from './components/molecules/ImageViewer';
 import { ToastProvider } from './components/atoms/Toast';
 import { isLoggedIn, loadAuth, clearTokens } from './api/yt';
 import { player } from './api/player';
+import { parseDeepLink } from './api/trackLink';
 import { ActiveView } from './types';
 import './styles/theme.css';
 import './styles/base.css';
@@ -134,6 +135,18 @@ function App() {
   useEffect(() => {
     localStorage.setItem('goymusic-active-view', JSON.stringify(activeView));
   }, [activeView]);
+
+  useEffect(() => {
+    return window.bridge.onDeepLink((url: string) => {
+      const link = parseDeepLink(url);
+      if (!link) return;
+      if (link.type === 'track') {
+        player.startRadio({ id: link.id, title: '', artists: [] });
+      } else if (link.type === 'album') {
+        navigate({ type: 'album', albumId: link.id });
+      }
+    });
+  }, [navigate]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
