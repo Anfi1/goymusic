@@ -45,5 +45,6 @@ interface Window {
     onUpdateProgress: (callback: (progress: { percent: number; speed: number; transferred: number; total: number }) => void) => () => void;
     onUpdateDownloaded: (callback: () => void) => () => void;
     onUpdateError: (callback: (err: { message: string }) => void) => () => void;
+    onDeepLink: (callback: (url: string) => void) => () => void;
   }
 }

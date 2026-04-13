@@ -141,7 +141,7 @@ function App() {
       const link = parseDeepLink(url);
       if (!link) return;
       if (link.type === 'track') {
-        player.startRadio({ id: link.id, title: '', artists: [] });
+        player.startRadio({ id: link.id } as any);
       } else if (link.type === 'album') {
         navigate({ type: 'album', albumId: link.id });
       }
