@@ -1,22 +1,20 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-function decodeMeta(str: string): { t?: string; a?: string[]; th?: string } | null {
+function decodeMeta(str) {
   try {
     const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
     return JSON.parse(decodeURIComponent(Buffer.from(base64, 'base64').toString('utf8')));
   } catch { return null; }
 }
 
-function escapeHtml(s: string): string {
+function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+module.exports = function handler(req, res) {
   const url = req.url ?? '/';
   const parts = url.replace(/^\//, '').split('/');
   const type    = parts[0];
   const id      = parts[1];
-  const metaStr = parts[2]?.split('?')[0];
+  const metaStr = parts[2] ? parts[2].split('?')[0] : undefined;
 
   let ogTitle       = 'GoyMusic';
   let ogDescription = 'Listen on GoyMusic desktop app or YouTube Music';
@@ -26,9 +24,9 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
 
   if (type === 'track' && id) {
     const meta = metaStr ? decodeMeta(metaStr) : null;
-    ogTitle       = meta?.t ? escapeHtml(meta.t) : 'Track on GoyMusic';
-    ogDescription = meta?.a?.length ? escapeHtml(meta.a.join(', ')) : 'GoyMusic';
-    ogImage       = meta?.th ?? '';
+    ogTitle       = meta && meta.t ? escapeHtml(meta.t) : 'Track on GoyMusic';
+    ogDescription = meta && meta.a && meta.a.length ? escapeHtml(meta.a.join(', ')) : 'GoyMusic';
+    ogImage       = (meta && meta.th) ? meta.th : '';
     protocolUrl   = `goymusic://track/${id}${metaStr ? '/' + metaStr : ''}`;
     fallbackUrl   = `https://music.youtube.com/watch?v=${id}`;
   } else if (type === 'album' && id) {
@@ -40,7 +38,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
 
   const thumbDisplay  = ogImage ? `<img class="thumb" src="${escapeHtml(ogImage)}" alt="" />` : '';
   const titleDisplay  = ogTitle !== 'GoyMusic' ? `<div class="track-title">${ogTitle}</div>` : '';
-  const artistDisplay = ogDescription && ogDescription !== 'Listen on GoyMusic desktop app or YouTube Music'
+  const artistDisplay = ogDescription !== 'Listen on GoyMusic desktop app or YouTube Music'
     ? `<div class="track-artists">${ogDescription}</div>`
     : '';
 
@@ -144,4 +142,4 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.status(200).send(html);
-}
+};

@@ -2,7 +2,7 @@ import { YTMTrack } from './yt';
 
 // Единое место для генерации ссылок.
 // Чтобы вернуться на сырой протокол — заменить WEB на 'goymusic:/'
-const WEB = 'https://anfi1.github.io/goymusic/#';
+const WEB = 'https://goymusic.vercel.app/';
 
 interface TrackMeta { t: string; a: string[]; th: string; }
 
