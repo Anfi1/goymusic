@@ -113,8 +113,9 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
       if (ev === 'tick') return;
 
       setTrack(prev => {
-        if (prev?.id === player.currentTrack?.id) return prev;
-        return player.currentTrack ? { ...player.currentTrack } : null;
+        const curr = player.currentTrack;
+        if (prev?.id === curr?.id && prev?.likeStatus === curr?.likeStatus) return prev;
+        return curr ? { ...curr } : null;
       });
 
       setIsLoading(prev => {

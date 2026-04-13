@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/track/:path*", "destination": "/api/share" },
+    { "source": "/album/:path*", "destination": "/api/share" }
+  ]
+}
