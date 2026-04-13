@@ -120,7 +120,7 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
         label: 'Copy Link',
         icon: Link,
         onClick: () => {
-          navigator.clipboard.writeText(getTrackLink(track.id));
+          navigator.clipboard.writeText(getTrackLink(track));
           showToast('Link copied!', 'success');
         }
       });

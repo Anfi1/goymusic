@@ -141,7 +141,7 @@ function App() {
       const link = parseDeepLink(url);
       if (!link) return;
       if (link.type === 'track') {
-        player.startRadio({ id: link.id } as any);
+        player.startRadio({ id: link.id, title: link.title, artists: link.artists, thumbUrl: link.thumbUrl, album: '', duration: '' } as any);
       } else if (link.type === 'album') {
         navigate({ type: 'album', albumId: link.id });
       }

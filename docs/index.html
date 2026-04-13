@@ -4,16 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GoyMusic</title>
+  <meta name="theme-color" content="#1e1e2e" />
 
-  <!-- Discord / Open Graph preview -->
+  <!-- OG tags filled by script below via meta injection (static fallback) -->
   <meta property="og:site_name" content="GoyMusic" />
   <meta property="og:title" content="Open in GoyMusic" />
   <meta property="og:description" content="Listen on GoyMusic desktop app or YouTube Music" />
-  <meta name="theme-color" content="#1e1e2e" />
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       background: #1e1e2e;
       color: #cdd6f4;
@@ -26,40 +25,32 @@
       gap: 24px;
       padding: 24px;
     }
-
-    .logo {
-      font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      color: #cba6f7;
-    }
-
+    .logo { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.5px; color: #cba6f7; }
     .card {
       background: #313244;
       border-radius: 16px;
-      padding: 32px 40px;
+      padding: 28px 32px;
       text-align: center;
       max-width: 380px;
       width: 100%;
       display: flex;
       flex-direction: column;
       gap: 16px;
+      align-items: center;
     }
-
-    .status {
-      font-size: 1rem;
-      color: #a6adc8;
-      min-height: 1.4em;
+    .thumb {
+      width: 120px; height: 120px;
+      border-radius: 10px;
+      object-fit: cover;
+      background: #45475a;
     }
-
-    .dot {
-      display: inline-block;
-      animation: blink 1.2s step-end infinite;
-    }
+    .track-title { font-size: 1.05rem; font-weight: 600; color: #cdd6f4; }
+    .track-artists { font-size: 0.85rem; color: #a6adc8; }
+    .status { font-size: 0.9rem; color: #a6adc8; min-height: 1.4em; }
+    .dot { display: inline-block; animation: blink 1.2s step-end infinite; }
     .dot:nth-child(2) { animation-delay: 0.2s; }
     .dot:nth-child(3) { animation-delay: 0.4s; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-
     .btn {
       display: inline-block;
       padding: 10px 20px;
@@ -74,19 +65,18 @@
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #cba6f7; color: #1e1e2e; }
     .btn-secondary { background: #45475a; color: #cdd6f4; }
-
     .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-
-    .sub {
-      font-size: 0.78rem;
-      color: #6c7086;
-    }
+    .sub { font-size: 0.78rem; color: #6c7086; }
   </style>
 </head>
 <body>
   <div class="logo">GoyMusic</div>
 
   <div class="card">
+    <img class="thumb" id="thumb" src="" alt="" style="display:none" />
+    <div class="track-title" id="trackTitle" style="display:none"></div>
+    <div class="track-artists" id="trackArtists" style="display:none"></div>
+
     <div class="status" id="status">
       Opening app<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
     </div>
@@ -98,23 +88,42 @@
   </div>
 
   <script>
-    const hash = window.location.hash.slice(1); // убираем #
-    const parts = hash.split('/');
-    const type = parts[0];
-    const id = parts[1];
+    function decodeMeta(str) {
+      try {
+        const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(decodeURIComponent(atob(base64)));
+      } catch { return null; }
+    }
 
-    const statusEl = document.getElementById('status');
-    const buttonsEl = document.getElementById('buttons');
-    const subEl = document.getElementById('sub');
+    const hash = window.location.hash.slice(1);
+    const parts = hash.split('/');
+    const type  = parts[0];
+    const id    = parts[1];
+    const metaStr = parts[2];
+
+    const statusEl   = document.getElementById('status');
+    const buttonsEl  = document.getElementById('buttons');
+    const subEl      = document.getElementById('sub');
     const openAppBtn = document.getElementById('openApp');
-    const openYTBtn = document.getElementById('openYT');
+    const openYTBtn  = document.getElementById('openYT');
+    const thumbEl    = document.getElementById('thumb');
+    const titleEl    = document.getElementById('trackTitle');
+    const artistsEl  = document.getElementById('trackArtists');
 
     let protocolUrl = '';
     let fallbackUrl = '';
 
     if (type === 'track' && id) {
-      protocolUrl = `goymusic://track/${id}`;
+      protocolUrl = `goymusic://track/${id}${metaStr ? '/' + metaStr : ''}`;
       fallbackUrl = `https://music.youtube.com/watch?v=${id}`;
+
+      // Показываем метаданные если есть
+      const meta = metaStr ? decodeMeta(metaStr) : null;
+      if (meta) {
+        if (meta.th) { thumbEl.src = meta.th; thumbEl.style.display = 'block'; }
+        if (meta.t)  { titleEl.textContent = meta.t; titleEl.style.display = 'block'; }
+        if (meta.a && meta.a.length) { artistsEl.textContent = meta.a.join(', '); artistsEl.style.display = 'block'; }
+      }
     } else if (type === 'album' && id) {
       protocolUrl = `goymusic://album/${id}`;
       fallbackUrl = `https://music.youtube.com/browse/${id}`;
@@ -124,20 +133,27 @@
       statusEl.textContent = 'Invalid link.';
     } else {
       openAppBtn.href = protocolUrl;
-      openYTBtn.href = fallbackUrl;
+      openYTBtn.href  = fallbackUrl;
 
-      // Пробуем открыть протокол
       window.location.href = protocolUrl;
 
-      // Через 1.5с показываем кнопки и редиректим на YT Music
-      setTimeout(() => {
-        statusEl.textContent = 'GoyMusic не установлен?';
-        buttonsEl.style.display = 'flex';
-        subEl.textContent = 'Перенаправляем на YouTube Music...';
+      let appOpened = false;
+      const onHide = () => { appOpened = true; };
+      window.addEventListener('blur', onHide);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) appOpened = true;
+      });
 
-        setTimeout(() => {
-          window.location.href = fallbackUrl;
-        }, 2000);
+      setTimeout(() => {
+        window.removeEventListener('blur', onHide);
+        if (appOpened) {
+          statusEl.textContent = 'Opened in GoyMusic!';
+          subEl.textContent = 'You can close this tab.';
+          window.close();
+        } else {
+          statusEl.textContent = 'GoyMusic not installed?';
+          buttonsEl.style.display = 'flex';
+        }
       }, 1500);
     }
   </script>
