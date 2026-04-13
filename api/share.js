@@ -1,17 +1,16 @@
 function decodeMeta(str) {
   try {
     const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(decodeURIComponent(Buffer.from(base64, 'base64').toString('utf8')));
+    return JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
   } catch { return null; }
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 module.exports = function handler(req, res) {
-  const url = req.url ?? '/';
-  const parts = url.replace(/^\//, '').split('/');
+  const parts = (req.url ?? '/').replace(/^\//, '').split('/');
   const type    = parts[0];
   const id      = parts[1];
   const metaStr = parts[2] ? parts[2].split('?')[0] : undefined;
@@ -26,7 +25,7 @@ module.exports = function handler(req, res) {
     const meta = metaStr ? decodeMeta(metaStr) : null;
     ogTitle       = meta && meta.t ? escapeHtml(meta.t) : 'Track on GoyMusic';
     ogDescription = meta && meta.a && meta.a.length ? escapeHtml(meta.a.join(', ')) : 'GoyMusic';
-    ogImage       = (meta && meta.th) ? meta.th : '';
+    ogImage       = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
     protocolUrl   = `goymusic://track/${id}${metaStr ? '/' + metaStr : ''}`;
     fallbackUrl   = `https://music.youtube.com/watch?v=${id}`;
   } else if (type === 'album' && id) {
@@ -39,8 +38,7 @@ module.exports = function handler(req, res) {
   const thumbDisplay  = ogImage ? `<img class="thumb" src="${escapeHtml(ogImage)}" alt="" />` : '';
   const titleDisplay  = ogTitle !== 'GoyMusic' ? `<div class="track-title">${ogTitle}</div>` : '';
   const artistDisplay = ogDescription !== 'Listen on GoyMusic desktop app or YouTube Music'
-    ? `<div class="track-artists">${ogDescription}</div>`
-    : '';
+    ? `<div class="track-artists">${ogDescription}</div>` : '';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -49,17 +47,15 @@ module.exports = function handler(req, res) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${ogTitle} — GoyMusic</title>
   <meta name="theme-color" content="#1e1e2e" />
-
   <meta property="og:site_name" content="GoyMusic" />
   <meta property="og:type" content="music.song" />
   <meta property="og:title" content="${ogTitle}" />
   <meta property="og:description" content="${ogDescription}" />
-  ${ogImage ? `<meta property="og:image" content="${escapeHtml(ogImage)}" />` : ''}
-  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}" />
+  <meta property="og:image" content="${escapeHtml(ogImage)}" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${ogTitle}" />
   <meta name="twitter:description" content="${ogDescription}" />
-  ${ogImage ? `<meta name="twitter:image" content="${escapeHtml(ogImage)}" />` : ''}
-
+  <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -125,13 +121,12 @@ module.exports = function handler(req, res) {
         if (document.hidden) appOpened = true;
       });
       setTimeout(function() {
+        buttonsEl.style.display = 'flex';
         if (appOpened) {
-          statusEl.textContent = 'Opened in GoyMusic!';
-          subEl.textContent = 'You can close this tab.';
-          window.close();
+          statusEl.textContent = 'GoyMusic should be open now.';
+          subEl.textContent = 'Nothing happened? Use the buttons below.';
         } else {
           statusEl.textContent = 'GoyMusic not installed?';
-          buttonsEl.style.display = 'flex';
         }
       }, 1500);
     }
