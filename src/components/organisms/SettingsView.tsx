@@ -7,6 +7,7 @@ import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
 import { YandexImportModal } from './YandexImportModal';
+import { SpotifyImportModal } from './SpotifyImportModal';
 import styles from './SettingsView.module.css';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
@@ -16,6 +17,7 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
+    const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
     const [rpcEnabled, setRpcEnabled] = useState(player.rpcEnabled);
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
@@ -116,6 +118,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                         <span className={styles.subtitle}>Like tracks on YouTube Music that match your Yandex Music likes.</span>
                     </div>
                     <button className={styles.btnSecondary} onClick={() => setYandexModalOpen(true)}>
+                        Import
+                    </button>
+                </div>
+                <div className={styles.row}>
+                    <div className={styles.col}>
+                        <span>Import from Spotify</span>
+                        <span className={styles.subtitle}>Like tracks on YouTube Music that match your Spotify liked songs.</span>
+                    </div>
+                    <button className={styles.btnSecondary} onClick={() => setSpotifyModalOpen(true)}>
                         Import
                     </button>
                 </div>
@@ -312,6 +323,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
             </div>
         </div>
         <YandexImportModal isOpen={yandexModalOpen} onClose={() => setYandexModalOpen(false)} />
+        <SpotifyImportModal isOpen={spotifyModalOpen} onClose={() => setSpotifyModalOpen(false)} />
         </>
     );
 };

@@ -526,3 +526,11 @@ export async function yandexImportStreaming(token: string, startIndex: number = 
     (err as any).processedCount = res.processedCount ?? startIndex;
     throw err;
 }
+
+export async function spotifyImportStreaming(token: string, startIndex: number = 0, signal?: AbortSignal): Promise<{ matched: number; notFound: number }> {
+    const res = await pyCall('spotify_import_streaming', { token, startIndex }, signal);
+    if (res.status === 'ok') return { matched: res.matched, notFound: res.notFound };
+    const err = new Error(res.message || 'Import failed');
+    (err as any).processedCount = res.processedCount ?? startIndex;
+    throw err;
+}
