@@ -9,6 +9,48 @@ import { createCallId } from './callId';
 const pendingRequests = new Map<string, Promise<CacheEntry | null>>();
 
 /**
+ * Реестр SoundCloud-треков: id трека -> resolvable SC permalink URL.
+ * Заполняется при создании SC-результатов поиска и перед воспроизведением.
+ * По наличию id в реестре stream.ts понимает, что стрим надо тянуть через get_preview_url.
+ */
+const scRegistry = new Map<string, string>();
+
+export function registerSoundCloudTrack(id: string, scUrl: string) {
+    if (id && scUrl) scRegistry.set(id, scUrl);
+}
+
+/**
+ * Резолв играбельного стрима SoundCloud через Python get_preview_url.
+ * Кэшируется по id трека так же, как YouTube-стримы.
+ */
+async function fetchSoundCloudStream(id: string, scUrl: string): Promise<CacheEntry | null> {
+    if (pendingRequests.has(id)) {
+        return pendingRequests.get(id)!;
+    }
+    const callId = createCallId();
+    const requestPromise = (async () => {
+        try {
+            const res = await (window as any).bridge.pyCall('get_preview_url', { url: scUrl, callId });
+            if (res.status === 'ok' && res.streamUrl) {
+                const expires = getExpirationFromUrl(res.streamUrl);
+                const loudness = res.loudness || 0;
+                await streamCache.set(id, res.streamUrl, expires, loudness);
+                console.log(`[stream] SoundCloud fetch: ${id} -> Done (loudness: ${loudness})`);
+                return { url: res.streamUrl, expires, loudness };
+            }
+            console.warn(`[stream] SoundCloud fetch: ${id} -> Failed`, res);
+        } catch (e) {
+            console.error(`[stream] SoundCloud fetch: ${id} -> Error`, e);
+        } finally {
+            pendingRequests.delete(id);
+        }
+        return null;
+    })();
+    pendingRequests.set(id, requestPromise);
+    return requestPromise;
+}
+
+/**
  * Контроллер для отмены текущего высокоприоритетного запроса (при быстром переключении).
  */
 let currentAbortController: AbortController | null = null;
@@ -35,6 +77,9 @@ export function getExpirationFromUrl(url: string): number {
  * Выполняет реальный вызов к Python-мосту с защитой от дублей и поддержкой отмены.
  */
 async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Promise<CacheEntry | null> {
+    // SoundCloud/URL-shaped ids must never reach the YouTube get_stream_url path
+    if (videoId.includes('://')) return null;
+
     // Если запрос для этого видео уже идет — просто подписываемся на него
     if (pendingRequests.has(videoId)) {
         return pendingRequests.get(videoId)!;
@@ -85,6 +130,21 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Pro
  */
 export async function getStreamUrl(videoId: string, forceBypassCache: boolean = false): Promise<CacheEntry | null> {
     await streamCache.init();
+
+    // SoundCloud: резолвим через get_preview_url вместо YouTube get_stream_url
+    const scUrl = scRegistry.get(videoId);
+    if (scUrl) {
+        if (!forceBypassCache) {
+            const cached = await streamCache.get(videoId);
+            if (cached) {
+                console.log(`[stream] Instant cache hit (SC) for ${videoId}`);
+                return cached;
+            }
+        } else {
+            await streamCache.delete(videoId);
+        }
+        return fetchSoundCloudStream(videoId, scUrl);
+    }
 
     const override = await getOverride(videoId);
     if (override) {
@@ -145,6 +205,15 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
  */
 export async function prefetchStreamUrl(videoId: string) {
     await streamCache.init();
+
+    const scUrlPrefetch = scRegistry.get(videoId);
+    if (scUrlPrefetch) {
+        const isFreshSc = await streamCache.isFresh(videoId);
+        if (!isFreshSc && !pendingRequests.has(videoId)) {
+            fetchSoundCloudStream(videoId, scUrlPrefetch);
+        }
+        return;
+    }
 
     const override = await getOverride(videoId);
     if (override) return;

@@ -24,6 +24,7 @@ import {
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
+import { isSoundCloudId, getSoundCloudArtist } from '../../api/soundcloud';
 
 interface ArtistViewProps {
   artistId: string;
@@ -53,10 +54,19 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     trackMenuRef.current?.open(e, track);
   }, []);
 
-  // 1. Fetch Basic Artist Details (Fast)
+  const isSoundCloudArtist = isSoundCloudId(artistId);
+
+  // 1. Fetch Basic Artist Details (Fast). Для SC-артиста — минимальный detail (имя, аватар, треки).
   const { data: detail, isLoading } = useQuery({
     queryKey: ['artist', artistId],
-    queryFn: () => getArtistDetail(artistId),
+    queryFn: async () => {
+      if (isSoundCloudArtist) {
+        const sc = await getSoundCloudArtist(artistId);
+        if (!sc) return null;
+        return { name: sc.name, thumbUrl: sc.thumbUrl, topSongs: sc.tracks, isSoundCloud: true } as any;
+      }
+      return getArtistDetail(artistId);
+    },
     staleTime: 1000 * 60 * 10,
   });
 
@@ -325,11 +335,13 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 {detail.subscribers && <div className={styles.statItem}><Users size={16} /><span>{detail.subscribers} subscribers</span></div>}
                 {detail.views && <div className={styles.statItem}><Eye size={16} /><span>{detail.views} total views</span></div>}
               </div>
-              <div className={styles.headerActions}>
-                <button className={`${styles.subscribeBtn} ${detail.subscribed ? styles.subscribed : ''}`} onClick={handleToggleSubscribe}>
-                  {detail.subscribed ? <><Check size={18} /> Subscribed</> : <><Plus size={18} /> Subscribe</>}
-                </button>
-              </div>
+              {!detail.isSoundCloud && (
+                <div className={styles.headerActions}>
+                  <button className={`${styles.subscribeBtn} ${detail.subscribed ? styles.subscribed : ''}`} onClick={handleToggleSubscribe}>
+                    {detail.subscribed ? <><Check size={18} /> Subscribed</> : <><Plus size={18} /> Subscribe</>}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -342,7 +354,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
             {detail.seeAllSongsId && <button className={styles.seeAllBtn} onClick={handleSeeAllSongs}>See all <ChevronRight size={16} /></button>}
           </div>
           <table className={styles.trackList}>
-            <tbody>{detail.topSongs.map((track, i) => (
+            <tbody>{detail.topSongs.map((track: YTMTrack, i: number) => (
               <TrackRow 
                 key={track.id} 
                 index={i + 1} 
@@ -351,7 +363,9 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 isPlaying={isPlaying} 
                 onSelectArtist={onSelectArtist} 
                 onSelectAlbum={onSelectAlbum} 
-                onClick={() => player.playSingle(track)} 
+                onClick={() => detail.isSoundCloud
+                  ? player.playTrackList(detail.topSongs, i, 'sc-artist-' + artistId)
+                  : player.playSingle(track)}
                 onContextMenu={(e) => handleContextMenu(e, track)}
               />
             ))}</tbody>

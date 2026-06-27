@@ -4,10 +4,11 @@ import { player } from '../../api/player';
 import { useQueue } from '../../hooks/useQueue';
 import { QueueItem } from '../molecules/QueueItem';
 import { QueueItemSkeleton } from '../molecules/QueueItemSkeleton';
-import { Infinity as InfinityIcon, RotateCw } from 'lucide-react';
+import { RotateCw } from 'lucide-react';
 import styles from './QueuePanel.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { YTMTrack } from '../../api/yt';
+import { isSoundCloudEnabled } from '../../api/soundcloud';
 
 interface QueuePanelProps {
   onSelectAlbum: (id: string) => void;
@@ -16,19 +17,42 @@ interface QueuePanelProps {
   isVisible?: boolean;
 }
 
-const AutoplayButton = memo(() => {
-  const [active, setActive] = useState(player.autoplay);
+const RADIO_MODES: { key: 'youtube' | 'soundcloud' | 'hybrid', label: string }[] = [
+  { key: 'youtube', label: 'YT' },
+  { key: 'soundcloud', label: 'SC' },
+  { key: 'hybrid', label: 'Гибрид' },
+];
+
+// Переключатель источника автодозагрузки очереди. Виден только при включённом SoundCloud.
+const RadioModeSwitcher = memo(() => {
+  const [mode, setMode] = useState(player.radioMode);
+  const [scEnabled, setScEnabled] = useState(isSoundCloudEnabled());
   useEffect(() => {
-    return player.subscribe((event) => {
-      if (event === 'state') setActive(player.autoplay);
+    const unsub = player.subscribe((ev) => {
+      if (ev !== 'state') return;
+      if (player.radioMode !== mode) setMode(player.radioMode);
     });
-  }, []);
-  const handleToggle = useCallback(() => player.toggleAutoplay(), []);
+    const onScChange = (e: Event) => setScEnabled((e as CustomEvent).detail.enabled);
+    window.addEventListener('sc-enabled-changed', onScChange);
+    return () => { unsub(); window.removeEventListener('sc-enabled-changed', onScChange); };
+  }, [mode]);
+
+  if (!scEnabled) return null;
+
   return (
-    <button className={`${styles.autoplayBtn} ${active ? styles.active : ''}`} onClick={handleToggle} data-tooltip="Autoplay">
-      <InfinityIcon size={18} />
-      <span>Autoplay</span>
-    </button>
+    <div className={styles.radioSwitcher} role="tablist" data-tooltip="Источник радио">
+      {RADIO_MODES.map(({ key, label }) => (
+        <button
+          key={key}
+          className={`${styles.radioSegment} ${mode === key ? styles.radioSegmentActive : ''}`}
+          onClick={() => player.setRadioMode(key)}
+          role="tab"
+          aria-selected={mode === key}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 });
 
@@ -72,6 +96,7 @@ const SuggestedSection = memo(({
               thumbUrl={track.thumbUrl}
               duration={track.duration}
               likeStatus={track.likeStatus}
+              source={track.source}
               isActive={false}
               onClick={onPlay}
               onContextMenu={onContextMenu}
@@ -120,6 +145,7 @@ const MemoizedQueueItem = memo(({
         thumbUrl={track.thumbUrl}
         duration={track.duration}
         likeStatus={track.likeStatus}
+        source={track.source}
         isActive={isActive}
         onClick={onPlay}
         onContextMenu={onContextMenu}
@@ -271,7 +297,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
     <aside className={styles.panel}>
       <header className={styles.header}>
         <h4>Queue</h4>
-        <AutoplayButton />
+        <RadioModeSwitcher />
       </header>
       <div className={styles.list}>
         <Virtuoso

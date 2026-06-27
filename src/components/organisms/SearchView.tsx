@@ -1,6 +1,8 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { searchMusic, searchMore } from '../../api/yt';
+import { searchSoundCloud, mergeTracks, searchSoundCloudExtra } from '../../api/soundcloud';
+import { SourceBadge } from '../atoms/SourceBadge';
 import { player } from '../../api/player';
 import { LazyImage } from '../atoms/LazyImage';
 import { Skeleton } from '../atoms/Skeleton';
@@ -80,6 +82,20 @@ export const SearchView: React.FC<SearchViewProps> = ({
     staleTime: 0,
     gcTime: 5 * 60 * 1000,
     select: (data) => data.slice(0, 5),
+  });
+
+  const { data: scTracks = [] } = useQuery({
+    queryKey: ['sc-search', searchQuery],
+    queryFn: () => searchSoundCloud(searchQuery),
+    enabled: !!searchQuery && (activeFilter === 'all' || activeFilter === 'songs'),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: scExtra = { artists: [], albums: [] } } = useQuery({
+    queryKey: ['sc-extra', searchQuery],
+    queryFn: () => searchSoundCloudExtra(searchQuery),
+    enabled: !!searchQuery && activeFilter === 'all',
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: artistsSection = [], isLoading: isArtistsLoading } = useQuery({
@@ -216,9 +232,15 @@ export const SearchView: React.FC<SearchViewProps> = ({
     ? { ...topResultRaw, likeStatus: likeOverrides[topResultRaw.id] ?? topResultRaw.likeStatus }
     : undefined;
   const correction = searchData?.correction;
-  const tracks = tracksSection;
-  const artists = artistsSection;
-  const albums = albumsSection;
+  const tracks = useMemo(() => mergeTracks(tracksSection, scTracks), [tracksSection, scTracks]);
+  // В табе Songs подмешиваем SC (2 YT : 1 SC); для videos — без изменений.
+  const displayedItems = useMemo(
+    () => activeFilter === 'songs' ? mergeTracks(filteredItems, scTracks) : filteredItems,
+    [activeFilter, filteredItems, scTracks]
+  );
+  // Подмешиваем SC-артистов и SC-альбомы (с пометкой источника) в соответствующие секции.
+  const artists = useMemo(() => [...artistsSection, ...scExtra.artists], [artistsSection, scExtra.artists]);
+  const albums = useMemo(() => [...albumsSection, ...scExtra.albums], [albumsSection, scExtra.albums]);
   const playlists = playlistsSection;
 
   const artistsScrollRef = useRef<HTMLDivElement>(null);
@@ -442,7 +464,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                     >
                       <LazyImage src={pl.thumbUrl} className={styles.albumThumb} />
                       <div className={styles.albumTitle} data-tooltip={String(pl.title || '')} data-tooltip-overflow="">{String(pl.title || '')}</div>
-                      <div className={styles.albumArtists} data-tooltip={String(pl.author || pl.count || '')} data-tooltip-overflow="">{String(pl.author || pl.count || '')}</div>
+                      <div className={styles.albumArtists} data-tooltip={String((pl.author && typeof pl.author === 'object' ? pl.author.name : pl.author) || pl.count || '')} data-tooltip-overflow="">{String((pl.author && typeof pl.author === 'object' ? pl.author.name : pl.author) || pl.count || '')}</div>
                     </div>
                   ))}
                 </div>
@@ -478,10 +500,17 @@ export const SearchView: React.FC<SearchViewProps> = ({
                       onClick={() => onSelectAlbum(album.id)}
                       onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: { ...album, type: 'album' } }); }}
                     >
-                      <LazyImage src={album.thumbUrl} className={styles.albumThumb} />
+                      <div style={{ position: 'relative' }}>
+                        <LazyImage src={album.thumbUrl} className={styles.albumThumb} />
+                        {(album as any).source === 'soundcloud' && (
+                          <div style={{ position: 'absolute', bottom: 6, right: 6 }}>
+                            <SourceBadge source="soundcloud" size={14} />
+                          </div>
+                        )}
+                      </div>
                       <div className={styles.albumTitle} data-tooltip={album.title} data-tooltip-overflow="">{album.title}</div>
                       <div className={styles.albumArtists}>
-                        {album.artists.map((name: string, idx: number) => (
+                        {(album.artists || []).map((name: string, idx: number) => (
                           <React.Fragment key={idx}>
                             <span
                               className={album.artistIds?.[idx] ? styles.songLink : ''}
@@ -514,7 +543,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
           ) : (
             <Virtuoso
               style={{ flex: 1 }}
-              data={filteredItems}
+              data={displayedItems}
               endReached={loadFilteredPage}
               overscan={400}
               itemContent={(index, track) => {
@@ -531,9 +560,10 @@ export const SearchView: React.FC<SearchViewProps> = ({
                       thumbUrl={track.thumbUrl}
                       duration={track.duration}
                       likeStatus={effectiveLikeStatus}
+                      source={track.source}
                       isActive={activeTrackId === track.id}
                       trackData={{ ...track, likeStatus: effectiveLikeStatus }}
-                      onClick={() => player.playTrackList(filteredItems, index, searchQuery)}
+                      onClick={() => player.playTrackList(displayedItems, index, searchQuery)}
                       onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
                       onSelectArtist={onSelectArtist}
                       hideDislike

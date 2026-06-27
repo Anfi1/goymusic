@@ -13,7 +13,7 @@ class DbCache {
     async init() {
         if (this.db) return;
         return new Promise<void>((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 4); // Increased version
+            const request = indexedDB.open(this.dbName, 6); // Increased version
             request.onupgradeneeded = () => {
                 const db = request.result;
                 if (db.objectStoreNames.contains(this.storeName)) {

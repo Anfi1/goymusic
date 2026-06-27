@@ -1,6 +1,7 @@
 import { player } from "./player";
 import { historyStore } from "./history";
 import { addToHistory } from "./yt";
+import { PlaybackAccumulator, PlaybackFlush } from "./playbackAccumulator";
 
 class HistoryManager {
   private historyEnabled: boolean = true;
@@ -8,6 +9,11 @@ class HistoryManager {
   private currentTrackLogged: string | null = null;
   private playbackThreshold = 5000; // 5 seconds in ms
   private logTimer: any = null;
+  private accumulator = new PlaybackAccumulator();
+  private loggedTimestamp: number | null = null;
+  private tickTimer: any = null;
+  private flushCounter = 0;
+  private readonly flushEverySec = 15;
 
   constructor() {
     this.loadSettings();
@@ -41,18 +47,26 @@ class HistoryManager {
     // Background cleanup every 4 hours
     this.runCleanup();
     setInterval(() => this.runCleanup(), 1000 * 60 * 60 * 4);
+    // Тик раз в секунду: копим реально прослушанное время
+    this.tickTimer = setInterval(() => this.onTick(), 1000);
   }
 
   private handleStateChange() {
     if (!this.historyEnabled || !player.currentTrack) {
         this.stopLogTimer();
+        this.persistFlush(this.accumulator.setActiveTrack(null));
         return;
     }
+
+    const currentId = player.currentTrack.id;
+    // Смена активного трека: слить накопленное предыдущего в его запись
+    this.persistFlush(this.accumulator.setActiveTrack(currentId));
 
     // If track changed, reset and start timer if playing
     if (this.currentTrackLogged !== player.currentTrack.id) {
         this.stopLogTimer();
-        
+        this.loggedTimestamp = null;
+
         if (player.isPlaying) {
             this.startLogTimer(player.currentTrack.id);
         }
@@ -60,9 +74,6 @@ class HistoryManager {
         // Same track, but maybe resumed/paused
         if (!player.isPlaying) {
             this.stopLogTimer();
-        } else if (!this.logTimer && this.currentTrackLogged !== player.currentTrack.id) {
-            // This case shouldn't happen with current logic but for safety
-            this.startLogTimer(player.currentTrack.id);
         }
     }
   }
@@ -89,18 +100,41 @@ class HistoryManager {
     this.currentTrackLogged = trackId;
     console.log(`[history] Logging track: ${player.currentTrack.title}`);
     
-    // Background YT history update
-    addToHistory(player.currentTrack.id).catch(err => {
-      console.error("[history] YT background update failed", err);
-    });
+    // Background YT history update — только для YT-треков (SC-id это URL, в YT-API не уходит)
+    if (player.currentTrack.source !== 'soundcloud') {
+      addToHistory(player.currentTrack.id).catch(err => {
+        console.error("[history] YT background update failed", err);
+      });
+    }
 
     try {
-      await historyStore.addEntry(player.currentTrack);
+      const ts = await historyStore.addEntry(player.currentTrack);
+      if (ts != null) this.loggedTimestamp = ts;
     } catch (e) {
       console.error("[history] Failed to add entry", e);
     }
     
     this.logTimer = null;
+  }
+
+  private onTick() {
+    if (!this.historyEnabled) return;
+    this.accumulator.tick(player.isPlaying);
+    this.flushCounter++;
+    if (this.flushCounter >= this.flushEverySec) {
+      this.flushCounter = 0;
+      this.persistFlush(this.accumulator.drain());
+    }
+  }
+
+  // Пишем дельту секунд в запись истории текущего залогированного трека
+  private persistFlush(flush: PlaybackFlush | null) {
+    if (!flush) return;
+    if (this.currentTrackLogged === flush.trackId && this.loggedTimestamp != null) {
+      historyStore.addListenedSeconds(this.loggedTimestamp, flush.seconds).catch(err => {
+        console.error("[history] addListenedSeconds failed", err);
+      });
+    }
   }
 
   private async runCleanup() {

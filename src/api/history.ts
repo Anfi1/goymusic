@@ -4,6 +4,7 @@ export interface HistoryEntry {
   timestamp: number;
   videoId: string;
   track: YTMTrack;
+  listenedSeconds: number;
 }
 
 class HistoryStore {
@@ -31,33 +32,58 @@ class HistoryStore {
     });
   }
 
-  async addEntry(track: YTMTrack) {
+  async addEntry(track: YTMTrack): Promise<number | null> {
     await this.init();
-    if (!this.db) return;
+    if (!this.db) return null;
 
     const entry: HistoryEntry = {
       timestamp: Date.now(),
       videoId: track.id,
-      track: JSON.parse(JSON.stringify(track)) // Deep copy
+      track: JSON.parse(JSON.stringify(track)), // Deep copy
+      listenedSeconds: 0
     };
+
+    return new Promise<number | null>((resolve, reject) => {
+      const tx = this.db!.transaction(this.STORE_NAME, 'readwrite');
+      const store = tx.objectStore(this.STORE_NAME);
+
+      // По умолчанию пишем новую запись; при дубле за 30с — переиспользуем её timestamp
+      let resultTimestamp: number | null = entry.timestamp;
+
+      const range = IDBKeyRange.lowerBound(Date.now() - 30000);
+      const cursorReq = store.openCursor(range, 'prev');
+
+      cursorReq.onsuccess = (e: any) => {
+        const cursor = e.target.result;
+        if (cursor && cursor.value.videoId === track.id) {
+          resultTimestamp = cursor.value.timestamp; // переиспользуем существующую запись
+          return; // дубликат не добавляем
+        }
+        store.add(entry);
+      };
+
+      tx.oncomplete = () => resolve(resultTimestamp);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async addListenedSeconds(timestamp: number, delta: number): Promise<void> {
+    if (delta <= 0) return;
+    await this.init();
+    if (!this.db) return;
 
     return new Promise<void>((resolve, reject) => {
       const tx = this.db!.transaction(this.STORE_NAME, 'readwrite');
       const store = tx.objectStore(this.STORE_NAME);
-      
-      // Prevent duplicates within last 30 seconds
-      const range = IDBKeyRange.lowerBound(Date.now() - 30000);
-      const cursorReq = store.openCursor(range, 'prev');
-      
-      cursorReq.onsuccess = (e: any) => {
-        const cursor = e.target.result;
-        if (cursor && cursor.value.videoId === track.id) {
-          resolve(); // Skip duplicate
-          return;
-        }
-        store.add(entry);
+      const getReq = store.get(timestamp);
+
+      getReq.onsuccess = () => {
+        const entry = getReq.result as HistoryEntry | undefined;
+        if (!entry) { resolve(); return; }
+        entry.listenedSeconds = (entry.listenedSeconds || 0) + delta;
+        store.put(entry);
       };
-      
+
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

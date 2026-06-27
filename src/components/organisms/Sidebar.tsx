@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Sparkles, Radio } from 'lucide-react';
+import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Sparkles, Radio, AudioLines } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
 import { YTMPlaylist, YTMUser, createPlaylist } from '../../api/yt';
@@ -326,6 +326,10 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
     onSelectView?.({ type: 'radio' });
   }, [onSelectView]);
 
+  const handleNavigateMyWave = useCallback(() => {
+    onSelectView?.({ type: 'my-wave' });
+  }, [onSelectView]);
+
   // Check if Liked Songs is active (either via dedicated type or via playlistId LM)
   const isLikedActive = activeViewType === 'liked' || activePlaylistId === 'LM';
 
@@ -368,6 +372,13 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           active={isLikedActive}
           onClick={handleNavigateLiked}
           tooltip={collapsed ? 'Liked Songs' : undefined}
+        />
+        <NavLink
+          icon={AudioLines}
+          label={collapsed ? '' : 'My Wave'}
+          active={activeViewType === 'my-wave'}
+          onClick={handleNavigateMyWave}
+          tooltip={collapsed ? 'My Wave' : undefined}
         />
         <NavLink
           icon={Radio}

@@ -91,13 +91,13 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
     });
 
     // 2. Навигация
-    items.push({
-      label: 'Go to Artist', icon: ListMusic,
-      onClick: () => {
-        const artistId = track.artistIds?.[0];
-        if (artistId) onSelectArtist?.(artistId);
-      }
-    });
+    const artistNavId = track.artistIds?.[0] || (track as any).artistId;
+    if (artistNavId) {
+      items.push({
+        label: 'Go to Artist', icon: ListMusic,
+        onClick: () => onSelectArtist?.(artistNavId)
+      });
+    }
 
     if (track.albumId) {
       items.push({

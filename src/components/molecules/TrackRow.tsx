@@ -8,6 +8,8 @@ import { player } from '../../api/player';
 import { likedManager } from '../../api/likedManager';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
 import styles from './TrackRow.module.css';
+import { SourceBadge } from '../atoms/SourceBadge';
+import { resolveSource } from '../../api/source';
 
 interface TrackRowProps {
   id?: string;
@@ -37,6 +39,7 @@ interface TrackRowProps {
   className?: string;
   renderOnlyCells?: boolean;
   extraCells?: React.ReactNode[];
+  source?: unknown;
 }
 
 const MemoizedPlayIcon = memo(() => <Play size={14} className={styles.playIcon} fill="currentColor" />);
@@ -216,7 +219,8 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     hideDislike = false,
     className,
     renderOnlyCells = false,
-    extraCells = []
+    extraCells = [],
+    source
   } = props;
 
   // Still need active status for row styling, but isolated from playback state
@@ -273,12 +277,19 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
       <td className={styles.titleTd}>
         <div className={styles.titleCell}>
           {thumbUrl && (
-            <LazyImage
-              src={thumbUrl}
-              alt=""
-              className={styles.thumb}
-              placeholder={ThumbPlaceholder}
-            />
+            <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+              <LazyImage
+                src={thumbUrl}
+                alt=""
+                className={styles.thumb}
+                placeholder={ThumbPlaceholder}
+              />
+              {resolveSource(source) === 'soundcloud' && (
+                <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
+                  <SourceBadge source={source} size={12} />
+                </div>
+              )}
+            </div>
           )}
           <div className={styles.titleWrapper}>
             <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
@@ -304,7 +315,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
         <td className={styles.durationCell}>
           <div className={styles.durationWrapper}>
             <OverrideIndicator id={id} />
-            {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike} /></div>}
+            {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike || resolveSource(source) === 'soundcloud'} /></div>}
             <span className={styles.durationText}>{duration}</span>
           </div>
         </td>

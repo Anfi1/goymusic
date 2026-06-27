@@ -5,7 +5,11 @@
       "mcp__plugin_context-mode_context-mode__ctx_execute",
       "mcp__plugin_context7_context7__resolve-library-id",
       "mcp__plugin_context7_context7__query-docs",
-      "mcp__plugin_context-mode_context-mode__ctx_execute_file"
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+      "mcp__plugin_context-mode_context-mode__ctx_search",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('python/api.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

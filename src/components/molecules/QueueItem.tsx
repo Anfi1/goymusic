@@ -6,6 +6,8 @@ import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
 import styles from './QueueItem.module.css';
+import { SourceBadge } from '../atoms/SourceBadge';
+import { resolveSource } from '../../api/source';
 
 interface QueueItemProps {
   id: string;
@@ -27,6 +29,7 @@ interface QueueItemProps {
   className?: string;
   trackData?: any;
   hideDislike?: boolean;
+  source?: unknown;
 }
 
 const PlaybackOverlay = memo(({ id, isActive }: { id: string, isActive: boolean }) => {
@@ -152,7 +155,8 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
   onDragStart,
   className,
   trackData,
-  hideDislike
+  hideDislike,
+  source
 }) => {
 
   const handleItemClick = useCallback(() => {
@@ -176,9 +180,14 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
       draggable={draggable}
       onDragStart={handleDragStartInternal}
     >
-      <div className={styles.coverWrapper}>
+      <div className={styles.coverWrapper} style={{ position: 'relative' }}>
         {thumbUrl ? <img src={thumbUrl} alt="" className={styles.cover} /> : <div className={styles.cover} />}
         <PlaybackOverlay id={id} isActive={isActive} />
+        {resolveSource(source) === 'soundcloud' && (
+          <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
+            <SourceBadge source={source} size={12} />
+          </div>
+        )}
       </div>
       
       <div className={styles.info}>
@@ -201,7 +210,7 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
 
       <div className={styles.rightSection}>
         <OverrideIndicator id={id} />
-        <div className={styles.likeBtnGroup}><LikeButton id={id} initialLikeStatus={initialLikeStatus} trackData={trackData} hideDislike={hideDislike} /></div>
+        <div className={styles.likeBtnGroup}><LikeButton id={id} initialLikeStatus={initialLikeStatus} trackData={trackData} hideDislike={hideDislike || resolveSource(source) === 'soundcloud'} /></div>
         {duration && <div className={styles.duration}>{duration}</div>}
       </div>
     </div>

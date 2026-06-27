@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, Fragment, memo, useMemo, useRef } from 'react';
 import {
   Shuffle, SkipBack, Pause, Play, SkipForward, Repeat, Repeat1,
-  ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HeartCrack, HardDriveDownload, AlertCircle
+  ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HeartCrack, HardDriveDownload, AlertCircle,
+  Infinity as InfinityIcon
 } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
+import { SourceBadge } from '../atoms/SourceBadge';
 import { ProgressBar, ProgressBarRef } from '../atoms/ProgressBar';
 import { player } from '../../api/player';
 import { openImageViewer } from '../molecules/ImageViewer';
@@ -29,14 +31,28 @@ function formatTime(sec: number): string {
 
 // 1. SURGICAL SUB-COMPONENTS for Controls - Removed individual buttons for consolidation
 
-const LikeButton = memo(({ trackId, initialLikeStatus }: { trackId: string, initialLikeStatus?: string }) => {
-  const [likeStatus, setLikeStatus] = useState(initialLikeStatus);
+// Общая логика лайка/дизлайка текущего трека (подписка + рейтинг).
+function useLikeControls() {
+  const [track, setTrack] = useState(player.currentTrack);
+  useEffect(() => {
+    return player.subscribe((ev) => {
+      if (ev === 'tick') return;
+      setTrack(prev => {
+        const curr = player.currentTrack;
+        if (prev?.id === curr?.id && prev?.likeStatus === curr?.likeStatus) return prev;
+        return curr ? { ...curr } : null;
+      });
+    });
+  }, []);
+
+  const trackId = track?.id;
+  const [likeStatus, setLikeStatus] = useState(track?.likeStatus);
   const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
   useEffect(() => {
-    setLikeStatus(initialLikeStatus);
+    setLikeStatus(track?.likeStatus);
     setLoadingAction(null);
-  }, [trackId, initialLikeStatus]);
+  }, [trackId, track?.likeStatus]);
 
   useEffect(() => {
     const handleGlobalLikeUpdated = (e: CustomEvent) => {
@@ -51,56 +67,76 @@ const LikeButton = memo(({ trackId, initialLikeStatus }: { trackId: string, init
     };
   }, [trackId]);
 
-  const handleLike = async (e: React.MouseEvent) => {
+  const rate = async (target: 'LIKE' | 'DISLIKE', e: React.MouseEvent) => {
     e.stopPropagation();
-    if (loadingAction) return;
-    setLoadingAction('like');
+    if (loadingAction || !trackId) return;
+    setLoadingAction(target === 'LIKE' ? 'like' : 'dislike');
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackId } }));
     try {
-      const newStatus = likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
+      const newStatus = likeStatus === target ? 'INDIFFERENT' : target;
       await player.rateCurrentTrack(newStatus);
     } catch {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackId, status: 'error' } }));
     }
   };
 
-  const handleDislike = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (loadingAction) return;
-    setLoadingAction('dislike');
-    window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackId } }));
-    try {
-      const newStatus = likeStatus === 'DISLIKE' ? 'INDIFFERENT' : 'DISLIKE';
-      await player.rateCurrentTrack(newStatus);
-    } catch {
-      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackId, status: 'error' } }));
-    }
-  };
+  return { trackId, likeStatus, loadingAction, rate, source: track?.source };
+}
 
+const DislikeButton = memo(() => {
+  const { trackId, likeStatus, loadingAction, rate, source } = useLikeControls();
+  if (!trackId) return null;
+  // У SoundCloud нет дизлайка — кнопку оставляем, но блокируем.
+  const isSc = source === 'soundcloud';
   return (
-    <>
-      <IconButton
-        icon={Heart}
-        size={32}
-        iconSize={18}
-        active={likeStatus === 'LIKE'}
-        isLoading={loadingAction === 'like'}
-        className={styles.likeButton}
-        onClick={handleLike}
-        color={likeStatus === 'LIKE' ? '#f38ba8' : undefined}
-        fill={likeStatus === 'LIKE' ? '#f38ba8' : 'none'}
-      />
-      <IconButton
-        icon={HeartCrack}
-        size={32}
-        iconSize={18}
-        active={likeStatus === 'DISLIKE'}
-        isLoading={loadingAction === 'dislike'}
-        className={styles.likeButton}
-        onClick={handleDislike}
-        color={likeStatus === 'DISLIKE' ? '#fab387' : undefined}
-      />
-    </>
+    <IconButton
+      icon={HeartCrack}
+      size={32}
+      iconSize={18}
+      active={likeStatus === 'DISLIKE'}
+      isLoading={loadingAction === 'dislike'}
+      disabled={isSc}
+      title={isSc ? 'SoundCloud не поддерживает дизлайк' : undefined}
+      className={styles.likeButton}
+      onClick={(e: React.MouseEvent) => { if (!isSc) rate('DISLIKE', e); }}
+      color={likeStatus === 'DISLIKE' ? '#fab387' : undefined}
+    />
+  );
+});
+
+const LikeButton = memo(() => {
+  const { trackId, likeStatus, loadingAction, rate } = useLikeControls();
+  if (!trackId) return null;
+  return (
+    <IconButton
+      icon={Heart}
+      size={32}
+      iconSize={18}
+      active={likeStatus === 'LIKE'}
+      isLoading={loadingAction === 'like'}
+      className={styles.likeButton}
+      onClick={(e: React.MouseEvent) => rate('LIKE', e)}
+      color={likeStatus === 'LIKE' ? '#f38ba8' : undefined}
+      fill={likeStatus === 'LIKE' ? '#f38ba8' : 'none'}
+    />
+  );
+});
+
+const AutoplayButton = memo(() => {
+  const [active, setActive] = useState(player.autoplay);
+  useEffect(() => {
+    return player.subscribe((event) => {
+      if (event === 'state') setActive(player.autoplay);
+    });
+  }, []);
+  return (
+    <IconButton
+      icon={InfinityIcon}
+      size={28}
+      iconSize={15}
+      active={active}
+      onClick={() => player.toggleAutoplay()}
+    />
   );
 });
 
@@ -146,6 +182,11 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
     <div className={`${styles.nowPlaying} ${(track?.albumId || player.queueSourceId) ? styles.clickable : ''} ${isLoading ? styles.loading : ''}`} onClick={handleSourceClick}>
       <div className={styles.artWrapper} onClick={handleArtClick}>
         {track?.thumbUrl ? <img src={track.thumbUrl} alt="" className={styles.albumArt} /> : <div className={styles.albumArtEmpty} />}
+        {track?.source === 'soundcloud' && (
+          <span style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
+            <SourceBadge source={track.source} size={12} />
+          </span>
+        )}
         {isLoading && <div className={styles.spinner} />}
       </div>
       <div className={styles.trackInfo}>
@@ -164,7 +205,6 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
       </div>
       {track?.id && (
         <div className={styles.trackActions} onClick={(e) => e.stopPropagation()}>
-          <LikeButton trackId={track.id} initialLikeStatus={track.likeStatus} />
           <OverrideButton onOpen={onOpenOverride} />
         </div>
       )}
@@ -298,7 +338,7 @@ const VolumeControl = memo(() => {
          onWheel={(e) => player.setVolume(player.volume + (-Math.sign(e.deltaY) * 5))}
          onContextMenu={handleContextMenu}
     >
-      <IconButton icon={VolumeIcon} size={28} iconSize={16} onClick={() => player.toggleMute()} />
+      <IconButton icon={VolumeIcon} size={34} iconSize={20} onClick={() => player.toggleMute()} />
       <ProgressBar 
         progress={volume} 
         onSeek={handleVolumeSeek} 
@@ -326,19 +366,19 @@ const VolumeControl = memo(() => {
 const PanelButtons = memo(({ activeRightPanel, onToggleRightPanel }: { activeRightPanel: string, onToggleRightPanel?: (panel: 'queue' | 'lyrics') => void }) => {
   return (
     <div style={{ display: 'flex', gap: '0.2rem' }}>
-      <IconButton 
-        icon={Mic2} 
-        size={32} 
-        iconSize={18} 
-        active={activeRightPanel === 'lyrics'} 
-        onClick={() => onToggleRightPanel?.('lyrics')} 
+      <IconButton
+        icon={Mic2}
+        size={28}
+        iconSize={15}
+        active={activeRightPanel === 'lyrics'}
+        onClick={() => onToggleRightPanel?.('lyrics')}
       />
-      <IconButton 
-        icon={ListMusic} 
-        size={32} 
-        iconSize={18} 
-        active={activeRightPanel === 'queue'} 
-        onClick={() => onToggleRightPanel?.('queue')} 
+      <IconButton
+        icon={ListMusic}
+        size={28}
+        iconSize={15}
+        active={activeRightPanel === 'queue'}
+        onClick={() => onToggleRightPanel?.('queue')}
       />
     </div>
   );
@@ -448,11 +488,13 @@ const OverrideButton = memo(({ onOpen }: { onOpen: (track: YTMTrack) => void }) 
 const PlayerControls = memo(() => {
   return (
     <div className={styles.buttons}>
+      <DislikeButton />
       <ShuffleButton />
       <IconButton icon={SkipBack} size={32} iconSize={20} onClick={() => player.prev()} />
       <PlayPauseButton />
       <IconButton icon={SkipForward} size={32} iconSize={20} onClick={() => player.next()} />
       <RepeatButton />
+      <LikeButton />
     </div>
   );
 });
@@ -487,6 +529,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
       {infoSection}
       {controlSection}
       <div className={styles.extra} style={{ gap: '0.2rem' }}>
+        <AutoplayButton />
         <PanelButtons activeRightPanel={activeRightPanel} onToggleRightPanel={onToggleRightPanel} />
         <div style={{ marginLeft: '1rem' }}>
           <VolumeControl />

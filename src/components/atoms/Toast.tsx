@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, createContext, useContext } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle, XCircle, Info, X } from 'lucide-react';
 import styles from './Toast.module.css';
@@ -27,6 +27,16 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
   }, []);
+
+  // Глобальный мост: любой модуль может показать тост через window-событие 'app-toast'.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      if (d.message) showToast(d.message, d.type || 'info');
+    };
+    window.addEventListener('app-toast', handler as EventListener);
+    return () => window.removeEventListener('app-toast', handler as EventListener);
+  }, [showToast]);
 
   const contextValue = useMemo(() => ({ showToast }), [showToast]);
 

@@ -1,8 +1,9 @@
-import { YTMTrack, getQueueRecommendations, rateSong } from './yt';
+import { YTMTrack, getQueueRecommendations, rateSong, searchMore } from './yt';
 import { streamCache } from './cache';
-import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl } from './stream';
+import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
+import { searchSoundCloud, isSoundCloudEnabled, interleaveTracks, pickBestScMatch, isSoundCloudId, getScRecommendations } from './soundcloud';
 
 export type PlayerEventType = 'state' | 'tick' | 'buffer';
 type PlayerCallback = (event: PlayerEventType) => void;
@@ -28,6 +29,7 @@ class PlayerStore {
     shuffle: boolean = false;
     repeat: 'off' | 'all' | 'one' = 'off';
     autoplay: boolean = true;
+    radioMode: 'youtube' | 'soundcloud' | 'hybrid' = 'youtube';
     rpcEnabled: boolean = true;
     normalizationEnabled: boolean = true;
     isCurrentTrackLocal: boolean = false;
@@ -59,6 +61,9 @@ class PlayerStore {
     private wtSegStart: number = 0;
     private wtNextFlushAt: number = 10;
     private wtPrevMediaTime: number = 0;
+
+    // Треки, для которых уже пробовали SC-фолбэк в текущей попытке воспроизведения (защита от цикла).
+    private scFallbackTried = new Set<string>();
 
     constructor() {
         this.audioA = new Audio();
@@ -251,6 +256,11 @@ class PlayerStore {
                 this.autoplay = savedAutoplay === 'true';
             }
 
+            const savedRadioMode = localStorage.getItem('ytm-radio-mode');
+            if (savedRadioMode === 'youtube' || savedRadioMode === 'soundcloud' || savedRadioMode === 'hybrid') {
+                this.radioMode = savedRadioMode;
+            }
+
             const savedRPC = localStorage.getItem('ytm-rpc-enabled');
             if (savedRPC !== null) {
                 this.rpcEnabled = savedRPC === 'true';
@@ -300,6 +310,7 @@ class PlayerStore {
                 localStorage.setItem('ytm-shuffle', this.shuffle.toString());
                 localStorage.setItem('ytm-repeat', this.repeat);
                 localStorage.setItem('ytm-autoplay', this.autoplay.toString());
+                localStorage.setItem('ytm-radio-mode', this.radioMode);
                 localStorage.setItem('ytm-rpc-enabled', this.rpcEnabled.toString());
                 localStorage.setItem('ytm-normalization-enabled', this.normalizationEnabled.toString());
                 localStorage.setItem('ytm-queue-source', this.queueSourceId || '');
@@ -584,14 +595,21 @@ class PlayerStore {
         }, 600); // 600ms interval for better efficiency
     }
 
+    // Регистрируем SC-трек в реестре стримов до префетча, иначе prefetchStreamUrl уйдёт
+    // в YouTube-путь и предзагрузка SC-трека не сработает (бесшовность пропадёт).
+    private ensureScRegistered(track?: YTMTrack | null) {
+        if (track?.source === 'soundcloud' && track.scUrl) registerSoundCloudTrack(track.id, track.scUrl);
+    }
+
     private async preloadNextTrack() {
         if (this.isPreloadingNext || this.preloadedTrackId || this.shuffle || this.repeat === 'one') return;
-        
+
         const nextTrack = this.getNextTrackInQueue();
         if (!nextTrack || nextTrack.id === this.currentTrack?.id) return;
 
         this.isPreloadingNext = true;
         try {
+            this.ensureScRegistered(nextTrack);
             let entry = await streamCache.get(nextTrack.id);
             if (!entry) {
                 await prefetchStreamUrl(nextTrack.id);
@@ -834,16 +852,23 @@ class PlayerStore {
     private async prefetchBuffer() {
         const index = this.queueIndex;
         if (index < 0) return;
-        const targets: (string | undefined)[] = [];
-        if (index + 1 < this.queue.length) targets.push(this.queue[index + 1].id);
-        else if (this.autoplay && this.recommendations.length > 0) targets.push(this.recommendations[0].id);
-        if (index > 0) targets.push(this.queue[index - 1].id);
-        if (index + 2 < this.queue.length) targets.push(this.queue[index + 2].id);
-        for (const id of targets) { if (id) await prefetchStreamUrl(id); }
+        const targets: (YTMTrack | undefined)[] = [];
+        if (index + 1 < this.queue.length) targets.push(this.queue[index + 1]);
+        else if (this.autoplay && this.recommendations.length > 0) targets.push(this.recommendations[0]);
+        if (index > 0) targets.push(this.queue[index - 1]);
+        if (index + 2 < this.queue.length) targets.push(this.queue[index + 2]);
+        for (const t of targets) {
+            if (!t?.id) continue;
+            this.ensureScRegistered(t);
+            await prefetchStreamUrl(t.id);
+        }
     }
 
     private async startPlayback(track: YTMTrack, isRetry: boolean = false, startTime: number = 0) {
         const currentPlaybackId = ++this.playbackId;
+
+        // Свежий (не ретрай) запуск трека снова даёт право на SC-фолбэк.
+        if (!isRetry) this.scFallbackTried.delete(track.id);
 
         this.isStreamLoading = true;
         this.hasStreamError = false;
@@ -876,6 +901,10 @@ class PlayerStore {
         }
 
         try {
+            // Гарантируем маршрутизацию SC-стрима даже для треков из восстановленной очереди
+            if (track.source === 'soundcloud' && track.scUrl) {
+                registerSoundCloudTrack(track.id, track.scUrl);
+            }
             const entry = await getStreamUrl(track.id, isRetry);
             
             if (currentPlaybackId !== this.playbackId) return;
@@ -900,7 +929,7 @@ class PlayerStore {
                         return;
                     }
                     if (!isRetry) this.startPlayback(track, true, startTime);
-                    else this.handleFinalError();
+                    else if (!(await this.tryScFallback(track, startTime))) this.handleFinalError();
                 };
 
                 const onCanPlay = async () => {
@@ -930,14 +959,48 @@ class PlayerStore {
                 this.audioA.addEventListener('canplay', onCanPlay);
             } else {
                 if (!isRetry) this.startPlayback(track, true, startTime);
-                else this.handleFinalError();
+                else if (!(await this.tryScFallback(track, startTime))) this.handleFinalError();
             }
         } catch (e) {
             if (currentPlaybackId === this.playbackId) {
                 if (!isRetry) this.startPlayback(track, true, startTime);
-                else this.handleFinalError();
+                else if (!(await this.tryScFallback(track, startTime))) this.handleFinalError();
             }
         }
+    }
+
+    /**
+     * YT-стрим не доступен → ищем трек в SoundCloud по «artist title», матчим по длительности
+     * и играем из SC, регистрируя SC-URL на исходный track.id. Возвращает true, если фолбэк запущен.
+     */
+    private async tryScFallback(track: YTMTrack, startTime: number): Promise<boolean> {
+        if (!isSoundCloudEnabled() || track.source === 'soundcloud') return false;
+        if (this.scFallbackTried.has(track.id)) return false;
+        this.scFallbackTried.add(track.id);
+
+        const query = [track.artists?.[0], track.title].filter(Boolean).join(' ').trim();
+        if (!query) return false;
+        console.log(`[player] YT unavailable for ${track.id}, trying SoundCloud fallback: "${query}"`);
+
+        const results = await searchSoundCloud(query);
+        const match = pickBestScMatch(results, this.parseDuration(track.duration));
+        if (!match?.scUrl) {
+            console.warn(`[player] SoundCloud fallback found no match for "${query}"`);
+            return false;
+        }
+
+        registerSoundCloudTrack(track.id, match.scUrl);
+        track.scUrl = match.scUrl;
+        track.source = 'soundcloud';
+        if (this.currentTrack?.id === track.id) this.currentTrack = { ...track };
+        const qi = this.queue.findIndex(t => t.id === track.id);
+        if (qi !== -1) this.queue[qi] = { ...this.queue[qi], scUrl: match.scUrl, source: 'soundcloud' };
+        this.notify('state');
+        this.saveState();
+
+        // isRetry=true: не сбрасываем scFallbackTried, чтобы при провале и SC не зациклиться.
+        await this.startPlayback(this.currentTrack ?? track, true, startTime);
+        return true;
     }
 
     private handleFinalError() {
@@ -964,7 +1027,8 @@ class PlayerStore {
         if (track.isAvailable === false) return;
         this.queueSourceId = null;
         this.queueSourceType = null;
-        this.recommendationPlaylistId = 'RDAMVM' + track.id;
+        // Для SC-трека YT-плейлист RDAMVM невалиден — радио пойдёт через SC (fetchRecommendations).
+        this.recommendationPlaylistId = track.source === 'soundcloud' ? null : 'RDAMVM' + track.id;
         this.currentTrack = track;
         this.queue = [track];
         this.originalQueue = [track];
@@ -984,43 +1048,124 @@ class PlayerStore {
         if (this.isRecommendationsLoading) return;
         this.isRecommendationsLoading = true;
         try {
-            const track = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
-            const rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
-            const { tracks } = await getQueueRecommendations(videoId, rid);
-            if (tracks.length > 0) {
-                const qIds = new Set(this.queue.map(t => t.id));
-                if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD'))) {
-                    const currentIndex = tracks.findIndex(t => t.id === videoId);
-                    if (currentIndex !== -1) {
-                        // Preserve in-memory likeStatus so the API response doesn't overwrite user-toggled state
-                        const currentTrackItem = { ...tracks[currentIndex], likeStatus: this.currentTrack?.likeStatus ?? tracks[currentIndex].likeStatus };
-                        const otherTracks = tracks.filter(t => t.id !== videoId);
-                        this.queue = [currentTrackItem, ...otherTracks];
-                        this.queueIndex = 0;
-                        this.currentTrack = this.queue[0];
-                        this.recommendations = [];
-                        this.recommendationPlaylistId = null;
-                        this.saveState();
-                        this.notify('state');
-                        return;
-                    }
-                }
-                const availableTracks = tracks.filter(t => t.isAvailable !== false && !qIds.has(t.id));
-                if (forceReplace || this.recommendations.length === 0) this.recommendations = availableTracks.slice(0, 200);
-                else {
-                    const existingRecIds = new Set(this.recommendations.map(t => t.id));
-                    const uniqueNew = availableTracks.filter(t => !existingRecIds.has(t.id));
-                    this.recommendations = [...this.recommendations, ...uniqueNew].slice(0, 150);
-                }
-                if (rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD'))) {
+            // При выключенном SoundCloud режим = youtube. НО от SC-трека YT-радио построить нельзя
+            // (нет YT videoId — RDAMVM+<sc-url> невалиден), поэтому для SC-трека всегда SC-радио.
+            const seedTrack = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
+            const seedIsSc = seedTrack?.source === 'soundcloud' || isSoundCloudId(videoId);
+            // SC-сид: в режиме «Гибрид» добираем YouTube через матч (как E3, но обратно); иначе SC-радио.
+            const mode = seedIsSc
+                ? (isSoundCloudEnabled() && this.radioMode === 'hybrid' ? 'hybrid' : 'soundcloud')
+                : (isSoundCloudEnabled() ? this.radioMode : 'youtube');
+            if (mode === 'soundcloud') await this.fetchSoundCloudRadio(videoId, forceReplace);
+            else if (mode === 'hybrid') await this.fetchHybridRecommendations(videoId, forceReplace);
+            else await this.fetchYouTubeRecommendations(videoId, forceReplace);
+        } catch (e) { console.error('[player] Failed to fetch recommendations:', e); }
+        finally {
+            this.isRecommendationsLoading = false;
+            this.notify('state');
+        }
+    }
+
+    // YT-логика без изменений. Seeding альбома/плейлиста/RD работает только в этом режиме.
+    private async fetchYouTubeRecommendations(videoId: string, forceReplace: boolean) {
+        const track = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
+        const rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+        const { tracks } = await getQueueRecommendations(videoId, rid);
+        if (tracks.length > 0) {
+            const qIds = new Set(this.queue.map(t => t.id));
+            if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD'))) {
+                const currentIndex = tracks.findIndex(t => t.id === videoId);
+                if (currentIndex !== -1) {
+                    // Preserve in-memory likeStatus so the API response doesn't overwrite user-toggled state
+                    const currentTrackItem = { ...tracks[currentIndex], likeStatus: this.currentTrack?.likeStatus ?? tracks[currentIndex].likeStatus };
+                    const otherTracks = tracks.filter(t => t.id !== videoId);
+                    this.queue = [currentTrackItem, ...otherTracks];
+                    this.queueIndex = 0;
+                    this.currentTrack = this.queue[0];
+                    this.recommendations = [];
                     this.recommendationPlaylistId = null;
                     this.saveState();
+                    this.notify('state');
+                    return;
                 }
             }
-        } catch (e) { console.error('[player] Failed to fetch recommendations:', e); } 
-        finally { 
-            this.isRecommendationsLoading = false; 
-            this.notify('state'); 
+            const availableTracks = tracks.filter(t => t.isAvailable !== false && !qIds.has(t.id));
+            this.applyRecommendations(availableTracks, forceReplace);
+            if (rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD'))) {
+                this.recommendationPlaylistId = null;
+                this.saveState();
+            }
+        }
+    }
+
+    private scRadioQuery(videoId: string): { track: YTMTrack | undefined, query: string } {
+        const track = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
+        const query = [track?.artists?.[0], track?.title].filter(Boolean).join(' ').trim();
+        return { track, query };
+    }
+
+    private applyRecommendations(fresh: YTMTrack[], forceReplace: boolean) {
+        if (fresh.length === 0) return;
+        if (forceReplace || this.recommendations.length === 0) {
+            this.recommendations = fresh.slice(0, 200);
+        } else {
+            const existing = new Set(this.recommendations.map(t => t.id));
+            this.recommendations = [...this.recommendations, ...fresh.filter(t => !existing.has(t.id))].slice(0, 150);
+        }
+    }
+
+    // SC-радио от трека: сначала track-related (качество + персонализация при авторизации),
+    // затем фолбэк на поиск по «artist title».
+    private async scRadioTracks(videoId: string): Promise<YTMTrack[]> {
+        const { track, query } = this.scRadioQuery(videoId);
+        const url = track?.scUrl || (isSoundCloudId(videoId) ? videoId : undefined);
+        let scTracks = await getScRecommendations({ scId: track?.scId, url });
+        // Если related отдал мало — добираем поиском по «artist title» (до 25), без дублей.
+        if (scTracks.length < 10 && query) {
+            const extra = await searchSoundCloud(query, 25);
+            const ids = new Set(scTracks.map(t => t.id));
+            scTracks = [...scTracks, ...extra.filter(t => !ids.has(t.id))];
+        }
+        return scTracks;
+    }
+
+    private async fetchSoundCloudRadio(videoId: string, forceReplace: boolean) {
+        const scTracks = await this.scRadioTracks(videoId);
+        const qIds = new Set(this.queue.map(t => t.id));
+        const fresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
+        this.applyRecommendations(fresh, forceReplace);
+    }
+
+    private async fetchHybridRecommendations(videoId: string, forceReplace: boolean) {
+        const { track, query } = this.scRadioQuery(videoId);
+        const seedIsSc = track?.source === 'soundcloud' || isSoundCloudId(videoId);
+        let ytSeedId: string | null = videoId;
+        let rid: string | null;
+        if (seedIsSc) {
+            // От SC-id YT-рекомендаций нет — матчим SC-трек к YouTube (как E3, в обратную сторону).
+            ytSeedId = query ? await this.findYouTubeSeed(query, track) : null;
+            rid = null;
+        } else {
+            rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+        }
+        const [ytRes, scTracks] = await Promise.all([
+            ytSeedId ? getQueueRecommendations(ytSeedId, rid) : Promise.resolve({ tracks: [] as YTMTrack[] }),
+            this.scRadioTracks(videoId),
+        ]);
+        const qIds = new Set(this.queue.map(t => t.id));
+        const ytFresh = (ytRes.tracks || []).filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
+        const scFresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
+        this.applyRecommendations(interleaveTracks(ytFresh, scFresh), forceReplace);
+    }
+
+    // Подбираем YouTube-видео под SC-трек (для гибрид-рекомендаций от SC-сида).
+    private async findYouTubeSeed(query: string, track?: YTMTrack): Promise<string | null> {
+        try {
+            const candidates = await searchMore(query, 0, 'songs');
+            const match = pickBestScMatch(candidates, this.parseDuration(track?.duration || '0:00'));
+            return match?.id || candidates[0]?.id || null;
+        } catch {
+            return null;
         }
     }
 
@@ -1177,6 +1322,14 @@ class PlayerStore {
     }
     toggleAutoplay() { this.autoplay = !this.autoplay; this.saveState(); this.notify('state'); }
 
+    setRadioMode(mode: 'youtube' | 'soundcloud' | 'hybrid') {
+        if (this.radioMode === mode) return;
+        this.radioMode = mode;
+        this.saveState();
+        this.notify('state');
+        if (this.currentTrack) this.fetchRecommendations(this.currentTrack.id, true);
+    }
+
     getUpcoming(): YTMTrack[] {
         if (this.queueIndex < 0) return [];
         return this.queue.slice(this.queueIndex + 1);
@@ -1195,6 +1348,7 @@ class PlayerStore {
         const currentStatus = track.likeStatus || 'INDIFFERENT';
 
         // Route to correct toggle based on desired new status
+        // (SoundCloud-маршрутизация лайка — внутри likedManager, общая для плеера/очереди/строк)
         const isDislikeAction = status === 'DISLIKE' || (status === 'INDIFFERENT' && currentStatus === 'DISLIKE');
         const success = isDislikeAction
             ? await likedManager.toggleDislike(track, currentStatus)

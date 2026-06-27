@@ -144,6 +144,117 @@ def is_cancelled():
             print(f"Cancellation detected for task {call_id}", file=sys.stderr)
         return cancelled
 
+# --- SoundCloud internal api-v2 client_id (для поиска артистов/альбомов) ---
+_SC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+# app_version шлёт веб-клиент SoundCloud вместе с write-запросами (лайк). Может устаревать.
+_SC_APP_VERSION = '1782399945'  # fallback; реальная версия тянется живьём из versions.json
+_SC_FF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0'
+_sc_client_id = None
+_sc_app_version = None
+
+def get_sc_client_id(force=False):
+    """Достаёт client_id из публичных JS-ассетов soundcloud.com (как делает их веб-плеер). Кэшируется."""
+    global _sc_client_id
+    if _sc_client_id and not force:
+        return _sc_client_id
+    try:
+        r = requests.get('https://soundcloud.com/', timeout=10, headers={'User-Agent': _SC_UA})
+        scripts = re.findall(r'<script[^>]+src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"', r.text)
+        for src in reversed(scripts):
+            try:
+                js = requests.get(src, timeout=10, headers={'User-Agent': _SC_UA}).text
+                m = re.search(r'client_id\s*[:=]\s*"([a-zA-Z0-9]{20,})"', js)
+                if m:
+                    _sc_client_id = m.group(1)
+                    print(f"[soundcloud] resolved client_id", file=sys.stderr)
+                    return _sc_client_id
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[soundcloud] client_id resolve failed: {e}", file=sys.stderr)
+    return _sc_client_id
+
+def get_sc_app_version():
+    """Живая версия веб-приложения SoundCloud (как делает их плеер). Кэшируется, есть фолбэк."""
+    global _sc_app_version
+    if _sc_app_version:
+        return _sc_app_version
+    try:
+        j = requests.get('https://soundcloud.com/versions.json', timeout=8).json()
+        v = str((j or {}).get('app') or '')
+        if v:
+            _sc_app_version = v
+            print(f"[soundcloud] app_version {v}", file=sys.stderr)
+    except Exception as e:
+        print(f"[soundcloud] app_version fetch failed: {e}", file=sys.stderr)
+    return _sc_app_version or _SC_APP_VERSION
+
+def _sc_headers(oauth_token=None):
+    h = {'User-Agent': _SC_UA}
+    if oauth_token:
+        h['Authorization'] = f'OAuth {oauth_token}'
+    return h
+
+def _sc_api_get(path, params, oauth_token=None, retry_on_401=True):
+    """GET к api-v2.soundcloud.com; oauth_token → авторизованный запрос."""
+    cid = get_sc_client_id()
+    if not cid:
+        return None
+    p = dict(params or {})
+    p['client_id'] = cid
+    r = requests.get(f'https://api-v2.soundcloud.com{path}', params=p, timeout=12, headers=_sc_headers(oauth_token))
+    # client_id протух — обновляем (только для публичных запросов; на 401 с токеном это не поможет)
+    if r.status_code == 401 and retry_on_401 and not oauth_token:
+        get_sc_client_id(force=True)
+        return _sc_api_get(path, params, retry_on_401=False)
+    if r.ok:
+        return r.json()
+    return None
+
+def _sc_pick_thumb(url):
+    """Берём картинку покрупнее: SoundCloud отдаёт -large (100px), меняем на -t500x500."""
+    if not url:
+        return ''
+    return url.replace('-large.', '-t500x500.')
+
+def _sc_iso_to_ms(value):
+    """ISO-время лайка SoundCloud ('2026-06-27T14:09:54Z') → epoch ms. 0 при ошибке."""
+    if not value:
+        return 0
+    try:
+        import datetime
+        dt = datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return 0
+
+def _sc_api_modify(method, path, oauth_token, datadome=None):
+    """PUT/DELETE к api-v2 (лайк/анлайк). datadome — кука для обхода анти-бота. (ok, http_status)."""
+    cid = get_sc_client_id()
+    if not cid:
+        return False, 0
+    params = {'client_id': cid, 'app_version': get_sc_app_version(), 'app_locale': 'en'}
+    # Минимальный набор заголовков как в рабочей soundcloud-py (Firefox UA, без Origin/Referer).
+    headers = {
+        'Accept': 'application/json, text/javascript, */*; q=0.1',
+        'User-Agent': _SC_FF_UA,
+    }
+    if oauth_token:
+        headers['Authorization'] = f'OAuth {oauth_token}'
+    if datadome:
+        headers['Cookie'] = f'datadome={datadome}'
+    r = requests.request(method, f'https://api-v2.soundcloud.com{path}',
+                         params=params, timeout=12, headers=headers)
+    return (r.status_code in (200, 201, 204)), r.status_code
+
+def _sc_extract_track_id(url):
+    """Числовой id трека из URL вида .../tracks/2342 или soundcloud:tracks:2342 (вкл. url-encoded)."""
+    if not url:
+        return None
+    u = url.replace('%3A', ':').replace('%2F', '/')
+    m = re.search(r'tracks[:/](\d+)', u)
+    return m.group(1) if m else None
+
 # Monkey-patch YTMusic._send_request to support cancellation
 _original_send_request = YTMusic._send_request
 def _patched_send_request(self, endpoint, body, additionalParams=""):
@@ -231,7 +342,8 @@ def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playl
             'menu_tokens': t.get('menu_tokens'),
             'isPinned': t.get('isPinned') or t.get('pinnedToListenAgain', False),
             'description': t.get('description'),
-            'setVideoId': t.get('setVideoId') # Essential for playlist modifications
+            'setVideoId': t.get('setVideoId'), # Essential for playlist modifications
+            'source': t.get('source', 'youtube'),
         }
     except Exception as e:
         print(f"Error in track_to_dict: {e}", file=sys.stderr)
@@ -1492,15 +1604,16 @@ def handle_request(request):
 
         elif command == 'search_alternatives':
             query = request.get('query', '')
+            limit = max(1, min(int(request.get('limit', 5) or 5), 40))
             try:
                 ydl_opts = {
                     'quiet': True,
                     'no_warnings': True,
                     'extract_flat': True,
-                    'default_search': f'scsearch5:{query}',
+                    'default_search': f'scsearch{limit}:{query}',
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f'scsearch5:{query}', download=False)
+                    info = ydl.extract_info(f'scsearch{limit}:{query}', download=False)
                 results = []
                 for entry in (info.get('entries') or []):
                     if not entry:
@@ -1514,10 +1627,363 @@ def handle_request(request):
                         'duration': entry.get('duration'),
                         'thumbUrl': thumb_url,
                         'source': 'soundcloud',
+                        'scId': str(entry.get('id') or ''),
+                        'uploaderUrl': entry.get('uploader_url') or entry.get('channel_url') or '',
                     })
                 safe_print({'status': 'ok', 'results': results, 'callId': call_id})
             except Exception as e:
                 print(f"[error] search_alternatives: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'get_soundcloud_artist':
+            # Треки SoundCloud-исполнителя через api-v2: /resolve(profile) -> /users/{id}/tracks.
+            # Быстрее yt-dlp, правильный аватар (avatar_url), больше треков, есть scId.
+            url = request.get('url', '')
+            try:
+                user = _sc_api_get('/resolve', {'url': url})
+                uid = (user or {}).get('id')
+                results = []
+                if uid:
+                    data = _sc_api_get(f'/users/{uid}/tracks', {'limit': 50})
+                    for t in ((data or {}).get('collection') or []):
+                        if not t or not t.get('permalink_url'):
+                            continue
+                        tuser = t.get('user') or {}
+                        results.append({
+                            'url': t.get('permalink_url', ''),
+                            'title': t.get('title', ''),
+                            'artist': tuser.get('username', '') or (user or {}).get('username', ''),
+                            'duration': int((t.get('duration') or 0) / 1000),
+                            'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                            'source': 'soundcloud',
+                            'scId': str(t.get('id') or ''),
+                            'uploaderUrl': (user or {}).get('permalink_url', '') or url,
+                        })
+                safe_print({
+                    'status': 'ok',
+                    'name': (user or {}).get('username', ''),
+                    'thumbUrl': _sc_pick_thumb((user or {}).get('avatar_url') or ''),
+                    'results': results,
+                    'callId': call_id,
+                })
+            except Exception as e:
+                print(f"[error] get_soundcloud_artist: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'search_soundcloud_extra':
+            # Поиск SC-артистов и альбомов через внутренний api-v2 (scsearch yt-dlp умеет только треки).
+            query = request.get('query', '')
+            try:
+                artists, albums = [], []
+                if query.strip():
+                    users = _sc_api_get('/search/users', {'q': query, 'limit': 8})
+                    for u in ((users or {}).get('collection') or []):
+                        if not u.get('permalink_url'):
+                            continue
+                        artists.append({
+                            'url': u.get('permalink_url', ''),
+                            'name': u.get('username', ''),
+                            'thumbUrl': _sc_pick_thumb(u.get('avatar_url') or ''),
+                            'source': 'soundcloud',
+                        })
+                    alb = _sc_api_get('/search/albums', {'q': query, 'limit': 8})
+                    for a in ((alb or {}).get('collection') or []):
+                        if not a.get('permalink_url'):
+                            continue
+                        user = a.get('user') or {}
+                        albums.append({
+                            'url': a.get('permalink_url', ''),
+                            'title': a.get('title', ''),
+                            'thumbUrl': _sc_pick_thumb(a.get('artwork_url') or ''),
+                            'artist': user.get('username', ''),
+                            'uploaderUrl': user.get('permalink_url', ''),
+                            'source': 'soundcloud',
+                        })
+                safe_print({'status': 'ok', 'artists': artists, 'albums': albums, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] search_soundcloud_extra: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'get_soundcloud_album':
+            # Треки SC-альбома/плейлиста по URL (yt-dlp понимает permalink альбома).
+            url = request.get('url', '')
+            try:
+                ydl_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'playlistend': 50,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                results = []
+                for entry in (info.get('entries') or []):
+                    if not entry:
+                        continue
+                    thumbs = entry.get('thumbnails') or []
+                    thumb_url = thumbs[-1].get('url', '') if thumbs else (entry.get('thumbnail') or '')
+                    results.append({
+                        'url': entry.get('webpage_url') or entry.get('url', ''),
+                        'title': entry.get('title', ''),
+                        'artist': entry.get('uploader') or info.get('uploader') or '',
+                        'duration': entry.get('duration'),
+                        'thumbUrl': thumb_url,
+                        'source': 'soundcloud',
+                        'scId': str(entry.get('id') or ''),
+                        'uploaderUrl': entry.get('uploader_url') or info.get('uploader_url') or '',
+                    })
+                info_thumbs = info.get('thumbnails') or []
+                album_thumb = info_thumbs[-1].get('url', '') if info_thumbs else (results[0]['thumbUrl'] if results else '')
+                safe_print({
+                    'status': 'ok',
+                    'title': info.get('title', ''),
+                    'artist': info.get('uploader', ''),
+                    'uploaderUrl': info.get('uploader_url', ''),
+                    'thumbUrl': album_thumb,
+                    'results': results,
+                    'callId': call_id,
+                })
+            except Exception as e:
+                print(f"[error] get_soundcloud_album: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_client_id':
+            # client_id для webview-лайка на стороне renderer.
+            try:
+                safe_print({'status': 'ok', 'clientId': get_sc_client_id() or '', 'appVersion': _SC_APP_VERSION, 'callId': call_id})
+            except Exception as e:
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_me':
+            # Проверка oauth_token и данные SC-аккаунта (для статуса подключения).
+            token = request.get('token', '')
+            try:
+                me = _sc_api_get('/me', {}, oauth_token=token) if token else None
+                if me and me.get('id'):
+                    safe_print({
+                        'status': 'ok', 'connected': True,
+                        'id': me.get('id'),
+                        'username': me.get('username', ''),
+                        'avatarUrl': _sc_pick_thumb(me.get('avatar_url') or ''),
+                        'permalinkUrl': me.get('permalink_url', ''),
+                        'callId': call_id,
+                    })
+                else:
+                    safe_print({'status': 'ok', 'connected': False, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_me: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_like' or command == 'sc_unlike':
+            # Лайк/анлайк трека на SoundCloud (нужен oauth_token).
+            token = request.get('token', '')
+            track_url = request.get('url', '')
+            sc_id = request.get('scId', '')
+            datadome = request.get('datadome', '')
+            try:
+                me = _sc_api_get('/me', {}, oauth_token=token) if token else None
+                uid = (me or {}).get('id')
+                tid = sc_id or _sc_extract_track_id(track_url)
+                if uid and not tid and track_url:
+                    resolved = _sc_api_get('/resolve', {'url': track_url}, oauth_token=token)
+                    tid = (resolved or {}).get('id')
+                if uid and tid:
+                    method = 'PUT' if command == 'sc_like' else 'DELETE'
+                    endpoint = f'/users/{uid}/track_likes/{tid}'
+                    ok, code = _sc_api_modify(method, endpoint, token, datadome)
+                    print(f"[debug] {command}: uid={uid} tid={tid} datadome={'yes' if datadome else 'no'} -> {code}", file=sys.stderr)
+                    safe_print({'status': 'ok' if ok else 'error', 'liked': command == 'sc_like',
+                                'httpStatus': code, 'uid': uid, 'trackId': str(tid), 'callId': call_id})
+                else:
+                    safe_print({'status': 'error', 'message': 'not authed or track not resolved',
+                                'uid': uid, 'tid': tid, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] {command}: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_liked_ids':
+            # Permalink-URL'ы лайкнутых треков пользователя (для статуса лайков в радио/поиске).
+            token = request.get('token', '')
+            try:
+                me = _sc_api_get('/me', {}, oauth_token=token) if token else None
+                uid = (me or {}).get('id')
+                ids = []
+                if uid:
+                    next_url = f'https://api-v2.soundcloud.com/users/{uid}/track_likes'
+                    next_params = {'limit': 200, 'linked_partitioning': 1, 'client_id': get_sc_client_id()}
+                    for _ in range(5):  # до ~1000 лайков
+                        r = requests.get(next_url, params=next_params, headers=_sc_headers(token), timeout=12)
+                        if not r.ok:
+                            break
+                        data = r.json()
+                        for item in (data.get('collection') or []):
+                            tr = item.get('track') or {}
+                            if tr.get('id') is not None:
+                                ids.append(str(tr['id']))
+                        nxt = data.get('next_href')
+                        if not nxt:
+                            break
+                        next_url = nxt  # next_href уже содержит client_id и параметры
+                        next_params = {}
+                safe_print({'status': 'ok', 'ids': ids, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_liked_ids: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_liked_tracks':
+            # Полные объекты лайкнутых треков (для вкладки лайков).
+            token = request.get('token', '')
+            try:
+                me = _sc_api_get('/me', {}, oauth_token=token) if token else None
+                uid = (me or {}).get('id')
+                results = []
+                if uid:
+                    next_url = f'https://api-v2.soundcloud.com/users/{uid}/track_likes'
+                    next_params = {'limit': 200, 'linked_partitioning': 1, 'client_id': get_sc_client_id()}
+                    for _ in range(5):  # до ~1000 лайков
+                        r = requests.get(next_url, params=next_params, headers=_sc_headers(token), timeout=12)
+                        if not r.ok:
+                            break
+                        data = r.json()
+                        for item in (data.get('collection') or []):
+                            t = item.get('track') or {}
+                            if not t.get('permalink_url'):
+                                continue
+                            user = t.get('user') or {}
+                            results.append({
+                                'url': t.get('permalink_url', ''),
+                                'title': t.get('title', ''),
+                                'artist': user.get('username', ''),
+                                'duration': int((t.get('duration') or 0) / 1000),
+                                'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                                'source': 'soundcloud',
+                                'scId': str(t.get('id') or ''),
+                                'uploaderUrl': user.get('permalink_url', ''),
+                                'likedAt': _sc_iso_to_ms(item.get('created_at')),
+                            })
+                        nxt = data.get('next_href')
+                        if not nxt:
+                            break
+                        next_url = nxt  # next_href уже содержит client_id
+                        next_params = {}
+                safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_liked_tracks: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_liked_meta':
+            # Дёшево: общее число SC-лайков + первые id (для сверки без полной загрузки).
+            token = request.get('token', '')
+            try:
+                me = _sc_api_get('/me', {}, oauth_token=token) if token else None
+                uid = (me or {}).get('id')
+                count = int((me or {}).get('likes_count') or 0)
+                head_ids = []
+                if uid:
+                    data = _sc_api_get(f'/users/{uid}/track_likes', {'limit': 15}, oauth_token=token)
+                    for item in ((data or {}).get('collection') or []):
+                        t = item.get('track') or {}
+                        if t.get('id') is not None:
+                            head_ids.append(str(t['id']))
+                safe_print({'status': 'ok', 'count': count, 'headIds': head_ids, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_liked_meta: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_wave_stations':
+            # Курируемые станции SoundCloud (жанровые подборки из mixed-selections).
+            # С токеном — региональные/персональные подборки как в залогиненном вебе.
+            token = request.get('token', '')
+            try:
+                data = _sc_api_get('/mixed-selections', {'limit': 6}, oauth_token=token or None)
+                stations = []
+                seen = set()
+                for sel in ((data or {}).get('collection') or []):
+                    urn = sel.get('urn') or ''
+                    # Только «Trending by genre» — там подборки лучше, чем editorial/charts.
+                    if 'trending-by-genre' not in urn:
+                        continue
+                    for pl in ((sel.get('items') or {}).get('collection') or []):
+                        title = pl.get('title') or ''
+                        pid = pl.get('id')
+                        art = pl.get('artwork_url')
+                        # Только плейлисты (у них есть track_count и обложка), пропускаем артистов.
+                        if not title or pid is None or pl.get('track_count') is None or not art:
+                            continue
+                        if pid in seen:
+                            continue
+                        seen.add(pid)
+                        stations.append({
+                            'id': str(pid),
+                            'title': title,
+                            'thumbUrl': _sc_pick_thumb(art),
+                        })
+                safe_print({'status': 'ok', 'stations': stations, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_wave_stations: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_station_tracks':
+            # Треки станции (плейлиста) через api-v2: /playlists/{id} → ids → /tracks?ids (быстро).
+            sid = request.get('id', '')
+            token = request.get('token', '')
+            try:
+                results = []
+                if sid:
+                    pl = _sc_api_get(f'/playlists/{sid}', {'representation': 'full'}, oauth_token=token or None)
+                    ids = [str(t.get('id')) for t in ((pl or {}).get('tracks') or []) if t.get('id')][:50]
+                    full = _sc_api_get('/tracks', {'ids': ','.join(ids)}, oauth_token=token or None) if ids else []
+                    # /tracks?ids отдаёт в произвольном порядке — восстанавливаем порядок плейлиста.
+                    by_id = {str(t.get('id')): t for t in (full or []) if t and t.get('id') is not None}
+                    for tid in ids:
+                        t = by_id.get(tid)
+                        if not t or not t.get('permalink_url'):
+                            continue
+                        user = t.get('user') or {}
+                        results.append({
+                            'url': t.get('permalink_url', ''),
+                            'title': t.get('title', ''),
+                            'artist': user.get('username', ''),
+                            'duration': int((t.get('duration') or 0) / 1000),
+                            'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                            'source': 'soundcloud',
+                            'scId': str(t.get('id') or ''),
+                            'uploaderUrl': user.get('permalink_url', ''),
+                        })
+                safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_station_tracks: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_recommendations':
+            # SC-радио от трека: api-v2 /tracks/{id}/related (с oauth_token — персонализировано).
+            token = request.get('token', '')
+            sc_id = request.get('scId', '')
+            track_url = request.get('url', '')
+            try:
+                tid = sc_id or _sc_extract_track_id(track_url)
+                if not tid and track_url:
+                    resolved = _sc_api_get('/resolve', {'url': track_url}, oauth_token=token or None)
+                    tid = (resolved or {}).get('id')
+                results = []
+                if tid:
+                    data = _sc_api_get(f'/tracks/{tid}/related', {'limit': 25}, oauth_token=token or None)
+                    for t in ((data or {}).get('collection') or []):
+                        if not t or not t.get('permalink_url'):
+                            continue
+                        user = t.get('user') or {}
+                        results.append({
+                            'url': t.get('permalink_url', ''),
+                            'title': t.get('title', ''),
+                            'artist': user.get('username', ''),
+                            'duration': int((t.get('duration') or 0) / 1000),  # api-v2 отдаёт мс
+                            'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                            'source': 'soundcloud',
+                            'scId': str(t.get('id') or ''),
+                            'uploaderUrl': user.get('permalink_url', ''),
+                        })
+                safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_recommendations: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'get_preview_url':
@@ -1567,9 +2033,30 @@ def handle_request(request):
 
                 thumbs = info.get('thumbnails') or []
                 thumb_url = thumbs[-1].get('url', '') if thumbs else ''
+
+                # Нормализация до -14 LUFS: анализируем срез потока (как у скачанных треков).
+                # gain_db в той же шкале, что и loudness YT: gain = 10^(-loudness/20).
+                loudness = 0.0
+                try:
+                    import subprocess
+                    ln = subprocess.run(
+                        ['ffmpeg', '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0',
+                         '-ss', '0', '-t', '20', '-i', stream_url,
+                         '-af', 'loudnorm=print_format=json', '-f', 'null', '-'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=20,
+                        encoding='utf-8', errors='ignore')
+                    st = ln.stderr or ''
+                    j0 = st.rfind('{'); j1 = st.rfind('}') + 1
+                    if j0 != -1 and j1 > j0:
+                        ld = json.loads(st[j0:j1])
+                        loudness = float(ld.get('input_i', -14.0)) + 14.0
+                except Exception as _e:
+                    print(f"[warn] SC loudnorm failed: {_e}", file=sys.stderr)
+
                 safe_print({
                     'status': 'ok',
                     'streamUrl': stream_url,
+                    'loudness': loudness,
                     'title': info.get('title', ''),
                     'artist': info.get('uploader') or info.get('artist', ''),
                     'duration': info.get('duration'),

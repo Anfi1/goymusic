@@ -6,6 +6,7 @@ import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scLoginViaWebview, ScAccount } from '../../api/soundcloud';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import styles from './SettingsView.module.css';
@@ -19,6 +20,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
     const [rpcEnabled, setRpcEnabled] = useState(player.rpcEnabled);
+    const [scEnabled, setScEnabled] = useState(isSoundCloudEnabled());
+    const [scAccount, setScAccount] = useState<ScAccount | null>(null);
+    const [scTokenInput, setScTokenInput] = useState('');
+    const [scConnecting, setScConnecting] = useState(false);
+    const [scError, setScError] = useState(false);
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
     const [historyCleanup, setHistoryCleanup] = useState(historyManager.cleanupInterval);
@@ -64,6 +70,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
 
     const handleToggleRPC = () => {
         player.toggleRPC();
+    };
+
+    const handleToggleSc = () => {
+        const next = !scEnabled;
+        setScEnabled(next);
+        setSoundCloudEnabled(next);
+    };
+
+    // При открытии настроек перепроверяем сохранённый SC-токен.
+    useEffect(() => {
+        if (!scEnabled || !getScToken()) { setScAccount(null); return; }
+        let alive = true;
+        getScAccount().then(acc => { if (alive) setScAccount(acc); });
+        return () => { alive = false; };
+    }, [scEnabled]);
+
+    const handleScConnect = async () => {
+        if (scConnecting || !scTokenInput.trim()) return;
+        setScConnecting(true);
+        setScError(false);
+        const acc = await scConnect(scTokenInput);
+        if (acc) {
+            setScAccount(acc);
+            setScTokenInput('');
+        } else {
+            setScError(true);
+        }
+        setScConnecting(false);
+    };
+
+    const handleScLogin = async () => {
+        if (scConnecting) return;
+        setScConnecting(true);
+        setScError(false);
+        const acc = await scLoginViaWebview();
+        if (acc) setScAccount(acc); else setScError(true);
+        setScConnecting(false);
+    };
+
+    const handleScDisconnect = () => {
+        scDisconnect();
+        setScAccount(null);
+        setScError(false);
     };
 
     const handleToggleNormalization = () => {
@@ -140,14 +189,74 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                         <span className={styles.subtitle}>Show what you're listening to in Discord.</span>
                     </div>
                     <label className={styles.switch}>
-                        <input 
-                            type="checkbox" 
-                            checked={rpcEnabled} 
-                            onChange={handleToggleRPC} 
+                        <input
+                            type="checkbox"
+                            checked={rpcEnabled}
+                            onChange={handleToggleRPC}
                         />
                         <span className={styles.slider}></span>
                     </label>
                 </div>
+                <div className={styles.row}>
+                    <div className={styles.col}>
+                        <span>SoundCloud</span>
+                        <span className={styles.subtitle}>Mix SoundCloud tracks into search & radio — no account or token required.</span>
+                    </div>
+                    <label className={styles.switch}>
+                        <input
+                            type="checkbox"
+                            checked={scEnabled}
+                            onChange={handleToggleSc}
+                        />
+                        <span className={styles.slider}></span>
+                    </label>
+                </div>
+                {scEnabled && (
+                    <div className={styles.row}>
+                        <div className={styles.col}>
+                            <span>SoundCloud account {scAccount ? `— ${scAccount.username}` : '(optional)'}</span>
+                            <span className={styles.subtitle}>
+                                {scAccount
+                                    ? 'Connected — likes & personal recommendations enabled.'
+                                    : 'Log in to like tracks on SoundCloud (recommended). Pasting a token only enables reading, not liking (blocked by SoundCloud bot-protection).'}
+                            </span>
+                            {scError && (
+                                <span className={styles.subtitle} style={{ color: 'var(--color-error, #f38ba8)' }}>
+                                    Invalid token — check it and try again.
+                                </span>
+                            )}
+                        </div>
+                        {scAccount ? (
+                            <button
+                                onClick={handleScDisconnect}
+                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                            >Disconnect</button>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
+                                <button
+                                    onClick={handleScLogin}
+                                    disabled={scConnecting}
+                                    style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#ff5500', color: '#fff', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: scConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                                >{scConnecting ? '...' : 'Log in to SoundCloud'}</button>
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <input
+                                        type="password"
+                                        placeholder="or paste oauth_token"
+                                        value={scTokenInput}
+                                        onChange={(e) => setScTokenInput(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleScConnect(); }}
+                                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.25)', color: 'var(--text-primary)', fontSize: 13, width: 160 }}
+                                    />
+                                    <button
+                                        onClick={handleScConnect}
+                                        disabled={scConnecting || !scTokenInput.trim()}
+                                        style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: (scConnecting || !scTokenInput.trim()) ? 0.6 : 1 }}
+                                    >Use token</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div className={styles.section}>

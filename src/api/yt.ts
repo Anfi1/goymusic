@@ -1,4 +1,5 @@
 import { createCallId } from './callId';
+import type { TrackSource } from './source';
 
 export interface YTMTrack {
     id: string;
@@ -22,6 +23,9 @@ export interface YTMTrack {
     };
     isPinned?: boolean;
     description?: string;
+    source?: TrackSource;
+    scUrl?: string;
+    scId?: string;
 }
 
 export interface YTMArtist {
@@ -36,6 +40,7 @@ export interface YTMArtist {
     isPinned?: boolean;
     description?: string;
     subscribers?: string;
+    source?: TrackSource;
 }
 
 export interface YTMPlaylist {

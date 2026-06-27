@@ -14,6 +14,7 @@ import { SettingsView } from './components/organisms/SettingsView';
 import { LyricsView } from './components/organisms/LyricsView';
 import { NewReleasesView } from './components/organisms/NewReleasesView';
 import { RadioView } from './components/organisms/RadioView';
+import { MyWaveView } from './components/organisms/MyWaveView';
 import { ImageViewer } from './components/molecules/ImageViewer';
 import { ToastProvider } from './components/atoms/Toast';
 import { isLoggedIn, loadAuth, clearTokens } from './api/yt';
@@ -47,6 +48,8 @@ const MainContentWrapper = memo(({
         />
       ) : activeView.type === 'radio' ? (
         <RadioView key="radio" />
+      ) : activeView.type === 'my-wave' ? (
+        <MyWaveView key="my-wave" />
       ) : activeView.type === 'artist' && activeView.artistId ? (
         <ArtistView 
           key={`artist-${activeView.artistId}`}

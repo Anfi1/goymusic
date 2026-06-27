@@ -675,6 +675,106 @@ ipcMain.handle('auth:start', async () => {
   });
 });
 
+// --- SoundCloud webview: надёжный лайк в обход DataDome (write из реального контекста soundcloud.com) ---
+const SC_PARTITION = 'persist:soundcloud'
+const SC_WIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+let scWin: BrowserWindow | null = null
+let scSessionReady = false
+
+// Маскируем Electron, иначе DataDome (анти-бот SoundCloud) блокирует вход:
+// чистый User-Agent + срезаем client-hints (sec-ch-ua*), как в Google-логине.
+function getScSession() {
+  const sess = session.fromPartition(SC_PARTITION)
+  if (!scSessionReady) {
+    sess.setUserAgent(SC_WIN_UA)
+    sess.webRequest.onBeforeSendHeaders((details, callback) => {
+      details.requestHeaders['User-Agent'] = SC_WIN_UA
+      for (const k of Object.keys(details.requestHeaders)) {
+        if (k.toLowerCase().startsWith('sec-ch-ua')) delete details.requestHeaders[k]
+      }
+      callback({ requestHeaders: details.requestHeaders })
+    })
+    scSessionReady = true
+  }
+  return sess
+}
+
+async function ensureScWindow(show: boolean): Promise<BrowserWindow> {
+  if (scWin && !scWin.isDestroyed()) {
+    if (show) scWin.show()
+    return scWin
+  }
+  const sess = getScSession()
+  scWin = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    show,
+    title: 'SoundCloud',
+    autoHideMenuBar: true,
+    // sandbox: true прячет Node/Electron-переменные от детекта (как в auth:start)
+    webPreferences: { session: sess, sandbox: true, contextIsolation: true, nodeIntegration: false }
+  })
+  scWin.webContents.setUserAgent(SC_WIN_UA)
+  scWin.on('closed', () => { scWin = null })
+  await scWin.loadURL('https://soundcloud.com/discover')
+  return scWin
+}
+
+// Окно входа: резолвим, когда в сессии появилась кука oauth_token (пользователь залогинился).
+ipcMain.handle('sc:login', async () => {
+  const win = await ensureScWindow(true)
+  win.show()
+  const sess = session.fromPartition(SC_PARTITION)
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (payload: any) => { if (!done) { done = true; clearInterval(timer); resolve(payload) } }
+    const check = async () => {
+      try {
+        const cookies = await sess.cookies.get({ name: 'oauth_token' })
+        const tok = cookies.find(c => c.domain?.includes('soundcloud.com'))?.value || cookies[0]?.value
+        if (tok) {
+          finish({ status: 'ok', token: tok })
+          setTimeout(() => { if (scWin && !scWin.isDestroyed()) scWin.hide() }, 800)
+        }
+      } catch { /* ignore */ }
+    }
+    const timer = setInterval(check, 1500)
+    win.on('closed', () => finish({ status: 'cancelled' }))
+    check()
+  })
+})
+
+// Выполняет PUT/DELETE лайка ВНУТРИ страницы soundcloud.com (несёт DataDome-куку → проходит).
+ipcMain.handle('sc:write', async (_event, args: { method: string, uid: string | number, tid: string, cid: string, token: string, appVersion: string }) => {
+  try {
+    const win = await ensureScWindow(false)
+    const url = `https://api-v2.soundcloud.com/users/${args.uid}/track_likes/${args.tid}?client_id=${args.cid}&app_version=${args.appVersion}&app_locale=en`
+    const js = `(async () => { try {`
+      + ` const r = await fetch(${JSON.stringify(url)}, { method: ${JSON.stringify(args.method)},`
+      + ` headers: { 'Authorization': 'OAuth ' + ${JSON.stringify(args.token)} }, credentials: 'include' });`
+      + ` return r.status; } catch (e) { return -1; } })()`
+    const status = await win.webContents.executeJavaScript(js, true)
+    if (status === 403) {
+      // DataDome challenge: показываем окно и перезагружаем soundcloud.com, чтобы выскочила капча.
+      // Пользователь решает её один раз → выдаётся валидная datadome-кука, следующий лайк проходит.
+      win.show()
+      try { await win.loadURL('https://soundcloud.com/discover') } catch { /* ignore */ }
+      return { ok: false, status, needsCaptcha: true }
+    }
+    return { ok: status >= 200 && status < 300, status }
+  } catch (e: any) {
+    return { ok: false, status: -1, error: String(e?.message || e) }
+  }
+})
+
+ipcMain.handle('sc:open', async () => { await ensureScWindow(true); return true })
+
+ipcMain.handle('sc:logout', async () => {
+  try { await session.fromPartition(SC_PARTITION).clearStorageData() } catch { /* ignore */ }
+  if (scWin && !scWin.isDestroyed()) scWin.close()
+  return true
+})
+
 ipcMain.handle('open-external', async (event, url) => {
   await shell.openExternal(url)
 })

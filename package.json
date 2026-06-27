@@ -1,11 +1,13 @@
 {
   "name": "goymusic",
-  "version": "4.3.7",
+  "version": "5.0.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },
@@ -71,7 +73,8 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",

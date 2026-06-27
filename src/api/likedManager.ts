@@ -1,5 +1,7 @@
 import { getContinuation, rateSong, YTMTrack, getPlaylistTracks } from './yt';
+import { isScAuthed, scSetLiked } from './soundcloud';
 import { likedStore, LikedEntry } from './likedStore';
+import { scLikedManager } from './scLikedManager';
 
 class LikedManager {
   private _isSyncing = false;
@@ -88,11 +90,11 @@ class LikedManager {
           allTracks.push(...next.tracks);
           continuation = next.continuation;
 
-          if (allTracks.length % 500 === 0) {
-            console.log(`[liked] Получено ${allTracks.length}...`);
-            const entries = allTracks.map((t, i) => ({ videoId: t.id, track: t, originalIndex: i, syncedAt: 0 }));
-            this.listeners.forEach(l => l(entries as any, true));
-          }
+          // Живое обновление: отдаём накопленный список после каждой страницы (~100),
+          // чтобы лайки появлялись по мере загрузки, а не только в самом конце.
+          const entries = allTracks.map((t, i) => ({ videoId: t.id, track: t, originalIndex: i, syncedAt: 0 }));
+          this.listeners.forEach(l => l(entries as any, true));
+          if (allTracks.length % 500 === 0) console.log(`[liked] Получено ${allTracks.length}...`);
         } catch (e) {
           console.error('[liked] Ошибка пагинации:', e);
           break;
@@ -100,12 +102,15 @@ class LikedManager {
         if (allTracks.length > 100000) break;
       }
 
+      // Сохраняем реальное время лайка (известно только для лайков из приложения) между синками.
+      const likedAtMap = await likedStore.getLikedAtMap();
       const now = Date.now();
       const finalEntries: LikedEntry[] = allTracks.map((t, i) => ({
         videoId: t.id,
         track: t,
         originalIndex: i,
-        syncedAt: now
+        syncedAt: now,
+        likedAt: likedAtMap.get(t.id)
       }));
 
       await likedStore.clearAllTracks();
@@ -126,6 +131,12 @@ class LikedManager {
     const newStatus = currentStatus === 'DISLIKE' ? 'INDIFFERENT' : 'DISLIKE';
 
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id } }));
+
+    // У SoundCloud нет дизлайка — действие недоступно (сбрасываем кнопку).
+    if (track.source === 'soundcloud') {
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+      return false;
+    }
 
     const success = await rateSong(id, newStatus as any);
 
@@ -159,8 +170,22 @@ class LikedManager {
     // Глобальное событие начала
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id } }));
 
+    // SoundCloud-трек: лайк уходит на SoundCloud (нужен oauth_token), не в YT-библиотеку.
+    if (track.source === 'soundcloud') {
+      const ok = isScAuthed() && await scSetLiked(track.scId, track.scUrl || track.id, newStatus === 'LIKE');
+      if (ok) {
+        // Локальное зеркало SC-лайков (с временем лайка = сейчас).
+        if (newStatus === 'LIKE') scLikedManager.addLocal({ ...track, likeStatus: 'LIKE' });
+        else if (track.scId) scLikedManager.removeLocal(track.scId);
+        window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'success', likeStatus: newStatus } }));
+        return true;
+      }
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+      return false;
+    }
+
     const success = await rateSong(id, newStatus as any);
-    
+
     if (success) {
       if (this._isEnabled) {
         const virtualCount = await likedStore.getVirtualCount();
@@ -170,7 +195,8 @@ class LikedManager {
             videoId: id,
             track: { ...track, likeStatus: 'LIKE' },
             originalIndex: minIdx - 1,
-            syncedAt: Date.now()
+            syncedAt: Date.now(),
+            likedAt: Date.now()
           });
           // Если у трека нет длительности — не обновляем счётчик.
           // Sync увидит расхождение с YouTube и сделает полный рефетч с правильными данными.

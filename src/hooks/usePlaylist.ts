@@ -1,9 +1,11 @@
 import { useMemo, useCallback, useState, useEffect, useTransition, useRef } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, YTMTrack } from '../api/yt';
+import { isSoundCloudId, getSoundCloudAlbum } from '../api/soundcloud';
 import { player } from '../api/player';
-import { likedStore, LikedEntry } from '../api/likedStore';
+import { likedStore, LikedEntry, ScLikedEntry } from '../api/likedStore';
 import { likedManager } from '../api/likedManager';
+import { scLikedManager } from '../api/scLikedManager';
 
 export type PlaylistType = 'liked' | 'playlist' | 'album';
 export type SortMode = 'date' | 'album';
@@ -42,6 +44,7 @@ const triggerGC = () => {
 export const usePlaylist = (type: PlaylistType, id?: string) => {
   const queryClient = useQueryClient();
   const [localTracks, setLocalTracks] = useState<LikedEntry[]>([]);
+  const [scEntries, setScEntries] = useState<ScLikedEntry[]>([]);
   const [managerSyncing, setManagerSyncing] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(true);
   const [sortMode, setSortModeState] = useState<SortMode>(() => {
@@ -74,8 +77,13 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
         setManagerSyncing(syncing);
         setIsLocalLoading(false);
       });
+      // SC-лайки: мгновенно из локального стора + подписка + фоновая сверка (как у YT).
+      likedStore.getAllScTracks().then(setScEntries).catch(() => {});
+      const unsubSc = scLikedManager.subscribe((entries) => setScEntries(entries));
+      scLikedManager.sync();
       return () => {
         unsub();
+        unsubSc();
         triggerGC(); // Clean up memory when leaving Liked Songs
       };
     } else {
@@ -153,6 +161,19 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
         };
         return { tracks: res.tracks, continuation: res.continuation || null, totalCount: res.trackCount, metadata };
       } else if (type === 'album' && id) {
+        if (isSoundCloudId(id)) {
+          const sc = await getSoundCloudAlbum(id);
+          const metadata: PlaylistMetadata = {
+            id,
+            title: sc?.title || 'Album',
+            type: 'ALBUM',
+            thumbUrl: sc?.thumbUrl || sc?.tracks[0]?.thumbUrl || '',
+            trackCount: sc?.tracks.length || 0,
+            artists: sc?.artists,
+            artistIds: sc?.artistIds,
+          };
+          return { tracks: sc?.tracks || [], continuation: null, totalCount: sc?.tracks.length || 0, metadata };
+        }
         const res = await getAlbum(id, signal);
         const metadata: PlaylistMetadata = {
           id: res?.id || id,
@@ -200,8 +221,24 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
   const baseTracks = useMemo(() => {
     let tracks: YTMTrack[] = [];
 
-    if (isLiked && localTracks.length > 0) {
-      tracks = localTracks.map(e => e.track);
+    if (isLiked) {
+      if (localTracks.length > 0 || scEntries.length > 0) {
+        // Слияние по реальному времени лайка: всё с известным временем (все SC + YT-лайки,
+        // поставленные в приложении) — по убыванию времени; старые YT-лайки без времени —
+        // ниже, в порядке плейлиста YouTube (их дату лайка API YT не отдаёт).
+        const timed: { track: YTMTrack; t: number }[] = [];
+        const untimed: { track: YTMTrack; o: number }[] = [];
+        for (const e of localTracks) {
+          if (e.likedAt) timed.push({ track: e.track, t: e.likedAt });
+          else untimed.push({ track: e.track, o: e.originalIndex });
+        }
+        for (const e of scEntries) timed.push({ track: e.track, t: e.likedAt });
+        timed.sort((a, b) => b.t - a.t);
+        untimed.sort((a, b) => a.o - b.o);
+        tracks = [...timed.map(x => x.track), ...untimed.map(x => x.track)];
+      } else {
+        tracks = data?.pages.flatMap(page => (page as any).tracks) || [];
+      }
     } else {
       tracks = data?.pages.flatMap(page => (page as any).tracks) || [];
     }
@@ -212,7 +249,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       seen.add(track.id);
       return true;
     }).map(getStableTrack);
-  }, [data, localTracks, isLiked, getStableTrack]);
+  }, [data, localTracks, scEntries, isLiked, getStableTrack]);
 
   const albumSortedTracks = useMemo(() => {
     if (!isLiked || localTracks.length === 0) return baseTracks;
@@ -252,11 +289,11 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     if (isLiked && base) {
       return {
         ...base,
-        trackCount: virtualCount || base.trackCount || localTracks.length,
+        trackCount: (virtualCount || base.trackCount || localTracks.length) + scEntries.length,
       } as PlaylistMetadata;
     }
     return base;
-  }, [data, virtualCount, isLiked, localTracks]);
+  }, [data, virtualCount, isLiked, localTracks, scEntries]);
 
   const totalReportedCount = useMemo(() => metadata?.trackCount || 0, [metadata]);
 

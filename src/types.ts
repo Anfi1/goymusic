@@ -1,4 +1,4 @@
-export type ViewType = 'liked' | 'playlist' | 'search' | 'settings' | 'auth' | 'artist' | 'album' | 'home' | 'history' | 'new-releases' | 'radio';
+export type ViewType = 'liked' | 'playlist' | 'search' | 'settings' | 'auth' | 'artist' | 'album' | 'home' | 'history' | 'new-releases' | 'radio' | 'my-wave';
 
 export interface ActiveView {
   type: ViewType;

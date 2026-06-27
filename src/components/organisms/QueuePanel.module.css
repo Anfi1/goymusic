@@ -21,6 +21,35 @@
     font-weight: 700;
 }
 
+.radioSwitcher {
+    display: inline-flex;
+    gap: 2px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.radioSegment {
+    font-size: 11px;
+    line-height: 1;
+    padding: 4px 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #a6adc8);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.radioSegment:hover {
+    color: var(--text-primary, #cdd6f4);
+}
+
+.radioSegmentActive {
+    background: rgba(255, 255, 255, 0.14);
+    color: var(--text-primary, #cdd6f4);
+}
+
 .list {
     flex: 1;
     min-height: 0;
