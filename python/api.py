@@ -282,6 +282,51 @@ def extract_loudness(obj):
             if res is not None: return res
     return None
 
+def _ffmpeg_loudnorm_i(stream_url, ss=None, t=None):
+    """input_i (интегрированная громкость, LUFS) для среза стрима через ffmpeg loudnorm. None при провале."""
+    import subprocess
+    cmd = ['ffmpeg', '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0']
+    if ss is not None: cmd += ['-ss', str(int(ss))]
+    cmd += ['-i', stream_url]
+    if t is not None: cmd += ['-t', str(int(t))]
+    cmd += ['-vn', '-sn', '-dn', '-af', 'loudnorm=print_format=json', '-f', 'null', '-']
+    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                       text=True, timeout=20, encoding='utf-8', errors='ignore')
+    st = r.stderr or ''
+    j0, j1 = st.rfind('{'), st.rfind('}') + 1
+    if j0 != -1 and j1 > j0:
+        return float(json.loads(st[j0:j1]).get('input_i', -14.0))
+    return None
+
+def sc_measure_loudness(stream_url, duration=None):
+    """Громкость SC-трека для нормализации до -14 LUFS (возвращает gain в шкале loudness YT:
+    gain_db = input_i + 14). Берём 3 точки в ТЕЛЕ трека (минуя интро/аутро) и усредняем в
+    энергетической области — иначе нерепрезентативное интро перекашивает результат."""
+    import math
+    dur = 0.0
+    try: dur = float(duration or 0)
+    except (TypeError, ValueError): dur = 0.0
+
+    if dur > 45:
+        windows = [(dur * 0.15, 10), (dur * 0.5, 10), (dur * 0.8, 10)]
+    else:
+        # короткий трек / длительность неизвестна — один проход, минуя самое начало
+        windows = [(5 if dur > 15 else 0, None)]
+
+    energies = []
+    for ss, t in windows:
+        try:
+            li = _ffmpeg_loudnorm_i(stream_url, ss=ss, t=t)
+            if li is not None and li > -70:  # -inf/тишину игнорируем
+                energies.append(10 ** (li / 10.0))
+        except Exception as _e:
+            print(f"[warn] SC loudnorm window @{ss:.0f}s failed: {_e}", file=sys.stderr)
+
+    if not energies:
+        return 0.0
+    integrated = 10 * math.log10(sum(energies) / len(energies))
+    return integrated + 14.0
+
 def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playlist_id=None):
     try:
         vid = t.get('videoId') or t.get('id')
@@ -2034,22 +2079,11 @@ def handle_request(request):
                 thumbs = info.get('thumbnails') or []
                 thumb_url = thumbs[-1].get('url', '') if thumbs else ''
 
-                # Нормализация до -14 LUFS: анализируем срез потока (как у скачанных треков).
-                # gain_db в той же шкале, что и loudness YT: gain = 10^(-loudness/20).
+                # Нормализация до -14 LUFS: 3 точки в теле трека, усреднённые в энергетике
+                # (минует нерепрезентативное интро). gain в шкале loudness YT: gain = 10^(-loudness/20).
                 loudness = 0.0
                 try:
-                    import subprocess
-                    ln = subprocess.run(
-                        ['ffmpeg', '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0',
-                         '-ss', '0', '-t', '20', '-i', stream_url,
-                         '-af', 'loudnorm=print_format=json', '-f', 'null', '-'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=20,
-                        encoding='utf-8', errors='ignore')
-                    st = ln.stderr or ''
-                    j0 = st.rfind('{'); j1 = st.rfind('}') + 1
-                    if j0 != -1 and j1 > j0:
-                        ld = json.loads(st[j0:j1])
-                        loudness = float(ld.get('input_i', -14.0)) + 14.0
+                    loudness = sc_measure_loudness(stream_url, info.get('duration'))
                 except Exception as _e:
                     print(f"[warn] SC loudnorm failed: {_e}", file=sys.stderr)
 

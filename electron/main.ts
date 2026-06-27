@@ -677,26 +677,72 @@ ipcMain.handle('auth:start', async () => {
 
 // --- SoundCloud webview: надёжный лайк в обход DataDome (write из реального контекста soundcloud.com) ---
 const SC_PARTITION = 'persist:soundcloud'
-const SC_WIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+// UA и client-hints строим от РЕАЛЬНОЙ версии Chromium внутри Electron.
+// Раньше был хардкод Chrome/122 при движке ~138 — рассинхрон UA↔движок↔hints
+// это классический сигнал для DataDome. Теперь всё согласовано с реальным Chromium.
+const SC_CHROME_VER = process.versions.chrome || '122.0.0.0'
+const SC_CHROME_MAJOR = SC_CHROME_VER.split('.')[0]
+const SC_WIN_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${SC_CHROME_VER} Safari/537.36`
+const SC_CH_UA = `"Chromium";v="${SC_CHROME_MAJOR}", "Google Chrome";v="${SC_CHROME_MAJOR}", "Not.A/Brand";v="24"`
 let scWin: BrowserWindow | null = null
 let scSessionReady = false
 
-// Маскируем Electron, иначе DataDome (анти-бот SoundCloud) блокирует вход:
-// чистый User-Agent + срезаем client-hints (sec-ch-ua*), как в Google-логине.
+// Маскируем Electron под обычный Chrome: согласованные UA + client-hints,
+// иначе DataDome (анти-бот SoundCloud) блокирует вход и лайки.
 function getScSession() {
   const sess = session.fromPartition(SC_PARTITION)
   if (!scSessionReady) {
     sess.setUserAgent(SC_WIN_UA)
     sess.webRequest.onBeforeSendHeaders((details, callback) => {
-      details.requestHeaders['User-Agent'] = SC_WIN_UA
-      for (const k of Object.keys(details.requestHeaders)) {
-        if (k.toLowerCase().startsWith('sec-ch-ua')) delete details.requestHeaders[k]
-      }
-      callback({ requestHeaders: details.requestHeaders })
+      const h = details.requestHeaders
+      h['User-Agent'] = SC_WIN_UA
+      h['sec-ch-ua'] = SC_CH_UA
+      h['sec-ch-ua-mobile'] = '?0'
+      h['sec-ch-ua-platform'] = '"Windows"'
+      callback({ requestHeaders: h })
     })
     scSessionReady = true
   }
   return sess
+}
+
+// Stealth-патч navigator в main-world ДО скриптов страницы (через CDP, без понижения
+// безопасности окна). Прячет признаки автоматизации, на которые смотрит DataDome.
+const SC_STEALTH_JS = `(() => {
+  try { Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false }); } catch (e) {}
+  try { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); } catch (e) {}
+  try { window.chrome = window.chrome || {}; window.chrome.runtime = window.chrome.runtime || {}; } catch (e) {}
+  try {
+    const mk = (name) => ({ name, filename: '', description: '', length: 1 });
+    const plugins = [mk('PDF Viewer'), mk('Chrome PDF Viewer'), mk('Chromium PDF Viewer')];
+    Object.defineProperty(navigator, 'plugins', { get: () => plugins });
+    Object.defineProperty(navigator, 'mimeTypes', { get: () => [{ type: 'application/pdf' }] });
+  } catch (e) {}
+  try {
+    const orig = navigator.permissions && navigator.permissions.query;
+    if (orig) navigator.permissions.query = (p) => (p && p.name === 'notifications')
+      ? Promise.resolve({ state: Notification.permission })
+      : orig.call(navigator.permissions, p);
+  } catch (e) {}
+  try {
+    const getParam = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function (p) {
+      if (p === 37445) return 'Google Inc. (Intel)';
+      if (p === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
+      return getParam.call(this, p);
+    };
+  } catch (e) {}
+})();`
+
+function installScStealth(w: BrowserWindow) {
+  try {
+    const dbg = w.webContents.debugger
+    if (!dbg.isAttached()) dbg.attach('1.3')
+    dbg.sendCommand('Page.enable').catch(() => {})
+    dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SC_STEALTH_JS }).catch(() => {})
+  } catch (e) {
+    console.warn('[soundcloud] stealth attach failed', e)
+  }
 }
 
 async function ensureScWindow(show: boolean): Promise<BrowserWindow> {
@@ -715,6 +761,7 @@ async function ensureScWindow(show: boolean): Promise<BrowserWindow> {
     webPreferences: { session: sess, sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
   scWin.webContents.setUserAgent(SC_WIN_UA)
+  installScStealth(scWin)
   scWin.on('closed', () => { scWin = null })
   await scWin.loadURL('https://soundcloud.com/discover')
   return scWin
@@ -752,13 +799,18 @@ ipcMain.handle('sc:write', async (_event, args: { method: string, uid: string | 
     const js = `(async () => { try {`
       + ` const r = await fetch(${JSON.stringify(url)}, { method: ${JSON.stringify(args.method)},`
       + ` headers: { 'Authorization': 'OAuth ' + ${JSON.stringify(args.token)} }, credentials: 'include' });`
-      + ` return r.status; } catch (e) { return -1; } })()`
-    const status = await win.webContents.executeJavaScript(js, true)
+      + ` let body = ''; try { body = await r.text(); } catch (e) {}`
+      + ` return { status: r.status, body }; } catch (e) { return { status: -1, body: '' }; } })()`
+    const res = await win.webContents.executeJavaScript(js, true)
+    const status = res && typeof res === 'object' ? res.status : res
     if (status === 403) {
-      // DataDome challenge: показываем окно и перезагружаем soundcloud.com, чтобы выскочила капча.
+      // DataDome challenge: в теле 403 лежит ТОЧНЫЙ URL капчи (geo.captcha-delivery.com).
+      // Открываем именно его — перезагрузка /discover капчу часто не вызывает.
       // Пользователь решает её один раз → выдаётся валидная datadome-кука, следующий лайк проходит.
+      let captchaUrl = ''
+      try { captchaUrl = (JSON.parse(res.body || '{}').url) || '' } catch { /* ignore */ }
       win.show()
-      try { await win.loadURL('https://soundcloud.com/discover') } catch { /* ignore */ }
+      try { await win.loadURL(captchaUrl || 'https://soundcloud.com/discover') } catch { /* ignore */ }
       return { ok: false, status, needsCaptcha: true }
     }
     return { ok: status >= 200 && status < 300, status }
