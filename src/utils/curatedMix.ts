@@ -1,4 +1,5 @@
 import type { YTMTrack } from '../api/yt';
+import { MOOD_CATEGORIES, assignCategory, groupKey, type MoodCategory } from './moodCategories';
 
 /**
  * Round-robin смешивание нескольких трек-листов: берём позицию 0 у всех,
@@ -26,4 +27,24 @@ export function blendTracks(trackLists: YTMTrack[][], cap = 60): YTMTrack[] {
     pos++;
   }
   return out;
+}
+
+/** Категории-настроения для панели «Подобрать» (без служебных all/genre/soundcloud). */
+export function moodTagCategories(): MoodCategory[] {
+  return MOOD_CATEGORIES.filter(c => c.id !== 'all' && c.id !== 'genre' && c.id !== 'soundcloud');
+}
+
+/** Для каждого выбранного настроения — его YT-миксы из пула станций. */
+export function pickMixesForMoods<T extends { title: string; kind: string }>(
+  moodIds: string[],
+  stations: T[],
+): Record<string, T[]> {
+  const result: Record<string, T[]> = {};
+  for (const id of moodIds) result[id] = [];
+  for (const st of stations) {
+    if (st.kind !== 'yt') continue;
+    const cat = assignCategory(groupKey(st.title));
+    if (cat && result[cat.id]) result[cat.id].push(st);
+  }
+  return result;
 }

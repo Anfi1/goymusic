@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blendTracks } from './curatedMix';
+import { blendTracks, pickMixesForMoods, moodTagCategories } from './curatedMix';
 import type { YTMTrack } from '../api/yt';
 
 const t = (id: string): YTMTrack => ({ id, title: id } as YTMTrack);
@@ -25,5 +25,33 @@ describe('blendTracks', () => {
   it('устойчив к пустым спискам', () => {
     expect(blendTracks([[], []])).toEqual([]);
     expect(blendTracks([])).toEqual([]);
+  });
+});
+
+describe('moodTagCategories', () => {
+  it('исключает all/genre/soundcloud', () => {
+    const ids = moodTagCategories().map(c => c.id);
+    expect(ids).not.toContain('all');
+    expect(ids).not.toContain('genre');
+    expect(ids).not.toContain('soundcloud');
+    expect(ids).toContain('energy');
+  });
+});
+
+describe('pickMixesForMoods', () => {
+  const st = (title: string, kind = 'yt') => ({ id: title, title, kind });
+  it('группирует yt-станции по настроениям', () => {
+    const stations = [
+      st('Заряд бодрости 1'),        // energy (keyword 'бодрост')
+      st('Для отличного настроения'), // happy (keyword 'хорошего настроен'? нет) -> проверяем вечеринку
+      st('Вечеринка века'),           // party (keyword 'вечеринк')
+    ];
+    const res = pickMixesForMoods(['energy', 'party'], stations);
+    expect(res.energy.map(s => s.title)).toEqual(['Заряд бодрости 1']);
+    expect(res.party.map(s => s.title)).toEqual(['Вечеринка века']);
+  });
+  it('игнорирует не-yt станции', () => {
+    const res = pickMixesForMoods(['party'], [st('Вечеринка', 'sc')]);
+    expect(res.party).toEqual([]);
   });
 });
