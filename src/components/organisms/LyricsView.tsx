@@ -53,7 +53,7 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true }) => {
     queryKey: ['lyrics', currentTrackId],
     queryFn: async () => {
       if (!track) return null;
-      const artist = track.artists?.[0] || 'Unknown';
+      const artist = track.artists?.[0] || '';
       const title = track.title;
       const durParts = track.duration.split(':').map(Number);
       const duration = durParts.length === 2 ? durParts[0] * 60 + durParts[1] : undefined;

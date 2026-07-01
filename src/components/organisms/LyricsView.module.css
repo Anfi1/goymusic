@@ -7,6 +7,17 @@
     background: var(--bg-surface);
 }
 
+/* Плавная смена состояний панели (загрузка → текст → «не найдено»),
+   чтобы контент не «прыгал» жёстким свитчем. */
+@keyframes lyricsStateIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.wrapper,
+.empty {
+    animation: lyricsStateIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .viewControls {
     display: flex;
     justify-content: center;

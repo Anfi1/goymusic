@@ -15,6 +15,7 @@ import sidebarStyles from './Sidebar.module.css';
 
 interface SidebarProps {
   collapsed?: boolean;
+  immersive?: boolean;
   onToggleCollapse?: () => void;
   playlists?: YTMPlaylist[];
   activePlaylistId?: string | null;
@@ -263,6 +264,7 @@ const PlaylistList = memo(({
 
 export const Sidebar: React.FC<SidebarProps> = memo(({
   collapsed = false,
+  immersive = false,
   onToggleCollapse,
   playlists = [],
   activePlaylistId,
@@ -334,7 +336,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
   const isLikedActive = activeViewType === 'liked' || activePlaylistId === 'LM';
 
   return (
-    <aside className={`${sidebarStyles.sidebar} ${collapsed ? sidebarStyles.collapsed : ''} ${className || ''}`}>
+    <aside className={`${sidebarStyles.sidebar} ${collapsed ? sidebarStyles.collapsed : ''} ${immersive ? sidebarStyles.immersive : ''} ${className || ''}`}>
       <SidebarHeader 
         collapsed={collapsed} 
         onToggleCollapse={onToggleCollapse} 

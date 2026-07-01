@@ -1,25 +1,53 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Heart, HeartCrack, Loader2, AudioLines } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Heart, HeartCrack, Loader2, AudioLines, HardDriveDownload, Mic2, Volume2, Volume1, VolumeX, ChevronLeft, ChevronRight, ListMusic } from 'lucide-react';
 import { player } from '../../api/player';
 import { likedStore } from '../../api/likedStore';
 import { historyStore } from '../../api/history';
 import { likedManager } from '../../api/likedManager';
 import { YTMTrack, getMixedForYou, getPlaylistTracks } from '../../api/yt';
+import { TrackOverrideDialog } from './TrackOverrideDialog';
 import {
   isSoundCloudEnabled, interleaveTracks,
   getScWaveStations, getScStationTracks,
 } from '../../api/soundcloud';
 import { LazyImage } from '../atoms/LazyImage';
 import { SourceBadge } from '../atoms/SourceBadge';
+import { ProgressBar } from '../atoms/ProgressBar';
+import { openImageViewer } from '../molecules/ImageViewer';
+import { LyricsView } from './LyricsView';
+import { QueuePanel } from './QueuePanel';
+import { MOOD_CATEGORIES, assignCategory, groupKey, MoodCategory } from '../../utils/moodCategories';
 import styles from './MyWaveView.module.css';
 
 const WAVE_SOURCE_ID = 'my-wave';
+const WAVE_ACTIVE_ID_KEY = 'goymusic-my-wave-active-id';
 
 interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'foryou' | 'sc' | 'yt'; }
 const FORYOU: WaveStation = { id: 'foryou', title: 'Для тебя', thumbUrl: '', kind: 'foryou' };
 
 // Кэш станций между заходами в раздел (мало меняются).
 let stationsCache: WaveStation[] | null = null;
+
+function getSavedActiveId(): string {
+  try {
+    return localStorage.getItem(WAVE_ACTIVE_ID_KEY) || 'foryou';
+  } catch {
+    return 'foryou';
+  }
+}
+
+function saveActiveId(id: string) {
+  try {
+    localStorage.setItem(WAVE_ACTIVE_ID_KEY, id);
+  } catch {}
+}
+
+function formatTime(sec: number): string {
+  if (!sec || isNaN(sec) || !isFinite(sec)) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -30,16 +58,124 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export const MyWaveView: React.FC = () => {
+const WaveVolumeControl: React.FC = () => {
+  const [volume, setVolume] = useState(player.volume);
+  const [showInput, setShowInput] = useState(false);
+  const [inputValue, setInputValue] = useState(player.volume.toString());
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return player.subscribe((ev) => {
+      if (ev === 'state') {
+        setVolume(player.volume);
+        if (!showInput) setInputValue(player.volume.toString());
+      }
+    });
+  }, [showInput]);
+
+  useEffect(() => {
+    if (showInput && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [showInput]);
+
+  useEffect(() => {
+    if (!showInput) return;
+    const handleClickAway = (e: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        setShowInput(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickAway);
+    return () => document.removeEventListener('mousedown', handleClickAway);
+  }, [showInput]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setShowInput(true);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const valStr = e.target.value.replace(/\D/g, '');
+    let val = parseInt(valStr, 10);
+    let finalStr = valStr;
+    if (!isNaN(val)) {
+      if (val > 100) { val = 100; finalStr = '100'; }
+      player.setVolume(val);
+    }
+    setInputValue(finalStr);
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === 'Escape') setShowInput(false);
+  };
+
+  const handleSeek = useCallback((pct: number) => {
+    player.setVolume(Math.round(pct));
+  }, []);
+
+  const VolumeIcon = volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2;
+
+  return (
+    <div
+      className={styles.volumeControl}
+      onWheel={(e) => player.setVolume(player.volume + (-Math.sign(e.deltaY) * 5))}
+      onContextMenu={handleContextMenu}
+    >
+      <button className={styles.volumeBtn} onClick={() => player.toggleMute()} title="Громкость">
+        <VolumeIcon size={18} />
+      </button>
+      <ProgressBar
+        progress={volume}
+        onSeek={handleSeek}
+        showThumb={true}
+        className={styles.volumeBar}
+      />
+      {showInput && (
+        <div className={styles.volumeInputPopover}>
+          <div className={styles.volumeLabel}>Громкость %</div>
+          <input
+            ref={inputRef}
+            type="text"
+            className={styles.volumeInput}
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface MyWaveViewProps {
+  onSelectArtist?: (id: string) => void;
+  onSelectAlbum?: (id: string) => void;
+  onSelectPlaylist?: (id: string, title: string) => void;
+}
+
+export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelectAlbum, onSelectPlaylist }) => {
   const [stations, setStations] = useState<WaveStation[]>(stationsCache || []);
-  const [activeId, setActiveId] = useState('foryou');
+  const [activeId, setActiveId] = useState<string>(getSavedActiveId());
+  const [selectedFilter, setSelectedFilter] = useState<string>('all');
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(!stationsCache);
   const [error, setError] = useState<string | null>(null);
+  const [likeAction, setLikeAction] = useState<'like' | 'dislike' | null>(null);
+  const [showLyrics, setShowLyrics] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, duration: 0, pct: 0 });
+  const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
   const [, force] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const filterListRef = useRef<HTMLDivElement>(null);
   const firstItemRef = useRef<HTMLButtonElement>(null);
   const secondItemRef = useRef<HTMLButtonElement>(null);
   const suppressRecenter = useRef(false);
+  const filterDrag = useRef<{ isDown: boolean; startX: number; scrollLeft: number }>({ isDown: false, startX: 0, scrollLeft: 0 });
 
   // Курируемые станции: SoundCloud (жанры) + YouTube супермиксы.
   useEffect(() => {
@@ -55,18 +191,81 @@ export const MyWaveView: React.FC = () => {
       const combined = [...scSt, ...ytSt];
       stationsCache = combined;
       setStations(combined);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // Перерисовка при смене трека / play-pause / лайке.
+  // Перерисовка при смене трека / play-pause / лайке + обновление прогресса.
   useEffect(() => {
-    const unsub = player.subscribe((e) => { if (e !== 'tick') force(n => n + 1); });
-    const onLike = () => force(n => n + 1);
-    window.addEventListener('track-like-updated', onLike);
-    return () => { unsub(); window.removeEventListener('track-like-updated', onLike); };
+    const unsub = player.subscribe((e) => {
+      if (e === 'tick') {
+        const current = player.currentTime;
+        const duration = player.duration;
+        setProgress({ current, duration, pct: duration > 0 ? (current / duration) * 100 : 0 });
+        return;
+      }
+      force(n => n + 1);
+    }, { tick: true });
+    const onLikeUpdated = () => force(n => n + 1);
+    const currentId = player.currentTrack?.id;
+    const onLikeStart = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.id === currentId) {
+        // Не устанавливаем здесь loading, это делаем в обработчике клика;
+        // здесь только гарантируем сброс при глобальных событиях.
+      }
+    };
+    const onLikeDone = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.id === currentId) setLikeAction(null);
+      force(n => n + 1);
+    };
+    window.addEventListener('track-like-updated', onLikeUpdated);
+    window.addEventListener('track-like-start', onLikeStart);
+    window.addEventListener('track-like-updated', onLikeDone);
+    return () => {
+      unsub();
+      window.removeEventListener('track-like-updated', onLikeUpdated);
+      window.removeEventListener('track-like-start', onLikeStart);
+      window.removeEventListener('track-like-updated', onLikeDone);
+    };
   }, []);
 
-  const allStations = [FORYOU, ...stations];
+  const visibleStations = useMemo<WaveStation[]>(() => {
+    const activeStation = stations.find(s => s.id === activeId);
+    if (selectedFilter === 'all') {
+      // «Все»: золотые (supermix) + ностальгия + открытия + SoundCloud.
+      const golden = stations.filter(st => {
+        if (st.kind === 'sc') return false;
+        const lower = st.title.toLowerCase();
+        return /супер|super|рекоменд|новых релизов|new release|архив|replay|риплей/i.test(lower);
+      });
+      const sc = stations.filter(st => st.kind === 'sc');
+      const list = [FORYOU, ...golden, ...sc];
+      const unique = new Map(list.map(s => [s.id, s]));
+      return activeStation && !unique.has(activeStation.id)
+        ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
+        : Array.from(unique.values());
+    }
+    if (selectedFilter === 'soundcloud' || selectedFilter === 'genre') {
+      const list = stations.filter(st => st.kind === 'sc');
+      const unique = new Map([FORYOU, ...list].map(s => [s.id, s]));
+      return activeStation && !unique.has(activeStation.id)
+        ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
+        : Array.from(unique.values());
+    }
+    const cat = MOOD_CATEGORIES.find(c => c.id === selectedFilter);
+    const list = stations.filter(st => {
+      if (st.kind !== 'yt') return false;
+      const assigned = assignCategory(groupKey(st.title));
+      return assigned?.id === selectedFilter;
+    });
+    const unique = new Map([FORYOU, ...list].map(s => [s.id, s]));
+    return activeStation && !unique.has(activeStation.id)
+      ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
+      : Array.from(unique.values());
+  }, [stations, activeId, selectedFilter]);
+
+  const allStations = visibleStations;
   const looping = allStations.length > 2;
   const looped = looping ? [...allStations, ...allStations, ...allStations] : allStations;
 
@@ -81,9 +280,23 @@ export const MyWaveView: React.FC = () => {
   useEffect(() => {
     const el = listRef.current;
     if (!el || !looping) return;
-    const id = requestAnimationFrame(() => { const d = loopDistance(); if (d) el.scrollTop = d; });
+    const id = requestAnimationFrame(() => {
+      const d = loopDistance();
+      if (!d) return;
+      el.scrollTop = d;
+      // После первоначальной установки пытаемся центрировать сохранённую активную станцию.
+      if (activeId !== 'foryou') {
+        const idx = allStations.findIndex(s => s.id === activeId);
+        if (idx >= 0) {
+          const btns = el.querySelectorAll('[data-station-id]');
+          const target = Array.from(btns).find((b) => b.getAttribute('data-station-id') === activeId) as HTMLElement | undefined;
+          if (target) centerStation(target);
+        }
+      }
+    });
     return () => cancelAnimationFrame(id);
-  }, [stations.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stations.length, looping]);
 
   const handleScroll = useCallback(() => {
     const el = listRef.current;
@@ -93,6 +306,47 @@ export const MyWaveView: React.FC = () => {
     if (el.scrollTop < d * 0.5) el.scrollTop += d;
     else if (el.scrollTop >= d * 1.5) el.scrollTop -= d;
   }, [looping]);
+
+  // Drag-to-scroll для фильтров через Pointer Events + setPointerCapture:
+  // захват работает даже если курсор выходит за границы окна.
+  const onFilterPointerDown = useCallback((e: React.PointerEvent) => {
+    const el = filterListRef.current;
+    if (!el || e.button !== 0) return;
+    el.setPointerCapture(e.pointerId);
+    filterDrag.current = { isDown: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft };
+    el.style.cursor = 'grabbing';
+  }, []);
+  const onFilterPointerMove = useCallback((e: React.PointerEvent) => {
+    const el = filterListRef.current;
+    if (!el || !filterDrag.current.isDown) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - filterDrag.current.startX) * 1.4;
+    el.scrollLeft = filterDrag.current.scrollLeft - walk;
+  }, []);
+  const endFilterDrag = useCallback(() => {
+    filterDrag.current.isDown = false;
+    if (filterListRef.current) filterListRef.current.style.cursor = 'grab';
+  }, []);
+
+  const checkFilterScroll = useCallback(() => {
+    const el = filterListRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    checkFilterScroll();
+    window.addEventListener('resize', checkFilterScroll);
+    return () => window.removeEventListener('resize', checkFilterScroll);
+  }, [checkFilterScroll]);
+
+  const scrollFilters = useCallback((dir: -1 | 1) => {
+    const el = filterListRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * el.clientWidth * 0.55, behavior: 'smooth' });
+  }, []);
 
   // Плавно центрируем выбранную станцию в колесе (своя анимация — надёжнее scrollTo smooth).
   const centerStation = useCallback((btn: HTMLElement) => {
@@ -135,6 +389,7 @@ export const MyWaveView: React.FC = () => {
 
   const startStation = useCallback(async (st: WaveStation, btn?: HTMLElement) => {
     setActiveId(st.id);
+    saveActiveId(st.id);
     if (btn) centerStation(btn);
     setLoadingId(st.id);
     setError(null);
@@ -182,13 +437,39 @@ export const MyWaveView: React.FC = () => {
     else startStation(activeStation);
   }, [waveActive, activeStation, startStation]);
 
-  const onLike = useCallback(() => {
-    if (track) likedManager.toggleLike(track, likeStatus || 'INDIFFERENT');
-  }, [track, likeStatus]);
+  const handleSeek = useCallback((pct: number) => {
+    if (player.duration) player.seek((pct / 100) * player.duration);
+  }, []);
 
-  const onDislike = useCallback(() => {
-    if (track && !isSc) likedManager.toggleDislike(track, likeStatus || 'INDIFFERENT');
-  }, [track, likeStatus, isSc]);
+  const handleArtClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (track?.thumbUrl) openImageViewer(track.thumbUrl, track.title);
+  }, [track?.thumbUrl, track?.title]);
+
+  const handleArtistClick = useCallback((e: React.MouseEvent, id?: string) => {
+    e.stopPropagation();
+    if (id) onSelectArtist?.(id);
+  }, [onSelectArtist]);
+
+  const onLike = useCallback(async () => {
+    if (!track || likeAction) return;
+    setLikeAction('like');
+    try {
+      await likedManager.toggleLike(track, likeStatus || 'INDIFFERENT');
+    } finally {
+      setLikeAction(null);
+    }
+  }, [track, likeStatus, likeAction]);
+
+  const onDislike = useCallback(async () => {
+    if (!track || isSc || likeAction) return;
+    setLikeAction('dislike');
+    try {
+      await likedManager.toggleDislike(track, likeStatus || 'INDIFFERENT');
+    } finally {
+      setLikeAction(null);
+    }
+  }, [track, likeStatus, isSc, likeAction]);
 
   const renderStation = (st: WaveStation, key: string, ref?: React.Ref<HTMLButtonElement>) => {
     const isActive = activeId === st.id;
@@ -197,6 +478,7 @@ export const MyWaveView: React.FC = () => {
       <button
         key={key}
         ref={ref}
+        data-station-id={st.id}
         className={`${styles.station} ${isActive ? styles.stationActive : ''}`}
         onClick={(e) => startStation(st, e.currentTarget)}
         disabled={loadingId !== null}
@@ -221,8 +503,10 @@ export const MyWaveView: React.FC = () => {
     );
   };
 
+  const panelOpen = showLyrics || showQueue;
+
   return (
-    <div className={styles.container}>
+    <div className={`${styles.container} ${panelOpen ? styles.lyricsMode : ''}`}>
       {/* Иммерсивный фон во всю ширину — список и плеер живут поверх него без границы. */}
       <div
         className={styles.bg}
@@ -230,45 +514,121 @@ export const MyWaveView: React.FC = () => {
       />
       <div className={styles.bgOverlay} />
 
-      <aside className={styles.sidebar}>
+      <aside className={`${styles.sidebar} ${panelOpen ? styles.sidebarHidden : ''}`}>
+        <div className={styles.filterStrip}>
+          {canScrollLeft && (
+            <button className={styles.filterArrow} onClick={() => scrollFilters(-1)} aria-label="Назад" type="button">
+              <ChevronLeft size={16} />
+            </button>
+          )}
+          <div
+            className={`${styles.filterList} ${canScrollLeft ? styles.fadeLeft : ''} ${canScrollRight ? styles.fadeRight : ''}`}
+            ref={filterListRef}
+            onPointerDown={onFilterPointerDown}
+            onPointerMove={onFilterPointerMove}
+            onPointerUp={endFilterDrag}
+            onPointerLeave={endFilterDrag}
+            onScroll={checkFilterScroll}
+          >
+            {MOOD_CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                className={`${styles.filterPill} ${selectedFilter === cat.id ? styles.filterPillActive : ''}`}
+                style={{ '--mood-color': cat.color } as React.CSSProperties}
+                onClick={() => setSelectedFilter(cat.id)}
+                title={cat.label}
+              >
+                <span className={styles.filterEmoji}>{cat.emoji}</span>
+                <span className={styles.filterLabel}>{cat.label}</span>
+              </button>
+            ))}
+          </div>
+          {canScrollRight && (
+            <button className={`${styles.filterArrow} ${styles.filterArrowRight}`} onClick={() => scrollFilters(1)} aria-label="Вперёд" type="button">
+              <ChevronRight size={16} />
+            </button>
+          )}
+        </div>
         <div className={styles.wheel} ref={listRef} onScroll={handleScroll}>
-          {looped.map((st, i) => renderStation(
-            st,
-            `${st.id}-${i}`,
-            i === 0 ? firstItemRef : i === allStations.length ? secondItemRef : undefined,
-          ))}
-          {stations.length === 0 && (
-            <p className={styles.listHint}>Включи SoundCloud в настройках — добавятся жанровые станции.</p>
+          {loading && stations.length === 0 ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={`skel-${i}`} className={styles.skeletonStation} aria-hidden="true">
+                <span className={styles.skelThumb} />
+                <span className={styles.skelText}>
+                  <span className={styles.skelLine} style={{ width: '68%' }} />
+                  <span className={`${styles.skelLine} ${styles.skelLineShort}`} />
+                </span>
+              </div>
+            ))
+          ) : (
+            <>
+              {looped.map((st, i) => renderStation(
+                st,
+                `${st.id}-${i}`,
+                i === 0 ? firstItemRef : i === allStations.length ? secondItemRef : undefined,
+              ))}
+              {stations.length === 0 && (
+                <p className={styles.listHint}>Включи SoundCloud в настройках — добавятся жанровые станции.</p>
+              )}
+            </>
           )}
         </div>
       </aside>
 
-      <main className={styles.stage}>
+      <main className={`${styles.stage} ${panelOpen ? styles.stageLyrics : ''}`}>
         <div className={styles.stageInner}>
           <div className={styles.stationBadge}>{activeStation.title}</div>
 
           {track ? (
             <>
-              <div className={styles.artWrap}>
+              <div className={`${styles.artWrap} ${styles.artClickable}`} onClick={handleArtClick}>
                 <LazyImage src={track.thumbUrl} alt={track.title} className={styles.art} />
                 <span className={styles.artBadge}><SourceBadge source={track.source} /></span>
               </div>
 
               <div className={styles.trackMeta}>
                 <h1 className={styles.trackTitle}>{track.title}</h1>
-                <p className={styles.trackArtist}>{track.artists?.join(', ')}</p>
+                <p className={styles.trackArtist}>
+                  {track.artists?.map((artist: string, i: number) => {
+                    const id = track.artistIds?.[i];
+                    return (
+                      <React.Fragment key={i}>
+                        <span
+                          className={id ? styles.artistLink : ''}
+                          onClick={(e) => handleArtistClick(e, id)}
+                        >{artist}</span>
+                        {i < (track.artists?.length || 0) - 1 ? ', ' : ''}
+                      </React.Fragment>
+                    );
+                  })}
+                </p>
+              </div>
+
+              <div className={styles.waveProgress}>
+                <ProgressBar
+                  progress={progress.pct}
+                  buffered={player.buffered}
+                  onSeek={handleSeek}
+                  className={styles.progressBar}
+                  nyanMode={true}
+                  isPlaying={isPlaying}
+                />
+                <div className={styles.timeRow}>
+                  <span>{formatTime(progress.current)}</span>
+                  <span>{formatTime(progress.duration)}</span>
+                </div>
               </div>
 
               <div className={styles.controls}>
                 <button
-                  className={`${styles.ctrl} ${likeStatus === 'DISLIKE' ? styles.ctrlActiveBad : ''}`}
+                  className={`${styles.ctrl} ${styles.ctrlExtra} ${likeStatus === 'DISLIKE' ? styles.ctrlActiveBad : ''}`}
                   onClick={onDislike}
-                  disabled={isSc}
+                  disabled={isSc || likeAction !== null}
                   title={isSc ? 'SoundCloud не поддерживает дизлайк' : 'Не нравится'}
                 >
-                  <HeartCrack size={20} />
+                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={20} />}
                 </button>
-                <button className={styles.ctrl} onClick={() => player.prev()} title="Назад">
+                <button className={`${styles.ctrl} ${styles.ctrlExtra}`} onClick={() => player.prev()} title="Назад">
                   <SkipBack size={22} fill="currentColor" />
                 </button>
                 <button className={styles.ctrlMain} onClick={onPrimary} title={isPlaying ? 'Пауза' : 'Играть'}>
@@ -276,15 +636,47 @@ export const MyWaveView: React.FC = () => {
                     : isPlaying ? <Pause size={28} fill="currentColor" />
                     : <Play size={28} fill="currentColor" />}
                 </button>
-                <button className={styles.ctrl} onClick={() => player.next()} title="Вперёд">
+                <button className={`${styles.ctrl} ${styles.ctrlExtra}`} onClick={() => player.next()} title="Вперёд">
                   <SkipForward size={22} fill="currentColor" />
                 </button>
                 <button
-                  className={`${styles.ctrl} ${likeStatus === 'LIKE' ? styles.ctrlActiveGood : ''}`}
+                  className={`${styles.ctrl} ${styles.ctrlExtra} ${likeStatus === 'LIKE' ? styles.ctrlActiveGood : ''}`}
                   onClick={onLike}
+                  disabled={likeAction !== null}
                   title="Нравится"
                 >
-                  <Heart size={20} fill={likeStatus === 'LIKE' ? 'currentColor' : 'none'} />
+                  {likeAction === 'like' ? <Loader2 size={18} className={styles.spin} /> : <Heart size={20} fill={likeStatus === 'LIKE' ? 'currentColor' : 'none'} />}
+                </button>
+              </div>
+
+              <div className={styles.secondaryControls}>
+                <WaveVolumeControl />
+                <button
+                  className={`${styles.ctrl} ${showQueue ? styles.ctrlActiveGood : ''}`}
+                  onClick={() => {
+                    setShowQueue(v => !v);
+                    setShowLyrics(false);
+                  }}
+                  title={showQueue ? 'Скрыть очередь' : 'Очередь воспроизведения'}
+                >
+                  <ListMusic size={18} />
+                </button>
+                <button
+                  className={`${styles.ctrl} ${showLyrics ? styles.ctrlActiveGood : ''}`}
+                  onClick={() => {
+                    setShowLyrics(v => !v);
+                    setShowQueue(false);
+                  }}
+                  title={showLyrics ? 'Скрыть текст' : 'Текст песни'}
+                >
+                  <Mic2 size={18} />
+                </button>
+                <button
+                  className={styles.ctrl}
+                  onClick={() => track && setOverrideTrack(track)}
+                  title="Скачать / заменить источник"
+                >
+                  <HardDriveDownload size={18} />
                 </button>
               </div>
             </>
@@ -300,6 +692,31 @@ export const MyWaveView: React.FC = () => {
           )}
         </div>
       </main>
+
+      <aside className={`${styles.lyricsPanel} ${showLyrics ? styles.lyricsPanelVisible : ''}`}>
+        <div className={styles.lyricsPanelInner}>
+          <LyricsView isVisible={showLyrics} />
+        </div>
+      </aside>
+
+      <aside className={`${styles.queuePanel} ${showQueue ? styles.queuePanelVisible : ''}`}>
+        <div className={styles.queuePanelInner}>
+          <QueuePanel
+            isVisible={showQueue}
+            onSelectAlbum={onSelectAlbum || (() => {})}
+            onSelectPlaylist={onSelectPlaylist || (() => {})}
+            onSelectArtist={onSelectArtist || (() => {})}
+          />
+        </div>
+      </aside>
+
+      {overrideTrack && (
+        <TrackOverrideDialog
+          track={overrideTrack}
+          isOpen={!!overrideTrack}
+          onClose={() => setOverrideTrack(null)}
+        />
+      )}
     </div>
   );
 };

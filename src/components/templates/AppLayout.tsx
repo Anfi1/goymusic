@@ -13,6 +13,9 @@ interface AppLayoutProps {
   playerBar?: React.ReactNode;
   isSidebarCollapsed?: boolean;
   isQueueVisible?: boolean;
+  hidePlayerBar?: boolean;
+  hideRightPanel?: boolean;
+  hideBackButton?: boolean;
   onBack?: () => void;
   canGoBack?: boolean;
 }
@@ -28,6 +31,9 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
   rightPanel,
   playerBar,
   isQueueVisible = true,
+  hidePlayerBar = false,
+  hideRightPanel = false,
+  hideBackButton = false,
   onBack,
   canGoBack = false
 }) => {
@@ -66,8 +72,8 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
       >
         <div style={{ display: 'contents' }}>
           {memoizedSidebar}
-          <main className={styles.main}>
-            {canGoBack && onBack && (
+          <main className={`${styles.main} ${hidePlayerBar ? styles.mainImmersive : ''}`}>
+            {canGoBack && onBack && !hideBackButton && (
               <div className={styles.contextualBack}>
                 <IconButton 
                   icon={ChevronLeft} 
@@ -84,11 +90,11 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
             </div>
           </main>
           
-          <aside className={`${styles.rightSidebar} ${isQueueVisible ? styles.visible : ''}`}>
+          <aside className={`${styles.rightSidebar} ${isQueueVisible && !hideRightPanel ? styles.visible : ''} ${hideRightPanel ? styles.hiddenPanel : ''}`}>
             {rightPanel}
           </aside>
 
-          {memoizedPlayerBar}
+          {!hidePlayerBar && memoizedPlayerBar}
         </div>
       </ErrorBoundary>
     </div>

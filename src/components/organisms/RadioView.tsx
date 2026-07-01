@@ -5,18 +5,10 @@ import { getMixedForYou, getPlaylistTracks, YTMMix } from '../../api/yt';
 import { player } from '../../api/player';
 import { LazyImage } from '../atoms/LazyImage';
 import { Skeleton } from '../atoms/Skeleton';
+import { MOOD_CATEGORIES, assignCategory, groupKey, MoodCategory } from '../../utils/moodCategories';
 import styles from './RadioView.module.css';
 
 // ─── Grouping ────────────────────────────────────────────────────────────────
-
-function groupKey(title: string): string {
-    return title.trim()
-        .replace(/\s+\d+$/, '')
-        .replace(/Супермикс/g, 'Микс')
-        .replace(/супермикс/g, 'микс')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
 
 function groupMixes(mixes: YTMMix[]): Map<string, YTMMix[]> {
     const map = new Map<string, YTMMix[]>();
@@ -26,37 +18,6 @@ function groupMixes(mixes: YTMMix[]): Map<string, YTMMix[]> {
         map.get(key)!.push(mix);
     }
     return map;
-}
-
-// ─── Mood categories ─────────────────────────────────────────────────────────
-
-interface MoodCategory {
-    id: string;
-    label: string;
-    emoji: string;
-    keywords: string[];
-    color: string;
-}
-
-const MOOD_CATEGORIES: MoodCategory[] = [
-    { id: 'personal',  label: 'Мой микс',          emoji: '🎵', keywords: ['мой микс', 'my mix'],                                  color: '#89b4fa' },
-    { id: 'happy',     label: 'Хорошее настроение', emoji: '😊', keywords: ['хорошего настроен', 'good mood'],                      color: '#a6e3a1' },
-    { id: 'sad',       label: 'Грустное',            emoji: '🌧', keywords: ['грустн', 'sad'],                                       color: '#89dceb' },
-    { id: 'sleep',     label: 'Сон',                 emoji: '🌙', keywords: ['для сна', 'sleep'],                                    color: '#b4befe' },
-    { id: 'chill',     label: 'Отдых',               emoji: '🌊', keywords: ['отдых', 'chill', 'романтич', 'romantic'],              color: '#94e2d5' },
-    { id: 'energy',    label: 'Энергия',             emoji: '⚡', keywords: ['фитнес', 'бодрост', 'fitness', 'energy'],             color: '#f9e2af' },
-    { id: 'party',     label: 'Вечеринка',           emoji: '🎉', keywords: ['вечеринк', 'party', 'коачелл'],                       color: '#f38ba8' },
-    { id: 'focus',     label: 'Концентрация',        emoji: '🎯', keywords: ['концентрац', 'focus'],                                 color: '#fab387' },
-    { id: 'throwback', label: 'Ностальгия',          emoji: '📼', keywords: ['архивн', 'риплей', 'replay', 'archiv'],               color: '#cba6f7' },
-    { id: 'discovery', label: 'Открытия',            emoji: '✨', keywords: ['рекоменд', 'новых релизов', 'new release', 'discover'], color: '#f5c2e7' },
-];
-
-function assignCategory(groupName: string): MoodCategory | null {
-    const lower = groupName.toLowerCase();
-    for (const cat of MOOD_CATEGORIES) {
-        if (cat.keywords.some(kw => lower.includes(kw))) return cat;
-    }
-    return null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

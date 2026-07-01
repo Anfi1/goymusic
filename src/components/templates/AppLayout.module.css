@@ -49,6 +49,12 @@
     position: relative;
 }
 
+.mainImmersive {
+    /* В immersive-режиме My Wave main занимает всю доступную высоту, включая зону плеера. */
+    grid-row: 2 / 4;
+    z-index: 1;
+}
+
 .rightSidebar {
     grid-area: right;
     width: 0;
@@ -60,6 +66,12 @@
 .rightSidebar.visible {
     width: var(--right-panel-width);
     opacity: 1;
+}
+
+.hiddenPanel {
+    width: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none;
 }
 
 .contextualBack {

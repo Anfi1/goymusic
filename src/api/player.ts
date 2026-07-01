@@ -1041,12 +1041,20 @@ class PlayerStore {
 
     async refreshRecommendations() {
         if (!this.currentTrack || this.isRecommendationsLoading) return;
-        await this.fetchRecommendations(this.currentTrack.id, true);
+        this.isRecommendationsLoading = true;
+        this.notify('state');
+        try {
+            await this.fetchRecommendations(this.currentTrack.id, true);
+        } finally {
+            this.isRecommendationsLoading = false;
+            this.notify('state');
+        }
     }
 
     private async fetchRecommendations(videoId: string, forceReplace = false) {
         if (this.isRecommendationsLoading) return;
         this.isRecommendationsLoading = true;
+        this.notify('state');
         try {
             // При выключенном SoundCloud режим = youtube. НО от SC-трека YT-радио построить нельзя
             // (нет YT videoId — RDAMVM+<sc-url> невалиден), поэтому для SC-трека всегда SC-радио.
@@ -1065,6 +1073,7 @@ class PlayerStore {
             this.notify('state');
         }
     }
+
 
     // YT-логика без изменений. Seeding альбома/плейлиста/RD работает только в этом режиме.
     private async fetchYouTubeRecommendations(videoId: string, forceReplace: boolean) {
@@ -1155,6 +1164,9 @@ class PlayerStore {
         const qIds = new Set(this.queue.map(t => t.id));
         const ytFresh = (ytRes.tracks || []).filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
         const scFresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
+        // При forceReplace явно сбрасываем, чтобы hybrid-refresh точно заменил оба источника,
+        // а не смешал новые треки с остатками старых рекомендаций.
+        if (forceReplace) this.recommendations = [];
         this.applyRecommendations(interleaveTracks(ytFresh, scFresh), forceReplace);
     }
 

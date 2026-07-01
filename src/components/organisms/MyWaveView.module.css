@@ -14,9 +14,6 @@
   z-index: 2;
   display: flex;
   flex-direction: column;
-  /* Растворяем правый край — список бесшовно перетекает в зону трека */
-  -webkit-mask-image: linear-gradient(to right, #000 58%, transparent 96%);
-  mask-image: linear-gradient(to right, #000 58%, transparent 96%);
 }
 
 .listHeader {
@@ -31,23 +28,118 @@
   flex-shrink: 0;
 }
 
+.filterStrip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.filterArrow {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(18, 18, 22, 0.72);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.filterArrowRight { left: auto; right: 6px; }
+.filterArrow:hover { background: rgba(255, 255, 255, 0.14); opacity: 1; transform: translateY(-50%) scale(1.08); }
+.filterArrow:active { transform: translateY(-50%) scale(0.96); }
+
+.filterList {
+  display: flex;
+  gap: 8px;
+  padding: 18px 14px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  cursor: grab;
+  user-select: none;
+}
+/* Градиентная маска намекает на скролл только с той стороны, где ещё есть контент —
+   поэтому на старте левый край и первый чип остаются чёткими, без пустого отступа. */
+.fadeLeft {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 30px);
+  mask-image: linear-gradient(to right, transparent 0, #000 30px);
+}
+.fadeRight {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent 100%);
+}
+.fadeLeft.fadeRight {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+}
+.filterList::-webkit-scrollbar { display: none; }
+.filterList:active { cursor: grabbing; }
+
+.filterPill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.filterPill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.filterPillActive {
+  background: color-mix(in srgb, var(--mood-color) 16%, rgba(0,0,0,0.45)) !important;
+  border-color: color-mix(in srgb, var(--mood-color) 45%, transparent) !important;
+  color: color-mix(in srgb, var(--mood-color) 90%, #fff) !important;
+}
+.filterEmoji { font-size: 13px; line-height: 1; }
+.filterLabel { white-space: nowrap; }
+
 .wheel {
   position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 40px 10px 80px;
+  padding: 12px 10px 80px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   perspective: 1000px;
   /* Сила изгиба — меньше на маленьком экране, больше на большом (см. медиа-запросы). */
-  --tilt: 50deg;
-  --shift: 30px;
-  --min-scale: 0.7;
-  /* «Колесо»: элементы тают у краёв */
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent);
-  mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent);
+  --tilt: 55deg;
+  --shift: 36px;
+  --min-scale: 0.68;
+  /* «Колесо»: элементы тают у верх/низ (изгиб) И у правого края — список бесшовно
+     перетекает в зону трека. Затухание живёт здесь, а не на .sidebar, чтобы шапка
+     и стрелки фильтра не растворялись (иначе правую стрелку не видно). */
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent),
+    linear-gradient(to right, #000 58%, transparent 96%);
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent),
+    linear-gradient(to right, #000 58%, transparent 96%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
   scrollbar-width: none;
 }
 
@@ -74,17 +166,53 @@
   .wheel { --tilt: 32deg; --shift: 14px; --min-scale: 0.84; }
 }
 @media (min-width: 1700px) {
-  .wheel { --tilt: 60deg; --shift: 44px; --min-scale: 0.6; }
+  .wheel { --tilt: 68deg; --shift: 54px; --min-scale: 0.58; }
+}
+
+/* Скелетон карточек станций на время загрузки — геометрия как у .station. */
+.skeletonStation {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px 9px 11px;
+}
+.skelThumb {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border-radius: 16px;
+}
+.skelText {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+.skelLine {
+  height: 12px;
+  border-radius: 6px;
+}
+.skelLineShort { width: 42%; height: 10px; }
+.skelThumb,
+.skelLine {
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.05) 30%, rgba(255, 255, 255, 0.13) 50%, rgba(255, 255, 255, 0.05) 70%);
+  background-size: 220% 100%;
+  animation: skelShimmer 1.3s ease-in-out infinite;
+}
+@keyframes skelShimmer {
+  0% { background-position: 220% 0; }
+  100% { background-position: -220% 0; }
 }
 
 .station {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 8px 12px 8px 10px;
+  gap: 14px;
+  padding: 9px 14px 9px 11px;
   border: none;
-  border-radius: 14px;
+  border-radius: 16px;
   background: transparent;
   color: var(--text-secondary);
   text-align: left;
@@ -111,15 +239,16 @@
 
 .stationThumb {
   position: relative;
-  width: 52px;
-  height: 52px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.6);
-  transition: box-shadow 0.18s ease;
+  box-shadow: 0 8px 22px -7px rgba(0, 0, 0, 0.65);
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
-.stationActive .stationThumb { box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.9), 0 8px 20px -6px rgba(168, 85, 247, 0.5); }
+.station:hover:not(:disabled) .stationThumb { transform: scale(1.04); }
+.stationActive .stationThumb { box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.95), 0 10px 28px -7px rgba(168, 85, 247, 0.55); }
 .stationThumbImg { width: 100%; height: 100%; object-fit: cover; }
 .forYouIcon {
   display: flex;
@@ -143,11 +272,16 @@
 
 .stationText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stationLabel {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (min-width: 1700px) {
+  .stationLabel { font-size: 15.5px; }
+  .stationKind { font-size: 11.5px; }
 }
 .stationKind {
   font-size: 11px;
@@ -223,7 +357,18 @@
   letter-spacing: 0.2px;
 }
 
-.artWrap { position: relative; }
+.artWrap { position: relative; cursor: pointer; transition: transform 0.2s ease; }
+.artWrap:hover { transform: scale(1.02); }
+.artClickable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(0,0,0,0.15);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.artClickable:hover::after { opacity: 1; }
 .art {
   width: clamp(140px, 26vw, 300px);
   height: clamp(140px, 26vw, 300px);
@@ -245,6 +390,12 @@
 }
 
 .trackMeta { text-align: center; color: #fff; max-width: 100%; }
+.artistLink {
+  cursor: pointer;
+  transition: color 0.15s ease, border-bottom-color 0.15s ease;
+  border-bottom: 1px solid transparent;
+}
+.artistLink:hover { color: #89b4fa; border-bottom-color: rgba(137, 180, 250, 0.5); }
 .trackTitle {
   margin: 0 0 6px;
   font-size: clamp(19px, 2.3vw, 27px);
@@ -257,7 +408,105 @@
 }
 .trackArtist { margin: 0; font-size: 15px; color: rgba(255, 255, 255, 0.72); }
 
+.waveProgress {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.progressBar { height: 5px; }
+.timeRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.3px;
+}
+
 .controls { display: flex; align-items: center; gap: clamp(8px, 1.6vw, 18px); max-width: 100%; }
+.secondaryControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -4px;
+}
+
+.volumeControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+}
+.volumeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.volumeBtn:hover { background: rgba(255, 255, 255, 0.1); }
+.volumeBar { width: 84px; height: 4px; }
+
+.volumeInputPopover {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 12px;
+  background: rgba(15, 15, 23, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  min-width: 90px;
+  backdrop-filter: blur(12px);
+}
+.volumeInputPopover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: rgba(15, 15, 23, 0.96);
+}
+.volumeInput {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  width: 100%;
+  outline: none;
+  text-align: center;
+  box-sizing: border-box;
+}
+.volumeInput:focus { border-color: #89b4fa; }
+.volumeLabel {
+  font-size: 10px;
+  opacity: 0.7;
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
 
 .ctrl {
   display: flex;
@@ -293,9 +542,91 @@
   transition: transform 0.14s ease;
 }
 .ctrlMain:hover { transform: scale(1.05); }
+.ctrlExtra { background: rgba(255, 255, 255, 0.08); }
 
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Lyrics mode ───────────────────────────────────────────────────────── */
+.lyricsMode .bg,
+.lyricsMode .bgOverlay { transition: filter 0.5s ease; }
+.lyricsMode .bg { filter: blur(60px) saturate(1.6) brightness(0.42); }
+
+.sidebarHidden {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.sidebar,
+.stage {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, padding 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stageLyrics {
+  padding-left: 0;
+  justify-content: flex-start;
+  padding-right: clamp(320px, 34%, 460px);
+}
+
+.lyricsPanel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: clamp(300px, 34%, 440px);
+  z-index: 3;
+  transform: translateX(100%);
+  opacity: 0;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.lyricsPanelVisible {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.lyricsPanelInner {
+  width: 100%;
+  height: 100%;
+  padding: 24px 18px;
+  box-sizing: border-box;
+}
+
+.queuePanel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: clamp(300px, 34%, 440px);
+  z-index: 3;
+  transform: translateX(100%);
+  opacity: 0;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.queuePanelVisible {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.queuePanelInner {
+  width: 100%;
+  height: 100%;
+  padding: 18px 14px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1150px) {
+  .stageLyrics { padding-right: clamp(260px, 32%, 340px); }
+  .lyricsPanel { width: clamp(260px, 32%, 340px); }
+  .queuePanel { width: clamp(260px, 32%, 340px); }
+}
 
 /* ─── Empty / start state ──────────────────────────────────────────────── */
 .empty { display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; }

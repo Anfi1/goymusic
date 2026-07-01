@@ -17,6 +17,11 @@
     width: 72px;
 }
 
+.immersive {
+    /* В immersive-режиме (My Wave без плеера) sidebar занимает всю высоту слева. */
+    grid-row: 2 / 4;
+}
+
 .header {
     display: flex;
     align-items: center;
