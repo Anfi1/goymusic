@@ -17,13 +17,27 @@ import { openImageViewer } from '../molecules/ImageViewer';
 import { LyricsView } from './LyricsView';
 import { QueuePanel } from './QueuePanel';
 import { MOOD_CATEGORIES, assignCategory, groupKey, MoodCategory } from '../../utils/moodCategories';
+import { blendTracks, pickMixesForMoods, moodTagCategories } from '../../utils/curatedMix';
 import styles from './MyWaveView.module.css';
 
 const WAVE_SOURCE_ID = 'my-wave';
 const WAVE_ACTIVE_ID_KEY = 'goymusic-my-wave-active-id';
 
-interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'foryou' | 'sc' | 'yt'; }
+interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'foryou' | 'sc' | 'yt' | 'curated'; }
 const FORYOU: WaveStation = { id: 'foryou', title: 'Для тебя', thumbUrl: '', kind: 'foryou' };
+const CURATED: WaveStation = { id: 'curated', title: 'Мой подбор', thumbUrl: '', kind: 'curated' };
+const WAVE_CURATED_MOODS_KEY = 'ytm-curated-moods';
+
+function getSavedCuratedMoods(): string[] {
+  try {
+    const raw = localStorage.getItem(WAVE_CURATED_MOODS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
+function saveCuratedMoods(ids: string[]) {
+  try { localStorage.setItem(WAVE_CURATED_MOODS_KEY, JSON.stringify(ids)); } catch {}
+}
 
 // Кэш станций между заходами в раздел (мало меняются).
 let stationsCache: WaveStation[] | null = null;
@@ -169,6 +183,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const [showQueue, setShowQueue] = useState(false);
   const [progress, setProgress] = useState({ current: 0, duration: 0, pct: 0 });
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
+  const [curateOpen, setCurateOpen] = useState(false);
+  const [curatedMoods, setCuratedMoods] = useState<string[]>(getSavedCuratedMoods());
+  const [curatedTracks, setCuratedTracks] = useState<YTMTrack[]>([]);
+  const [curateBuilding, setCurateBuilding] = useState(false);
   const [, force] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const filterListRef = useRef<HTMLDivElement>(null);
@@ -394,6 +412,11 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     setLoadingId(st.id);
     setError(null);
     try {
+      if (st.kind === 'curated') {
+        if (curatedTracks.length === 0) { setError('Сначала собери микс в «Подобрать».'); return; }
+        await player.playTrackList(curatedTracks, 0, WAVE_SOURCE_ID);
+        return;
+      }
       let seeds: YTMTrack[] = [];
       let recId: string | null = null;
       if (st.kind === 'foryou') {
@@ -423,7 +446,35 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     } finally {
       setLoadingId(null);
     }
-  }, [buildPersonalizedSeeds, centerStation]);
+  }, [buildPersonalizedSeeds, centerStation, curatedTracks]);
+
+  // Собираем кастомный микс: миксы выбранных настроений -> треки -> round-robin.
+  const buildCuratedMix = useCallback(async (moodIds: string[]) => {
+    if (moodIds.length === 0) return;
+    setCurateBuilding(true);
+    setError(null);
+    try {
+      const groups = pickMixesForMoods(moodIds, stations);
+      const chosen: WaveStation[] = [];
+      for (const id of moodIds) chosen.push(...(groups[id] || []).slice(0, 2)); // 1–2 микса на настроение
+      if (chosen.length === 0) { setError('Нет миксов под эти настроения.'); return; }
+
+      const settled = await Promise.allSettled(chosen.map(m => getPlaylistTracks(m.id, 30)));
+      const lists: YTMTrack[][] = settled
+        .map(r => (r.status === 'fulfilled' ? (r.value.tracks || []) : []))
+        .map(shuffle)                       // лёгкая вариативность между сборками
+        .filter(l => l.length > 0);
+      const blended = blendTracks(lists, 60);
+      if (blended.length === 0) { setError('Не удалось собрать микс, попробуй другие настроения.'); return; }
+
+      setCuratedTracks(blended);
+      saveCuratedMoods(moodIds);
+      setCurateOpen(false);
+      await startStation(CURATED);
+    } finally {
+      setCurateBuilding(false);
+    }
+  }, [stations, startStation]);
 
   const activeStation = allStations.find(s => s.id === activeId) || FORYOU;
   const waveActive = player.queueSourceId === WAVE_SOURCE_ID;
