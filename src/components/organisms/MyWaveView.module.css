@@ -34,6 +34,15 @@
   align-items: center;
   flex-shrink: 0;
 }
+/* Скролл-область фильтров: стрелки якорятся к ней, а не ко всей ленте,
+   поэтому правая стрелка не наезжает на чип «Подобрать». */
+.filterScrollArea {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
 .filterArrow {
   position: absolute;
   left: 6px;

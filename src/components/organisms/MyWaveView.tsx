@@ -28,6 +28,7 @@ interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'fory
 const FORYOU: WaveStation = { id: 'foryou', title: 'Для тебя', thumbUrl: '', kind: 'foryou' };
 const CURATED: WaveStation = { id: 'curated', title: 'Мой подбор', thumbUrl: '', kind: 'curated' };
 const WAVE_CURATED_MOODS_KEY = 'ytm-curated-moods';
+const MOOD_TAG_CATS = moodTagCategories();
 
 function getSavedCuratedMoods(): string[] {
   try {
@@ -192,6 +193,8 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const [curatedMoods, setCuratedMoods] = useState<string[]>(getSavedCuratedMoods());
   const [curatedTracks, setCuratedTracks] = useState<YTMTrack[]>([]);
   const [curateBuilding, setCurateBuilding] = useState(false);
+  // Снимок настроений на момент сборки — подпись станции не «плывёт» от кликов в панели.
+  const [builtMoods, setBuiltMoods] = useState<string[]>([]);
   const [, force] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const filterListRef = useRef<HTMLDivElement>(null);
@@ -497,6 +500,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       if (blended.length === 0) { setError('Не удалось собрать микс, попробуй другие настроения.'); return; }
 
       setCuratedTracks(blended);
+      setBuiltMoods(moodIds);
       saveCuratedMoods(moodIds);
       setCurateOpen(false);
       // Играем blended напрямую: startStation в замыкании держит устаревший
@@ -583,7 +587,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
           <span className={styles.stationLabel}>{st.title}</span>
           <span className={styles.stationKind}>{
             st.kind === 'curated'
-              ? `Подбор: ${curatedMoods.map(id => moodTagCategories().find(c => c.id === id)?.label).filter(Boolean).join(', ')}`
+              ? `Подбор: ${builtMoods.map(id => MOOD_TAG_CATS.find(c => c.id === id)?.label).filter(Boolean).join(', ')}`
               : st.kind === 'foryou' ? 'Персональная'
               : st.kind === 'sc' ? 'SoundCloud'
               : 'YouTube Mix'
@@ -606,32 +610,40 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
 
       <aside className={`${styles.sidebar} ${panelOpen ? styles.sidebarHidden : ''}`}>
         <div className={styles.filterStrip}>
-          {canScrollLeft && (
-            <button className={styles.filterArrow} onClick={() => scrollFilters(-1)} aria-label="Назад" type="button">
-              <ChevronLeft size={16} />
-            </button>
-          )}
-          <div
-            className={`${styles.filterList} ${canScrollLeft ? styles.fadeLeft : ''} ${canScrollRight ? styles.fadeRight : ''}`}
-            ref={filterListRef}
-            onPointerDown={onFilterPointerDown}
-            onPointerMove={onFilterPointerMove}
-            onPointerUp={endFilterDrag}
-            onPointerLeave={endFilterDrag}
-            onScroll={checkFilterScroll}
-          >
-            {MOOD_CATEGORIES.map(cat => (
-              <button
-                key={cat.id}
-                className={`${styles.filterPill} ${selectedFilter === cat.id ? styles.filterPillActive : ''}`}
-                style={{ '--mood-color': cat.color } as React.CSSProperties}
-                onClick={() => setSelectedFilter(cat.id)}
-                title={cat.label}
-              >
-                <span className={styles.filterEmoji}>{cat.emoji}</span>
-                <span className={styles.filterLabel}>{cat.label}</span>
+          {/* Стрелки живут внутри скролл-области — не наезжают на чип «Подобрать» справа. */}
+          <div className={styles.filterScrollArea}>
+            {canScrollLeft && (
+              <button className={styles.filterArrow} onClick={() => scrollFilters(-1)} aria-label="Назад" type="button">
+                <ChevronLeft size={16} />
               </button>
-            ))}
+            )}
+            <div
+              className={`${styles.filterList} ${canScrollLeft ? styles.fadeLeft : ''} ${canScrollRight ? styles.fadeRight : ''}`}
+              ref={filterListRef}
+              onPointerDown={onFilterPointerDown}
+              onPointerMove={onFilterPointerMove}
+              onPointerUp={endFilterDrag}
+              onPointerLeave={endFilterDrag}
+              onScroll={checkFilterScroll}
+            >
+              {MOOD_CATEGORIES.map(cat => (
+                <button
+                  key={cat.id}
+                  className={`${styles.filterPill} ${selectedFilter === cat.id ? styles.filterPillActive : ''}`}
+                  style={{ '--mood-color': cat.color } as React.CSSProperties}
+                  onClick={() => setSelectedFilter(cat.id)}
+                  title={cat.label}
+                >
+                  <span className={styles.filterEmoji}>{cat.emoji}</span>
+                  <span className={styles.filterLabel}>{cat.label}</span>
+                </button>
+              ))}
+            </div>
+            {canScrollRight && (
+              <button className={`${styles.filterArrow} ${styles.filterArrowRight}`} onClick={() => scrollFilters(1)} aria-label="Вперёд" type="button">
+                <ChevronRight size={16} />
+              </button>
+            )}
           </div>
           <div className={styles.curateWrap} ref={curateWrapRef}>
             <button
@@ -639,6 +651,8 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
               className={`${styles.curateChip} ${curateOpen ? styles.curateChipOn : ''}`}
               onClick={() => setCurateOpen(v => !v)}
               title="Собрать свой микс по настроениям"
+              aria-expanded={curateOpen}
+              aria-haspopup="dialog"
             >
               + Подобрать
             </button>
@@ -652,11 +666,6 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
               />
             )}
           </div>
-          {canScrollRight && (
-            <button className={`${styles.filterArrow} ${styles.filterArrowRight}`} onClick={() => scrollFilters(1)} aria-label="Вперёд" type="button">
-              <ChevronRight size={16} />
-            </button>
-          )}
         </div>
         <div className={styles.wheel} ref={listRef} onScroll={handleScroll}>
           {loading && stations.length === 0 ? (
