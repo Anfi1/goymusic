@@ -25,6 +25,7 @@ export const CuratePanel: React.FC<CuratePanelProps> = ({ selected, onToggle, on
               className={`${styles.row} ${on ? styles.rowOn : ''}`}
               style={{ '--mood-color': cat.color } as React.CSSProperties}
               onClick={() => onToggle(cat.id)}
+              aria-pressed={on}
             >
               <span className={styles.check}>{on && <Check size={13} />}</span>
               <span className={styles.emoji}>{cat.emoji}</span>

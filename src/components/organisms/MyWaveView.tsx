@@ -16,6 +16,7 @@ import { ProgressBar } from '../atoms/ProgressBar';
 import { openImageViewer } from '../molecules/ImageViewer';
 import { LyricsView } from './LyricsView';
 import { QueuePanel } from './QueuePanel';
+import { CuratePanel } from '../molecules/CuratePanel';
 import { MOOD_CATEGORIES, assignCategory, groupKey, MoodCategory } from '../../utils/moodCategories';
 import { blendTracks, pickMixesForMoods, moodTagCategories } from '../../utils/curatedMix';
 import styles from './MyWaveView.module.css';
@@ -51,6 +52,10 @@ function getSavedActiveId(): string {
 }
 
 function saveActiveId(id: string) {
+  // 'curated' не переживает рестарт (curatedTracks — только в памяти), поэтому
+  // не сохраняем его как активную станцию — иначе после рестарта клик по
+  // «Мой подбор» упрётся в guard «Сначала собери микс».
+  if (id === CURATED.id) return;
   try {
     localStorage.setItem(WAVE_ACTIVE_ID_KEY, id);
   } catch {}
@@ -194,6 +199,27 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const secondItemRef = useRef<HTMLButtonElement>(null);
   const suppressRecenter = useRef(false);
   const filterDrag = useRef<{ isDown: boolean; startX: number; scrollLeft: number }>({ isDown: false, startX: 0, scrollLeft: 0 });
+  const curateWrapRef = useRef<HTMLDivElement>(null);
+
+  // Закрытие панели «Подобрать» по клику вне и по Escape (не во время сборки микса).
+  useEffect(() => {
+    if (!curateOpen) return;
+    const handleClickAway = (e: MouseEvent) => {
+      if (curateBuilding) return;
+      if (curateWrapRef.current && !curateWrapRef.current.contains(e.target as Node)) {
+        setCurateOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !curateBuilding) setCurateOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickAway);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickAway);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [curateOpen, curateBuilding]);
 
   // Курируемые станции: SoundCloud (жанры) + YouTube супермиксы.
   useEffect(() => {
@@ -283,7 +309,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       : Array.from(unique.values());
   }, [stations, activeId, selectedFilter]);
 
-  const allStations = visibleStations;
+  const allStations = useMemo<WaveStation[]>(
+    () => (curatedTracks.length > 0 ? [CURATED, ...visibleStations] : visibleStations),
+    [curatedTracks.length, visibleStations],
+  );
   const looping = allStations.length > 2;
   const looped = looping ? [...allStations, ...allStations, ...allStations] : allStations;
 
@@ -539,7 +568,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         disabled={loadingId !== null}
       >
         <span className={styles.stationThumb}>
-          {st.kind === 'foryou'
+          {st.kind === 'foryou' || st.kind === 'curated'
             ? <span className={styles.forYouIcon}><AudioLines size={20} /></span>
             : <LazyImage src={st.thumbUrl} alt={st.title} className={styles.stationThumbImg} />}
           {loadingId === st.id
@@ -552,7 +581,13 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         </span>
         <span className={styles.stationText}>
           <span className={styles.stationLabel}>{st.title}</span>
-          <span className={styles.stationKind}>{st.kind === 'foryou' ? 'Персональная' : st.kind === 'sc' ? 'SoundCloud' : 'YouTube Mix'}</span>
+          <span className={styles.stationKind}>{
+            st.kind === 'curated'
+              ? `Подбор: ${curatedMoods.map(id => moodTagCategories().find(c => c.id === id)?.label).filter(Boolean).join(', ')}`
+              : st.kind === 'foryou' ? 'Персональная'
+              : st.kind === 'sc' ? 'SoundCloud'
+              : 'YouTube Mix'
+          }</span>
         </span>
       </button>
     );
@@ -597,6 +632,25 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                 <span className={styles.filterLabel}>{cat.label}</span>
               </button>
             ))}
+          </div>
+          <div className={styles.curateWrap} ref={curateWrapRef}>
+            <button
+              type="button"
+              className={`${styles.curateChip} ${curateOpen ? styles.curateChipOn : ''}`}
+              onClick={() => setCurateOpen(v => !v)}
+              title="Собрать свой микс по настроениям"
+            >
+              + Подобрать
+            </button>
+            {curateOpen && (
+              <CuratePanel
+                selected={curatedMoods}
+                onToggle={(id) => setCuratedMoods(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+                onBuild={() => buildCuratedMix(curatedMoods)}
+                building={curateBuilding}
+                onClose={() => setCurateOpen(false)}
+              />
+            )}
           </div>
           {canScrollRight && (
             <button className={`${styles.filterArrow} ${styles.filterArrowRight}`} onClick={() => scrollFilters(1)} aria-label="Вперёд" type="button">
