@@ -470,11 +470,15 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       setCuratedTracks(blended);
       saveCuratedMoods(moodIds);
       setCurateOpen(false);
-      await startStation(CURATED);
+      // Играем blended напрямую: startStation в замыкании держит устаревший
+      // curatedTracks и завернул бы свежий микс на guard «собери микс».
+      setActiveId(CURATED.id);
+      saveActiveId(CURATED.id);
+      await player.playTrackList(blended, 0, WAVE_SOURCE_ID);
     } finally {
       setCurateBuilding(false);
     }
-  }, [stations, startStation]);
+  }, [stations]);
 
   const activeStation = allStations.find(s => s.id === activeId) || FORYOU;
   const waveActive = player.queueSourceId === WAVE_SOURCE_ID;
