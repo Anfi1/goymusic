@@ -35,9 +35,10 @@ const parseLRC = (lrc: string): LyricLine[] => {
 
 interface LyricsViewProps {
   isVisible?: boolean;
+  waveMode?: boolean;
 }
 
-export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true }) => {
+export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMode = false }) => {
   // Use useQueue to make nowPlaying reactive
   const { nowPlaying: track } = useQueue();
   const currentTrackId = track?.id;
@@ -173,7 +174,7 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true }) => {
   const hasBothModes = (data?.synced?.length ?? 0) > 0 && !!data?.plain;
 
   return (
-    <div className={styles.wrapper}>
+    <div className={`${styles.wrapper} ${waveMode ? styles.waveMode : ''}`}>
       {hasBothModes && (
         <div className={styles.viewControls}>
           <button 

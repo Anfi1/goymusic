@@ -2,6 +2,9 @@
   position: relative;
   height: 100%;
   overflow: hidden;
+  --text-main: #cdd6f4;
+  --text-sub: #a6adc8;
+  --text-muted: rgba(255, 255, 255, 0.4);
 }
 
 /* ─── Left: station wheel (поверх сцены, без границы) ───────────────────── */
@@ -436,6 +439,29 @@
   flex-direction: column;
   gap: 6px;
 }
+.progressTop {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+}
+.progressChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(243, 139, 168, 0.18);
+  color: #f38ba8;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.progressChipRepeat {
+  background: rgba(137, 180, 250, 0.15);
+  color: #89b4fa;
+}
 .progressBar { height: 5px; }
 .timeRow {
   display: flex;
@@ -446,12 +472,18 @@
   letter-spacing: 0.3px;
 }
 
-.controls { display: flex; align-items: center; gap: clamp(8px, 1.6vw, 18px); max-width: 100%; }
+.controls { display: flex; align-items: center; gap: clamp(10px, 2vw, 20px); max-width: 100%; }
 .secondaryControls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   margin-top: -4px;
+}
+.volDivider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .volumeControl {
@@ -477,7 +509,7 @@
   transition: background 0.15s ease;
 }
 .volumeBtn:hover { background: rgba(255, 255, 255, 0.1); }
-.volumeBar { width: 84px; height: 4px; }
+.volumeBar { width: 64px; height: 4px; }
 
 .volumeInputPopover {
   position: absolute;
@@ -485,7 +517,8 @@
   left: 50%;
   transform: translateX(-50%);
   margin-bottom: 12px;
-  background: rgba(15, 15, 23, 0.96);
+  background: var(--glass-popover-bg);
+  backdrop-filter: blur(var(--glass-popover-blur));
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   padding: 10px;
@@ -495,7 +528,6 @@
   gap: 8px;
   z-index: 100;
   min-width: 90px;
-  backdrop-filter: blur(12px);
 }
 .volumeInputPopover::after {
   content: '';
@@ -504,7 +536,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 7px solid transparent;
-  border-top-color: rgba(15, 15, 23, 0.96);
+  border-top-color: var(--glass-popover-bg);
 }
 .volumeInput {
   background: rgba(0, 0, 0, 0.35);
@@ -533,20 +565,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: clamp(38px, 5vw, 46px);
-  height: clamp(38px, 5vw, 46px);
+  width: clamp(40px, 5.5vw, 48px);
+  height: clamp(40px, 5.5vw, 48px);
   flex-shrink: 0;
   border-radius: 50%;
   border: none;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.82);
   cursor: pointer;
   transition: background 0.14s ease, transform 0.14s ease, color 0.14s ease;
 }
-.ctrl:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); transform: scale(1.06); }
-.ctrl:disabled { opacity: 0.35; cursor: not-allowed; }
+.ctrl:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); transform: scale(1.06); }
+.ctrl:disabled { opacity: 0.25; cursor: not-allowed; }
 .ctrlActiveGood { color: #f38ba8; }
+.ctrlActiveGood:hover:not(:disabled) { color: #f38ba8 !important; background: rgba(243, 139, 168, 0.15); }
 .ctrlActiveBad { color: #fab387; }
+.ctrlActiveBad:hover:not(:disabled) { color: #fab387 !important; background: rgba(250, 179, 135, 0.15); }
 
 .ctrlMain {
   display: flex;
@@ -572,6 +606,7 @@
 .lyricsMode .bg,
 .lyricsMode .bgOverlay { transition: filter 0.5s ease; }
 .lyricsMode .bg { filter: blur(60px) saturate(1.6) brightness(0.42); }
+.lyricsMode .stage { transition: padding-right 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
 
 .sidebarHidden {
   transform: translateX(-100%);
@@ -600,9 +635,9 @@
   opacity: 0;
   transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
   pointer-events: none;
-  background: rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(24px);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .lyricsPanelVisible {
   transform: translateX(0);
@@ -627,9 +662,9 @@
   opacity: 0;
   transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
   pointer-events: none;
-  background: rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(24px);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .queuePanelVisible {
   transform: translateX(0);

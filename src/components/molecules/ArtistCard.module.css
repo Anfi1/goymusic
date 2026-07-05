@@ -53,3 +53,22 @@
     text-overflow: ellipsis;
     width: 100%;
 }
+
+.verifiedSmall {
+    position: absolute;
+    left: 4px;
+    bottom: 6px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(29, 155, 240, 0.2);
+    border: 1px solid rgba(29, 155, 240, 0.35);
+    color: #1d9bf0;
+    cursor: default;
+    transition: all 0.2s ease;
+    padding: 2px;
+}

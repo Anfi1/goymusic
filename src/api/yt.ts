@@ -41,6 +41,8 @@ export interface YTMArtist {
     description?: string;
     subscribers?: string;
     source?: TrackSource;
+    artistPro?: boolean;
+    verified?: boolean;
 }
 
 export interface YTMPlaylist {
@@ -126,6 +128,8 @@ export interface YTMArtistDetail {
     subscribers?: string;
     monthlyListeners?: string;
     views?: string;
+    artistPro?: boolean;
+    verified?: boolean;
     topSongs: YTMTrack[];
     // Превью (из первого запроса)
     albumsPreview: any[];

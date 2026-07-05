@@ -1,6 +1,7 @@
 import React from 'react';
 import { LazyImage } from '../atoms/LazyImage';
 import { SourceBadge } from '../atoms/SourceBadge';
+import { CheckCircle } from 'lucide-react';
 import { resolveSource } from '../../api/source';
 import styles from './ArtistCard.module.css';
 
@@ -9,6 +10,8 @@ interface ArtistCardProps {
   name: string;
   thumbUrl?: string;
   source?: unknown;
+  artistPro?: boolean;
+  verified?: boolean;
   onClick?: () => void;
 }
 
@@ -17,20 +20,17 @@ interface ArtistCardProps {
  * A card-based display for artists, featuring a circular thumbnail and name.
  * Adheres to the glassmorphic theme.
  */
-export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, source, onClick }) => {
+export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, source, artistPro, verified, onClick }) => {
   const isSc = resolveSource(source) === 'soundcloud';
   return (
     <div className={styles.card} onClick={onClick}>
-      <div style={{ position: 'relative', display: 'inline-block' }}>
-        <div className={styles.thumbnailWrapper}>
-          <LazyImage
-            src={thumbUrl || ''}
-            alt={name}
-            className={styles.thumbnail}
-            placeholder={<div className={styles.thumbnailPlaceholder} />}
-          />
-        </div>
-        {/* Бейдж вне overflow:hidden-обёртки, чтобы круг его не обрезал */}
+      <div className={styles.thumbnailWrapper}>
+        <LazyImage
+          src={thumbUrl || ''}
+          alt={name}
+          className={styles.thumbnail}
+          placeholder={<div className={styles.thumbnailPlaceholder} />}
+        />
         {isSc && (
           <div
             style={{
@@ -42,6 +42,10 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, sour
             <SourceBadge source={source} size={14} />
           </div>
         )}
+      </div>
+      <div className={styles.badgesRow}>
+        {artistPro && <span className="pro-badge pro-badge--absolute" data-tooltip="Artist PRO"><span>★</span></span>}
+        {verified && <CheckCircle className={`verified-badge ${styles.verifiedSmall}`} data-tooltip="Verified" />}
       </div>
       <div className={styles.name}>{name}</div>
     </div>

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save } from 'lucide-react';
+import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save, Clock } from 'lucide-react';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { streamCache } from '../../api/cache';
@@ -338,7 +338,7 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
             {track.thumbUrl && <img src={track.thumbUrl} alt="" className={styles.thumb} />}
             <div>
               <div className={styles.trackTitle}>{track.title}</div>
-              <div className={styles.trackArtist}>{track.artists?.join(', ')}</div>
+              <div className={styles.trackArtist}>{track.artists?.join(', ')}{track.duration ? <><Clock size={14} style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 6px 0 8px', opacity: 0.5 }} /> {track.duration}</> : ''}</div>
             </div>
           </div>
           <button className={styles.closeBtn} onClick={onClose}><X size={18} /></button>

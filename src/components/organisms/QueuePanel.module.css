@@ -2,9 +2,51 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: var(--bg-layer-1);
-    border-left: 1px solid var(--border-color);
+    background: transparent;
     width: 100%;
+}
+
+.panel.waveMode {
+    background: transparent;
+    --text-main: #cdd6f4;
+    --text-sub: #a6adc8;
+    --text-muted: rgba(255, 255, 255, 0.4);
+}
+
+/* Virtuoso inner containers */
+.panel.waveMode .virtuoso,
+.panel.waveMode .virtuoso-viewport,
+.panel.waveMode .virtuoso-listholder,
+.panel.waveMode .virtuoso-spacer,
+.panel.waveMode .virtuoso-item,
+.panel.waveMode .virtuoso-itemcontent-wrapper {
+    background: transparent !important;
+}
+
+.panel.waveMode .header h4 {
+    background: none;
+}
+
+.panel.waveMode .radioSegment {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.panel.waveMode .radioSegmentActive {
+    background: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.panel.waveMode .sectionHeader {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.panel.waveMode .refreshBtn {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.panel.waveMode .refreshBtn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
 }
 
 .header {
@@ -12,13 +54,15 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: none;
+    gap: 2rem;
 }
 
 .header h4 {
     margin: 0;
     font-size: 1.1rem;
     font-weight: 700;
+    background: none;
 }
 
 .radioSwitcher {
@@ -53,7 +97,6 @@
 .list {
     flex: 1;
     min-height: 0;
-    /* Optimization for Virtuoso and large lists: reduces CPU usage and layer resizing lag */
     contain: strict;
     content-visibility: auto;
 }

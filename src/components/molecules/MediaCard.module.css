@@ -220,9 +220,35 @@
 }
 
 .yearTag {
-  font-size: 0.75rem;
-  font-weight: 700;
-  opacity: 0.4;
-  margin-top: 2px;
-  letter-spacing: 0.5px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    opacity: 0.4;
+    margin-top: 2px;
+    letter-spacing: 0.5px;
+}
+
+.verifiedBadge {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(29, 155, 240, 0.1);
+    border: 1px solid rgba(29, 155, 240, 0.2);
+    padding: 2px;
+    color: #1d9bf0;
+    cursor: default;
+    transition: all 0.2s ease;
+}
+
+.verifiedBadge:hover {
+    background: rgba(29, 155, 240, 0.2);
+    border-color: rgba(29, 155, 240, 0.4);
+    box-shadow: 0 0 12px rgba(29, 155, 240, 0.2);
+    transform: scale(1.1);
 }

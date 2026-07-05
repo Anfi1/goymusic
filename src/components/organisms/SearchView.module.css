@@ -4,7 +4,7 @@
     color: var(--text-main);
     background: transparent;
     height: 100%;
-    overflow: hidden;
+    overflow: visible;
 }
 
 /* ── Tab bar ──────────────────────────────────────────── */
@@ -145,12 +145,14 @@
 .capitalize { text-transform: capitalize; }
 
 /* Horizontal scroll */
-.scrollWrapper { position: relative; width: 100%; }
+.scrollWrapper { position: relative; width: 100%; overflow: visible; margin-top: -4px; }
 
 .horizontalScroll {
     display: flex;
     gap: 1.5rem;
     overflow-x: auto;
+    overflow-y: visible;
+    padding-top: 4px;
     padding-bottom: 1rem;
     scrollbar-width: none;
     scroll-behavior: smooth;

@@ -15,6 +15,7 @@ interface QueuePanelProps {
   onSelectPlaylist?: (id: string, title: string) => void;
   onSelectArtist?: (id: string) => void;
   isVisible?: boolean;
+  waveMode?: boolean;
 }
 
 const RADIO_MODES: { key: 'youtube' | 'soundcloud' | 'hybrid', label: string }[] = [
@@ -164,7 +165,8 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
   onSelectAlbum, 
   onSelectPlaylist, 
   onSelectArtist,
-  isVisible 
+  isVisible,
+  waveMode
 }) => {
   const { 
     recommendations,
@@ -294,7 +296,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
   }, [currentIndex, fullQueue.length, playFromQueue, handleContextMenu, handleDragStart, handleDragEnd, handleDragOver, handleDrop, draggedIndex, dragOverIndex, onSelectArtist]);
 
   return (
-    <aside className={styles.panel}>
+    <aside className={`${styles.panel} ${waveMode ? styles.waveMode : ''}`}>
       <header className={styles.header}>
         <h4>Queue</h4>
         <RadioModeSwitcher />
@@ -302,7 +304,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
       <div className={styles.list}>
         <Virtuoso
           ref={virtuosoRef}
-          style={{ height: '100%' }}
+          style={{ height: '100%', background: waveMode ? 'transparent' : undefined }}
           data={fullQueue}
           itemContent={renderItem}
           components={components}

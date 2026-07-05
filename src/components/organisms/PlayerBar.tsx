@@ -88,18 +88,19 @@ const DislikeButton = memo(() => {
   if (!trackId) return null;
   // У SoundCloud нет дизлайка — кнопку оставляем, но блокируем.
   const isSc = source === 'soundcloud';
+  const isDisliked = likeStatus === 'DISLIKE';
   return (
     <IconButton
       icon={HeartCrack}
       size={32}
       iconSize={18}
-      active={likeStatus === 'DISLIKE'}
+      active={isDisliked}
       isLoading={loadingAction === 'dislike'}
       disabled={isSc}
       title={isSc ? 'SoundCloud не поддерживает дизлайк' : undefined}
       className={styles.likeButton}
       onClick={(e: React.MouseEvent) => { if (!isSc) rate('DISLIKE', e); }}
-      color={likeStatus === 'DISLIKE' ? '#fab387' : undefined}
+      color={isDisliked ? '#fab387' : undefined}
     />
   );
 });

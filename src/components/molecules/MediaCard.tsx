@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pin, Loader2 } from 'lucide-react';
+import { Play, Pin, Loader2, CheckCircle } from 'lucide-react';
 import { LazyImage } from '../atoms/LazyImage';
 import { Visualizer } from '../atoms/Visualizer';
 import { player } from '../../api/player';
@@ -28,6 +28,8 @@ export interface MediaCardProps {
   round?: boolean;
   variant?: 'card' | 'row';
   className?: string;
+  artistPro?: boolean;
+  verified?: boolean;
 }
 
 export const MediaCard: React.FC<MediaCardProps> = React.memo(({
@@ -52,7 +54,9 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
   onContextMenu,
   round,
   variant = 'card',
-  className = ''
+  className = '',
+  artistPro,
+  verified
 }) => {
   const isArtist = type === 'artist' || round;
   const [isLocalLoading, setIsLocalLoading] = useState(false);
@@ -166,6 +170,14 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
           <div className={styles.pinnedBadge} data-tooltip="Pinned">
             <Pin size={14} fill="currentColor" />
           </div>
+        )}
+        
+        {isArtist && verified && (
+          <CheckCircle size={18} className={`verified-badge ${styles.verifiedBadge}`} data-tooltip="Verified" />
+        )}
+        
+        {isArtist && artistPro && (
+          <div className="pro-badge pro-badge--absolute" data-tooltip="Artist PRO"><span>★</span></div>
         )}
         
         {isActive && !isLoading && !isArtist && (

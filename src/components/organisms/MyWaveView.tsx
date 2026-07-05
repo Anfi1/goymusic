@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Heart, HeartCrack, Loader2, AudioLines, HardDriveDownload, Mic2, Volume2, Volume1, VolumeX, ChevronLeft, ChevronRight, ListMusic } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Heart, HeartCrack, Loader2, AudioLines, HardDriveDownload, Mic2, Volume2, Volume1, VolumeX, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, Repeat1 } from 'lucide-react';
 import { player } from '../../api/player';
 import { likedStore } from '../../api/likedStore';
 import { historyStore } from '../../api/history';
@@ -7,7 +7,7 @@ import { likedManager } from '../../api/likedManager';
 import { YTMTrack, getMixedForYou, getPlaylistTracks } from '../../api/yt';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 import {
-  isSoundCloudEnabled, interleaveTracks,
+  isSoundCloudEnabled, interleaveTracks, isScAuthed,
   getScWaveStations, getScStationTracks,
 } from '../../api/soundcloud';
 import { LazyImage } from '../atoms/LazyImage';
@@ -154,7 +154,7 @@ const WaveVolumeControl: React.FC = () => {
       />
       {showInput && (
         <div className={styles.volumeInputPopover}>
-          <div className={styles.volumeLabel}>Громкость %</div>
+          <div className={styles.volumeLabel}>Volume %</div>
           <input
             ref={inputRef}
             type="text"
@@ -187,6 +187,8 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const [likeAction, setLikeAction] = useState<'like' | 'dislike' | null>(null);
   const [showLyrics, setShowLyrics] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  const [shuffleOn, setShuffleOn] = useState(player.shuffle);
+  const [repeatState, setRepeatState] = useState<'off' | 'all' | 'one'>(player.repeat);
   const [progress, setProgress] = useState({ current: 0, duration: 0, pct: 0 });
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
   const [curateOpen, setCurateOpen] = useState(false);
@@ -249,6 +251,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         const duration = player.duration;
         setProgress({ current, duration, pct: duration > 0 ? (current / duration) * 100 : 0 });
         return;
+      }
+      if (e === 'state') {
+        setShuffleOn(player.shuffle);
+        setRepeatState(player.repeat);
       }
       force(n => n + 1);
     }, { tick: true });
@@ -543,7 +549,12 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     if (!track || likeAction) return;
     setLikeAction('like');
     try {
-      await likedManager.toggleLike(track, likeStatus || 'INDIFFERENT');
+      const ok = await likedManager.toggleLike(track, likeStatus || 'INDIFFERENT');
+      if (ok === false && track.source === 'soundcloud' && !isScAuthed()) {
+        window.dispatchEvent(new CustomEvent('app-toast', {
+          detail: { message: 'Для лайков SoundCloud войдите в настройках', type: 'info' }
+        }));
+      }
     } finally {
       setLikeAction(null);
     }
@@ -558,6 +569,14 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       setLikeAction(null);
     }
   }, [track, likeStatus, isSc, likeAction]);
+
+  const onShuffle = useCallback(() => {
+    player.toggleShuffle();
+  }, []);
+
+  const onRepeat = useCallback(() => {
+    player.toggleRepeat();
+  }, []);
 
   const renderStation = (st: WaveStation, key: string, ref?: React.Ref<HTMLButtonElement>) => {
     const isActive = activeId === st.id;
@@ -723,6 +742,20 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
               </div>
 
               <div className={styles.waveProgress}>
+                <div className={styles.progressTop}>
+                  {shuffleOn && (
+                    <span className={styles.progressChip}>
+                      <Shuffle size={11} />
+                      <span>SHUF</span>
+                    </span>
+                  )}
+                  {repeatState !== 'off' && (
+                    <span className={`${styles.progressChip} ${styles.progressChipRepeat}`}>
+                      {repeatState === 'one' ? <Repeat1 size={11} /> : <Repeat size={11} />}
+                      <span>{repeatState === 'one' ? 'ONE' : 'ALL'}</span>
+                    </span>
+                  )}
+                </div>
                 <ProgressBar
                   progress={progress.pct}
                   buffered={player.buffered}
@@ -738,37 +771,58 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
               </div>
 
               <div className={styles.controls}>
+                {/* Shuffle */}
                 <button
-                  className={`${styles.ctrl} ${styles.ctrlExtra} ${likeStatus === 'DISLIKE' ? styles.ctrlActiveBad : ''}`}
-                  onClick={onDislike}
-                  disabled={isSc || likeAction !== null}
-                  title={isSc ? 'SoundCloud не поддерживает дизлайк' : 'Не нравится'}
+                  className={`${styles.ctrl} ${shuffleOn ? styles.ctrlActiveGood : ''}`}
+                  onClick={onShuffle}
+                  title={shuffleOn ? 'Перемешивание включено' : 'Перемешать'}
                 >
-                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={20} />}
+                  <Shuffle size={18} />
                 </button>
-                <button className={`${styles.ctrl} ${styles.ctrlExtra}`} onClick={() => player.prev()} title="Назад">
-                  <SkipBack size={22} fill="currentColor" />
+                {/* Prev */}
+                <button className={styles.ctrl} onClick={() => player.prev()} title="Назад">
+                  <SkipBack size={20} fill="currentColor" />
                 </button>
+                {/* Play */}
                 <button className={styles.ctrlMain} onClick={onPrimary} title={isPlaying ? 'Пауза' : 'Играть'}>
                   {loadingId ? <Loader2 className={styles.spin} size={28} />
                     : isPlaying ? <Pause size={28} fill="currentColor" />
                     : <Play size={28} fill="currentColor" />}
                 </button>
-                <button className={`${styles.ctrl} ${styles.ctrlExtra}`} onClick={() => player.next()} title="Вперёд">
-                  <SkipForward size={22} fill="currentColor" />
+                {/* Next */}
+                <button className={styles.ctrl} onClick={() => player.next()} title="Вперёд">
+                  <SkipForward size={20} fill="currentColor" />
                 </button>
+                {/* Like */}
                 <button
-                  className={`${styles.ctrl} ${styles.ctrlExtra} ${likeStatus === 'LIKE' ? styles.ctrlActiveGood : ''}`}
+                  className={`${styles.ctrl} ${likeStatus === 'LIKE' ? styles.ctrlActiveGood : ''}`}
                   onClick={onLike}
                   disabled={likeAction !== null}
                   title="Нравится"
                 >
-                  {likeAction === 'like' ? <Loader2 size={18} className={styles.spin} /> : <Heart size={20} fill={likeStatus === 'LIKE' ? 'currentColor' : 'none'} />}
+                  {likeAction === 'like' ? <Loader2 size={18} className={styles.spin} /> : <Heart size={18} fill={likeStatus === 'LIKE' ? 'currentColor' : 'none'} />}
+                </button>
+                {/* Repeat */}
+                <button
+                  className={`${styles.ctrl} ${repeatState !== 'off' ? styles.ctrlActiveGood : ''}`}
+                  onClick={onRepeat}
+                  title={repeatState === 'off' ? 'Повтор выключен' : repeatState === 'all' ? 'Повтор всех' : 'Повтор одного'}
+                >
+                  {repeatState === 'all' ? <Repeat size={18} /> : repeatState === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} strokeWidth={2.5} />}
                 </button>
               </div>
 
               <div className={styles.secondaryControls}>
-                <WaveVolumeControl />
+                {/* Dislike */}
+                <button
+                  className={`${styles.ctrl} ${likeStatus === 'DISLIKE' && !isSc ? styles.ctrlActiveBad : ''}`}
+                  onClick={onDislike}
+                  disabled={isSc || likeAction !== null}
+                  title={isSc ? 'SoundCloud не поддерживает дизлайк' : 'Не нравится'}
+                >
+                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={18} color={likeStatus === 'DISLIKE' && !isSc ? '#fab387' : isSc ? 'rgba(255,255,255,0.25)' : undefined} />}
+                </button>
+                {/* Queue */}
                 <button
                   className={`${styles.ctrl} ${showQueue ? styles.ctrlActiveGood : ''}`}
                   onClick={() => {
@@ -779,6 +833,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                 >
                   <ListMusic size={18} />
                 </button>
+                {/* Lyrics */}
                 <button
                   className={`${styles.ctrl} ${showLyrics ? styles.ctrlActiveGood : ''}`}
                   onClick={() => {
@@ -789,6 +844,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                 >
                   <Mic2 size={18} />
                 </button>
+                {/* Download */}
                 <button
                   className={styles.ctrl}
                   onClick={() => track && setOverrideTrack(track)}
@@ -796,6 +852,8 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                 >
                   <HardDriveDownload size={18} />
                 </button>
+                <div className={styles.volDivider} />
+                <WaveVolumeControl />
               </div>
             </>
           ) : (
@@ -813,7 +871,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
 
       <aside className={`${styles.lyricsPanel} ${showLyrics ? styles.lyricsPanelVisible : ''}`}>
         <div className={styles.lyricsPanelInner}>
-          <LyricsView isVisible={showLyrics} />
+          <LyricsView isVisible={showLyrics} waveMode={true} />
         </div>
       </aside>
 
@@ -821,6 +879,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         <div className={styles.queuePanelInner}>
           <QueuePanel
             isVisible={showQueue}
+            waveMode={true}
             onSelectAlbum={onSelectAlbum || (() => {})}
             onSelectPlaylist={onSelectPlaylist || (() => {})}
             onSelectArtist={onSelectArtist || (() => {})}

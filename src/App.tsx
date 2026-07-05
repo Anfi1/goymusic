@@ -23,6 +23,7 @@ import { parseDeepLink } from './api/trackLink';
 import { ActiveView } from './types';
 import './styles/theme.css';
 import './styles/base.css';
+import './styles/badges.css';
 import { useLibrary } from './hooks/useLibrary';
 
 // Separate component to isolate Main content
@@ -207,9 +208,12 @@ function App() {
     const tip = document.createElement('div');
     tip.className = 'global-tooltip';
     document.body.appendChild(tip);
+    const TOOLTIP_FADE_DURATION = 300;
+    const STYLE_PERSIST_DURATION = Math.round(TOOLTIP_FADE_DURATION * 1.5);
     let current: Element | null = null;
     let pendingEl: Element | null = null;
     let showTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingHideTimer: ReturnType<typeof setTimeout> | null = null;
 
     const show = (e: MouseEvent) => {
       // clean up if current element was removed from DOM
@@ -218,7 +222,33 @@ function App() {
         tip.style.opacity = '0';
       }
       const el = (e.target as Element).closest('[data-tooltip]');
-      if (!el || el === current || el === pendingEl) return;
+      if (!el) return;
+      // For PRO/verified badges — show tooltip with themed color
+      const badgeEl = el.classList.contains('pro-badge') ? el : el.parentElement?.classList.contains('pro-badge') ? el.parentElement : null;
+      const verifiedEl = el.classList.contains('verified-badge') ? el : el.parentElement?.classList.contains('verified-badge') ? el.parentElement : null;
+      if (badgeEl || verifiedEl) {
+        if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+        pendingEl = null;
+        current = badgeEl || verifiedEl;
+        tip.textContent = badgeEl ? 'Artist PRO' : 'Verified';
+        const tw = tip.offsetWidth || 200;
+        const cx = e.clientX, cy = e.clientY;
+        const x = Math.min(cx + 14, window.innerWidth - tw - 8);
+        const y = cy - 28 < 8 ? cy + 20 : cy - 28;
+        if (badgeEl) {
+          tip.style.color = '#f59e0b';
+          tip.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+        } else {
+          tip.style.color = '#1d9bf0';
+          tip.style.borderColor = 'rgba(29, 155, 240, 0.3)';
+        }
+        tip.style.left = x + 'px';
+        tip.style.top = y + 'px';
+        tip.style.transition = 'opacity 0.18s cubic-bezier(0.0, 0.0, 0.2, 1)';
+        tip.style.opacity = '1';
+        return;
+      }
+      if (el === current || el === pendingEl) return;
       // overflow-only: only show if text is actually truncated (+1 tolerance for subpixel rounding)
       if (
         el.getAttribute('data-tooltip-overflow') !== null &&
@@ -236,6 +266,8 @@ function App() {
         showTimer = null;
         pendingEl = null;
         current = el;
+        tip.style.color = '';
+        tip.style.borderColor = '';
         tip.textContent = el.getAttribute('data-tooltip');
         const tw = tip.offsetWidth || 200;
         const x = Math.min(cx + 14, window.innerWidth - tw - 8);
@@ -247,6 +279,23 @@ function App() {
       }, 700);
     };
     const hide = (e: MouseEvent) => {
+      const target = e.target as Element;
+      const badgeEl = target.classList.contains('pro-badge') ? target : target.parentElement?.classList.contains('pro-badge') ? target.parentElement : null;
+      const verifiedEl = target.classList.contains('verified-badge') ? target : target.parentElement?.classList.contains('verified-badge') ? target.parentElement : null;
+      if (badgeEl || verifiedEl) {
+        const related = e.relatedTarget as Element | null;
+        if (related && (badgeEl === related || badgeEl.contains(related) || verifiedEl === related || verifiedEl.contains(related))) {
+          return;
+        }
+        tip.style.opacity = '0';
+        pendingHideTimer = setTimeout(() => {
+          pendingHideTimer = null;
+          tip.style.color = '';
+          tip.style.borderColor = '';
+          current = null;
+        }, STYLE_PERSIST_DURATION);
+        return;
+      }
       const el = (e.target as Element).closest('[data-tooltip]');
       if (el === pendingEl) {
         if (showTimer) {
@@ -274,11 +323,32 @@ function App() {
     document.addEventListener('mouseover', show);
     document.addEventListener('mouseout', hide);
     document.addEventListener('mousemove', move);
+    tip.addEventListener('mouseenter', () => {
+      if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
+    });
+    tip.addEventListener('mouseleave', () => {
+      tip.style.opacity = '0';
+      if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
+      tip.style.color = '';
+      tip.style.borderColor = '';
+      current = null;
+    });
+    const badgeMouseEnter = (e: MouseEvent) => {
+      const target = e.target as Element;
+      const badgeEl = target.classList.contains('pro-badge') ? target : target.parentElement?.classList.contains('pro-badge') ? target.parentElement : null;
+      const verifiedEl = target.classList.contains('verified-badge') ? target : target.parentElement?.classList.contains('verified-badge') ? target.parentElement : null;
+      if (badgeEl || verifiedEl) {
+        if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
+      }
+    };
+    document.addEventListener('mouseenter', badgeMouseEnter);
     return () => {
       document.removeEventListener('mouseover', show);
       document.removeEventListener('mouseout', hide);
       document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseenter', badgeMouseEnter);
       if (showTimer) clearTimeout(showTimer);
+      if (pendingHideTimer) clearTimeout(pendingHideTimer);
       tip.remove();
     };
   }, []);

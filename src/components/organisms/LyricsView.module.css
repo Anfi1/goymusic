@@ -4,7 +4,65 @@
     flex-direction: column;
     overflow: hidden;
     position: relative;
-    background: var(--bg-surface);
+    background: transparent;
+}
+
+/* waveMode — мягкий glow и приглушённые контролы */
+.wrapper.waveMode .viewControls {
+    padding-top: 0.75rem;
+}
+
+.wrapper.waveMode .modeBtn {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.wrapper.waveMode .modeBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.wrapper.waveMode .modeBtn.active {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.wrapper.waveMode .container {
+    padding-top: 14rem;
+    padding-bottom: 14rem;
+}
+
+.wrapper.waveMode .line {
+    text-shadow: 0 0 60px rgba(255, 255, 255, 0.25);
+}
+
+.wrapper.waveMode .line.active {
+    text-shadow: 0 0 50px rgba(255, 255, 255, 0.35);
+}
+
+.wrapper.waveMode .empty {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.wrapper.waveMode .empty p {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.wrapper.waveMode .retryBtn {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.wrapper.waveMode .retryBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.wrapper.waveMode .loaderIcon {
+    color: rgba(255, 255, 255, 0.5);
 }
 
 /* Плавная смена состояний панели (загрузка → текст → «не найдено»),
@@ -23,8 +81,8 @@
     justify-content: center;
     gap: 0.5rem;
     padding: 1rem;
-    background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    background: transparent;
+    border-bottom: none;
     z-index: 10;
     flex-shrink: 0;
 }
@@ -57,7 +115,6 @@
 .container {
     flex: 1;
     overflow-y: auto;
-    /* Large top/bottom padding for centering, balanced sides */
     padding: 18rem 2.5rem; 
     display: flex;
     flex-direction: column;
@@ -147,7 +204,6 @@
     opacity: 1;
     color: white;
     filter: blur(0);
-    /* No scale or translate to prevent layout jumping */
     text-shadow: 0 0 40px rgba(255, 255, 255, 0.4);
 }
 

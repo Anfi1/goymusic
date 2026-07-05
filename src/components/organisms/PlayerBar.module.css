@@ -190,7 +190,8 @@
     left: 50%;
     transform: translateX(-50%);
     margin-bottom: 12px;
-    background: var(--bg-layer-2);
+    background: var(--glass-popover-bg);
+    backdrop-filter: blur(var(--glass-popover-blur));
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 8px;
@@ -209,11 +210,11 @@
     left: 50%;
     transform: translateX(-50%);
     border: 6px solid transparent;
-    border-top-color: var(--bg-layer-2);
+    border-top-color: var(--glass-popover-bg);
 }
 
 .volumeInput {
-    background: var(--bg-main);
+    background: rgba(0, 0, 0, 0.3);
     border: 1px solid var(--border-color);
     border-radius: 4px;
     color: var(--text-main);

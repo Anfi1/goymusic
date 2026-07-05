@@ -233,6 +233,8 @@ if (typeof window !== 'undefined' && getScToken()) { loadScLikedIds(); }
 export interface ScArtistDetail {
   name: string;
   thumbUrl: string;
+  artistPro?: boolean;
+  verified?: boolean;
   tracks: YTMTrack[];
 }
 
@@ -248,7 +250,7 @@ export async function getSoundCloudArtist(url: string): Promise<ScArtistDetail |
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: ScSearchEntry) => scEntryToTrack(e));
       tracks.forEach((t: YTMTrack) => { if (t.scUrl) registerSoundCloudTrack(t.id, t.scUrl); });
-      return { name: res.name || '', thumbUrl: res.thumbUrl || '', tracks };
+      return { name: res.name || '', thumbUrl: res.thumbUrl || '', artistPro: res.artistPro, verified: res.verified, tracks };
     }
   } catch (e) {
     console.warn('[soundcloud] getSoundCloudArtist failed', e);
@@ -256,7 +258,7 @@ export async function getSoundCloudArtist(url: string): Promise<ScArtistDetail |
   return null;
 }
 
-export interface ScArtistResult { id: string; name: string; thumbUrl: string; source: 'soundcloud'; }
+export interface ScArtistResult { id: string; name: string; thumbUrl: string; source: 'soundcloud'; artistPro?: boolean; verified?: boolean; }
 export interface ScAlbumResult { id: string; title: string; thumbUrl: string; artists: string[]; artistIds?: string[]; source: 'soundcloud'; }
 export interface ScAlbumDetail { title: string; thumbUrl: string; artists: string[]; artistIds?: string[]; tracks: YTMTrack[]; }
 
@@ -267,7 +269,7 @@ export async function searchSoundCloudExtra(query: string): Promise<{ artists: S
     const res = await (window as any).bridge.pyCall('search_soundcloud_extra', { query: query.trim() });
     if (res?.status === 'ok') {
       const artists: ScArtistResult[] = (res.artists || []).map((a: any) => ({
-        id: a.url, name: a.name || 'Unknown', thumbUrl: a.thumbUrl || '', source: 'soundcloud',
+        id: a.url, name: a.name || 'Unknown', thumbUrl: a.thumbUrl || '', source: 'soundcloud', artistPro: a.artistPro, verified: a.verified,
       }));
       const albums: ScAlbumResult[] = (res.albums || []).map((a: any) => ({
         id: a.url, title: a.title || 'Unknown', thumbUrl: a.thumbUrl || '',

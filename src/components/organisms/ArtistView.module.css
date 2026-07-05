@@ -343,3 +343,32 @@
 .expandBtn:hover {
     text-decoration: underline;
 }
+
+.badgesRow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.verifiedBadge {
+    display: inline-flex;
+    vertical-align: middle;
+    margin-left: 0.5rem;
+    color: #1d9bf0;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(29, 155, 240, 0.4);
+    border: 1px solid rgba(29, 155, 240, 0.25);
+    padding: 1px;
+    cursor: default;
+    transition: all 0.2s ease;
+}
+
+.verifiedBadge:hover {
+    background: rgba(29, 155, 240, 0.35);
+    border-color: rgba(29, 155, 240, 0.55);
+    box-shadow: 0 0 18px rgba(29, 155, 240, 0.25);
+    transform: scale(1.1);
+}
+

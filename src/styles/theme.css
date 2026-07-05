@@ -22,6 +22,8 @@
     --glass-opacity: 0.015; 
     --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
     --border-subtle: rgba(255, 255, 255, 0.05);
+    --glass-popover-bg: rgba(9, 9, 15, 0.85);
+    --glass-popover-blur: 16px;
 
     /* Enhanced Glass Surfaces */
     --glass-surface: rgba(10, 10, 16, 0.3);

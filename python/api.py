@@ -399,12 +399,23 @@ def artist_to_dict(a):
         name = a.get('artist') or a.get('name') or a.get('title')
         if not name and a.get('artists'):
             name = a['artists'][0].get('name')
-        
+
+        badges = a.get('badges', [])
+        is_pro = False
+        for badge in badges:
+            inline = badge.get('musicInlineBadgeRenderer', {})
+            acc = inline.get('accessibilityData', {}).get('accessibilityData', {})
+            label = (acc.get('label') or '').upper()
+            if label == 'PRO':
+                is_pro = True
+                break
+
         return {
             'id': a.get('browseId') or a.get('id'),
             'name': name,
             'thumbUrl': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
-            'views': a.get('subscribers') or a.get('views')
+            'views': a.get('subscribers') or a.get('views'),
+            'artistPro': is_pro
         }
     except Exception:
         return None
@@ -814,7 +825,15 @@ def _build_formatted_section(section):
                 if m_playlist_id: d['playlistId'] = m_playlist_id
                 items.append(d)
         elif nav_type == 'artist':
-            items.append({'id': b_id, 'type': 'artist', 'display_type': 'Artist', 'title': item.get('title') or item.get('name'), 'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '', 'menu_tokens': item.get('menu_tokens'), 'isPinned': item.get('isPinned'), 'description': item.get('description')})
+            badges = item.get('badges', [])
+            is_pro = False
+            for badge in badges:
+                inline = badge.get('musicInlineBadgeRenderer', {})
+                acc = inline.get('accessibilityData', {}).get('accessibilityData', {})
+                if (acc.get('label') or '').upper() == 'PRO':
+                    is_pro = True
+                    break
+            items.append({'id': b_id, 'type': 'artist', 'display_type': 'Artist', 'title': item.get('title') or item.get('name'), 'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '', 'menu_tokens': item.get('menu_tokens'), 'isPinned': item.get('isPinned'), 'description': item.get('description'), 'artistPro': is_pro})
         elif nav_type == 'album':
             al = item.get('artists', [])
             audio_pid = item.get('audioPlaylistId') or item.get('playlistId')
@@ -1092,6 +1111,19 @@ def handle_request(request):
             subscribers = info.get('subscribers')
             views = info.get('views')
             
+            # Извлекаем verified из raw_response badges
+            raw_verified = False
+            try:
+                header = nav(raw_response, ['header', 'musicHeaderRenderer'])
+                badges = header.get('badges', []) if header else []
+                for badge in badges:
+                    inline = badge.get('musicInlineBadgeRenderer', {})
+                    acc = inline.get('accessibilityData', {}).get('accessibilityData', {})
+                    if (acc.get('label') or '').upper() == 'VERIFIED':
+                        raw_verified = True
+                        break
+            except: pass
+            
             # Парсим ежемесячных слушателей
             monthly_listeners = None
             if 'слушателей' in description_text:
@@ -1217,7 +1249,8 @@ def handle_request(request):
                 'monthlyListeners': monthly_listeners,
                 'views': views,
                 'topSongs': top_songs, 
-                
+                'artistPro': False,
+                'verified': raw_verified,
                 'albumsPreview': albums_preview,
                 'albumsId': albums_section.get('browseId'),
                 'albumsParams': albums_section.get('params'),
@@ -1751,7 +1784,6 @@ def handle_request(request):
             
             # 1. ПРИОРИТЕТ: pytubefix (0.3с)
             try:
-                # Use a very short timeout for pytubefix
                 tube = YouTube(url, use_oauth=False, allow_oauth_cache=True)
                 stream_url = tube.streams.get_audio_only().url
 
@@ -1786,9 +1818,9 @@ def handle_request(request):
                         'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
                         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
                         'logger': MyLogger(),
-                        'js_runtimes': {'node': {}}, 'remote_components': ['ejs:github'],
                         'youtube_include_dash_manifest': False, 'cachedir': False,
                         'extractor_args': {'youtube': {'player_client': ['web', 'mweb'], 'skip': ['hls']}},
+                        'extractor_timeout': 15, 'socket_timeout': 15,
                     }
                     # Если есть куки, добавляем их
                     if _auth_type == 'browser' and _auth_data:
@@ -1901,10 +1933,13 @@ def handle_request(request):
                             'scId': str(t.get('id') or ''),
                             'uploaderUrl': (user or {}).get('permalink_url', '') or url,
                         })
+                verified = bool((user or {}).get('verified'))
                 safe_print({
                     'status': 'ok',
                     'name': (user or {}).get('username', ''),
                     'thumbUrl': _sc_pick_thumb((user or {}).get('avatar_url') or ''),
+                    'artistPro': verified,
+                    'verified': verified,
                     'results': results,
                     'callId': call_id,
                 })
@@ -1927,6 +1962,8 @@ def handle_request(request):
                             'name': u.get('username', ''),
                             'thumbUrl': _sc_pick_thumb(u.get('avatar_url') or ''),
                             'source': 'soundcloud',
+                            'artistPro': bool(u.get('verified')),
+                            'verified': bool(u.get('verified')),
                         })
                     alb = _sc_api_get('/search/albums', {'q': query, 'limit': 8})
                     for a in ((alb or {}).get('collection') or []):
@@ -2231,7 +2268,10 @@ def handle_request(request):
         elif command == 'get_preview_url':
             url = request.get('url', '')
             try:
-                # Prefer direct HTTP streams — avoid HLS/DASH which browser <audio> can't play
+                # SoundCloud: yt-dlp иногда даёт только HLS/DASH (m3u8), а не прямые MP3/AAC
+                # Fallback: если не удалось получить прямой стрим — конвертируем через yt-dlp --extract-audio
+                is_sc = url and 'soundcloud.com' in url
+                
                 ydl_opts = {
                     'format': (
                         'bestaudio[protocol=https][ext!=m3u8]'
@@ -2243,6 +2283,12 @@ def handle_request(request):
                     'no_warnings': True,
                     'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 }
+                if is_sc:
+                    ydl_opts['http_headers'] = {
+                        'Referer': 'https://soundcloud.com/',
+                        'Origin': 'https://soundcloud.com',
+                    }
+                    
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
 
@@ -2325,7 +2371,14 @@ def handle_request(request):
 
             try:
                 suffix = str(int(time.time() * 1000))  # numeric-ish id to avoid collisions
-                output_template = os.path.join(songs_path, f'{video_id}_{suffix}.%(ext)s')
+                
+                # Для SoundCloud video_id это URL, скачиваем во временный файл, потом переименуем в {artist}-{title}_{suffix}.ext
+                is_sc = url and 'soundcloud.com' in url
+                if is_sc:
+                    output_template = os.path.join(songs_path, f'sc_tmp_{suffix}.%(ext)s')
+                else:
+                    output_template = os.path.join(songs_path, f'{video_id}_{suffix}.%(ext)s')
+                    
                 ydl_opts = {
                     'format': 'bestaudio/best',
                     'quiet': True,
@@ -2335,20 +2388,46 @@ def handle_request(request):
                     'noplaylist': True,
                     'progress_hooks': [progress_hook],
                 }
+                if is_sc:
+                    ydl_opts['http_headers'] = {
+                        'Referer': 'https://soundcloud.com/',
+                        'Origin': 'https://soundcloud.com',
+                    }
+                    
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     ext = info.get('ext') or 'webm'
                 
-                filename = f'{video_id}_{suffix}.{ext}'
-                filepath = os.path.join(songs_path, filename)
+                if is_sc:
+                    # Формируем имя файла {artist}-{title}_{suffix}.ext
+                    artist = info.get('uploader') or info.get('artist', 'Unknown Artist')
+                    title = info.get('title', 'Unknown Title')
+                    
+                    def sanitize(s):
+                        return "".join(['-' if c in r'<>:"/\|?* ' else c for c in str(s)]).strip('-') or 'Unknown'
+
+                    artist_s = sanitize(artist)
+                    title_s = sanitize(title)
+                    
+                    filename = f'{artist_s}-{title_s}_{suffix}.{ext}'
+                    filepath = os.path.join(songs_path, filename)
+                else:
+                    filename = f'{video_id}_{suffix}.{ext}'
+                    filepath = os.path.join(songs_path, filename)
 
                 # Resolve actual file (yt-dlp may rename extension)
                 if not os.path.exists(filepath):
                     for f in os.listdir(songs_path):
-                        if f.startswith(video_id + '_' + suffix + '.'):
-                            filename = f
-                            filepath = os.path.join(songs_path, f)
-                            break
+                        if is_sc:
+                            if f.startswith(f'sc_tmp_{suffix}.'):
+                                filename = f
+                                filepath = os.path.join(songs_path, f)
+                                break
+                        else:
+                            if f.startswith(video_id + '_' + suffix + '.'):
+                                filename = f
+                                filepath = os.path.join(songs_path, f)
+                                break
 
                 # Loudness analysis via ffmpeg
                 gain_db = 0.0
@@ -2465,59 +2544,128 @@ def handle_request(request):
 
         elif command == 'download_direct':
             stream_url = request.get('streamUrl', '')
-            video_id = request.get('videoId', '')
+            raw_video_id = request.get('videoId', '')
             songs_path = request.get('songsPath', '')
             os.makedirs(songs_path, exist_ok=True)
-            try:
-                suffix = str(int(time.time() * 1000))  # numeric-ish id to avoid collisions
-                headers = {
-                    'Referer': 'https://music.youtube.com/',
-                    'Origin': 'https://music.youtube.com',
-                }
-                with requests.get(stream_url, stream=True, headers=headers, timeout=30) as r:
-                    r.raise_for_status()
-                    content_type = r.headers.get('Content-Type', '')
-                    total = r.headers.get('Content-Length')
-                    total_bytes = int(total) if total and total.isdigit() else None
-                    ext = 'webm'
-                    if 'mp4' in content_type or 'aac' in content_type:
+
+            video_id_sanitized = "".join(['-' if c in r'<>:"/\|?* ' else c for c in str(raw_video_id)]).strip('-') or 'unknown'
+            suffix = str(int(time.time() * 1000))
+            output_template = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.%(ext)s')
+
+            download_url = request.get('url', '') or (raw_video_id if any(x in raw_video_id for x in ['soundcloud.com','youtube.com','youtu.be']) else None) or stream_url
+            is_sc = download_url and 'soundcloud.com' in download_url
+            is_yt_direct = download_url and ('googlevideo.com' in download_url or 'youtube.com/api' in download_url)
+
+            # Для прямых YouTube stream URL (googlevideo.com) используем requests — в 5-10x быстрее yt-dlp
+            if is_yt_direct:
+                try:
+                    headers = {
+                        'Referer': 'https://music.youtube.com/',
+                        'Origin': 'https://music.youtube.com',
+                    }
+                    # Определяем формат по URL
+                    content_type = ''
+                    total_size = 0
+                    ext = 'm4a'
+                    if '.m4a' in download_url or 'mp4' in download_url:
                         ext = 'm4a'
-                    elif 'ogg' in content_type:
-                        ext = 'ogg'
-                    elif 'mpeg' in content_type or 'mp3' in content_type:
+                    elif '.opus' in download_url or 'webm' in download_url:
+                        ext = 'webm'
+                    elif '.mp3' in download_url:
                         ext = 'mp3'
-                    filename = f'{video_id}_{suffix}.{ext}'
-                    filepath = os.path.join(songs_path, filename)
-                    with open(filepath, 'wb') as f:
-                        downloaded = 0
-                        last_emit = 0.0
-                        for chunk in r.iter_content(chunk_size=65536):
-                            if is_cancelled():
-                                raise Exception("Cancelled by client")
-                            if not chunk:
-                                continue
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            now = time.time()
-                            if now - last_emit >= 0.25:
-                                last_emit = now
-                                pct = None
-                                if total_bytes and total_bytes > 0:
-                                    pct = max(0.0, min(100.0, (downloaded / total_bytes) * 100.0))
-                                status = f"Downloading: {downloaded / (1024 * 1024):.1f} MB"
-                                if total_bytes:
-                                    status += f" / {total_bytes / (1024 * 1024):.1f} MB"
-                                if pct is not None:
-                                    status = f"Downloading: {pct:.1f}% ({status})"
-                                safe_print({
-                                    'event': 'download_progress',
-                                    'callId': call_id,
-                                    'status': status,
-                                    'downloadedBytes': downloaded,
-                                    'totalBytes': total_bytes,
-                                    'progress': f"{pct:.1f}%" if pct is not None else None,
-                                })
-                safe_print({'status': 'ok', 'filename': filename, 'callId': call_id})
+                    elif '.ogg' in download_url:
+                        ext = 'ogg'
+
+                    filepath = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.{ext}')
+                    downloaded = 0
+                    last_emit = 0.0
+
+                    with requests.get(download_url, stream=True, headers=headers, timeout=120) as r:
+                        r.raise_for_status()
+                        content_type = r.headers.get('Content-Type', '')
+                        total = r.headers.get('Content-Length')
+                        total_size = int(total) if total and total.isdigit() else 0
+
+                        with open(filepath, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=262144):
+                                if is_cancelled():
+                                    raise Exception("Cancelled by client")
+                                if not chunk:
+                                    continue
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                now = time.time()
+                                if now - last_emit >= 0.25:
+                                    last_emit = now
+                                    pct = None
+                                    if total_size and total_size > 0:
+                                        pct = max(0.0, min(100.0, (downloaded / total_size) * 100.0))
+                                    status = f"Downloading: {downloaded / (1024 * 1024):.1f} MB"
+                                    if total_size:
+                                        status += f" / {total_size / (1024 * 1024):.1f} MB"
+                                    if pct is not None:
+                                        status = f"Downloading: {pct:.1f}% ({status})"
+                                    safe_print({
+                                        'event': 'download_progress',
+                                        'callId': call_id,
+                                        'status': status,
+                                        'downloadedBytes': downloaded,
+                                        'totalBytes': total_size,
+                                        'progress': f"{pct:.1f}%" if pct is not None else None,
+                                    })
+
+                    safe_print({'event': 'download_progress', 'callId': call_id, 'status': "Download complete, analyzing loudness...", 'progress': '100%'})
+
+                    gain_db = 0.0
+                    if os.path.exists(filepath):
+                        try:
+                            res = _ffmpeg_loudnorm_i(filepath, ss=30, t=12)
+                            if res is not None:
+                                gain_db = float(res) + 14.0
+                        except: pass
+
+                    safe_print({'status': 'ok', 'filename': os.path.basename(filepath), 'gainDb': gain_db, 'callId': call_id})
+                    return
+
+                except Exception as e:
+                    print(f"[error] download_direct requests failed for {video_id_sanitized}: {e}", file=sys.stderr)
+
+            ydl_opts = {
+                'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True, 'noprogress': True,
+                'outtmpl': output_template, 'noplaylist': True,
+            }
+            if is_sc:
+                ydl_opts['http_headers'] = {'Referer': 'https://soundcloud.com/', 'Origin': 'https://soundcloud.com', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+
+            def progress_hook(d):
+                if d['status'] == 'downloading':
+                    p = d.get('_percent_str', '0%').replace('\x1b[0;32m', '').replace('\x1b[0m', '').strip()
+                    safe_print({'event': 'download_progress', 'callId': call_id, 'status': f"Downloading: {p}", 'progress': p})
+                elif d['status'] == 'finished':
+                    safe_print({'event': 'download_progress', 'callId': call_id, 'status': "Download complete, analyzing loudness...", 'progress': '100%'})
+
+            ydl_opts['progress_hooks'] = [progress_hook]
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.extract_info(download_url if download_url else stream_url, download=True)
+
+                filename = ""
+                for f in os.listdir(songs_path):
+                    if f.startswith(f'dl_direct_{video_id_sanitized}_{suffix}.'):
+                        filename = f
+                        filepath = os.path.join(songs_path, f)
+                        break
+
+                gain_db = 0.0
+                if os.path.exists(filepath):
+                    try:
+                        res = _ffmpeg_loudnorm_i(filepath, ss=30, t=12)
+                        if res is not None:
+                            gain_db = float(res) + 14.0
+                    except: pass
+
+                safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
             except Exception as e:
                 print(f"[error] download_direct: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})

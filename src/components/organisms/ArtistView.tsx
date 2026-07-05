@@ -19,7 +19,7 @@ import { LazyImage } from '../atoms/LazyImage';
 import { player } from '../../api/player';
 import { 
   ChevronRight, ArrowLeft,
-  Users, Loader2, Check, Plus, Eye, Headphones
+  Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle
 } from 'lucide-react';
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
@@ -63,7 +63,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       if (isSoundCloudArtist) {
         const sc = await getSoundCloudArtist(artistId);
         if (!sc) return null;
-        return { name: sc.name, thumbUrl: sc.thumbUrl, topSongs: sc.tracks, isSoundCloud: true } as any;
+        return { name: sc.name, thumbUrl: sc.thumbUrl, artistPro: sc.artistPro, verified: sc.verified, topSongs: sc.tracks, isSoundCloud: true } as any;
       }
       return getArtistDetail(artistId);
     },
@@ -328,8 +328,12 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         <div className={styles.bannerWrapper}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
           <div className={styles.bannerOverlay}>
-            <div>
-              <h1 className={styles.name}>{detail.name}</h1>
+              <div>
+                <div className={styles.badgesRow}>
+                  {detail.artistPro && <span className="pro-badge pro-badge--lg" data-tooltip="Artist PRO"><span>★</span></span>}
+                  {detail.verified && <CheckCircle size={20} className={`verified-badge ${styles.verifiedBadge}`} data-tooltip="Verified" />}
+                </div>
+                <h1 className={styles.name}>{detail.name}</h1>
               <div className={styles.stats}>
                 {detail.monthlyListeners && <div className={styles.statItem}><Headphones size={16} /><span>{detail.monthlyListeners} monthly listeners</span></div>}
                 {detail.subscribers && <div className={styles.statItem}><Users size={16} /><span>{detail.subscribers} subscribers</span></div>}

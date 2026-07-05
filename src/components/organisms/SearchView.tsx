@@ -420,7 +420,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
           {isArtistsLoading ? (
             <div className={styles.section}>
               <Skeleton width={80} height={16} borderRadius={4} />
-              <div className={styles.horizontalScroll} style={{ display: 'flex', gap: 16, overflow: 'hidden' }}>
+              <div className={styles.horizontalScroll} style={{ display: 'flex', gap: 16, overflowX: 'hidden', overflowY: 'visible' }}>
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, minWidth: 100 }}>
                     <Skeleton width={100} height={100} borderRadius={50} />
