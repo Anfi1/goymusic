@@ -368,6 +368,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const onFilterPointerDown = useCallback((e: React.PointerEvent) => {
     const el = filterListRef.current;
     if (!el || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button')) return;
     el.setPointerCapture(e.pointerId);
     filterDrag.current = { isDown: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft };
     el.style.cursor = 'grabbing';

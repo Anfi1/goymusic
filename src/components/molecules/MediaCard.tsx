@@ -176,9 +176,6 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
           <CheckCircle size={18} className={`verified-badge ${styles.verifiedBadge}`} data-tooltip="Verified" />
         )}
         
-        {isArtist && artistPro && (
-          <div className="pro-badge pro-badge--absolute" data-tooltip="Artist PRO"><span>★</span></div>
-        )}
         
         {isActive && !isLoading && !isArtist && (
           <div className={styles.activeOverlay}>

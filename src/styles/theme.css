@@ -30,6 +30,29 @@
     --glass-surface-main: rgba(10, 10, 16, 0.4);
     --bg-main-glass: rgba(10, 10, 16, 0.6);
     --glass-surface-player: rgba(10, 10, 16, 0.7);
+
+    /* Badge colors */
+    --badge-pro-color: #f59e0b;
+    --badge-pro-bg: #f59e0b;
+    --badge-pro-bg-hover: #fbbf24;
+    --badge-pro-border: rgba(245, 158, 11, 0.4);
+    --badge-pro-border-hover: rgba(245, 158, 11, 0.5);
+    --badge-pro-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+    --badge-pro-lg-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
+
+    --badge-verified-bg: #1d9bf0;
+    --badge-verified-bg-hover: #3b8de6;
+    --badge-verified-border: rgba(29, 155, 240, 0.35);
+    --badge-verified-border-hover: rgba(29, 155, 240, 0.5);
+    --badge-verified-shadow: 0 0 12px rgba(29, 155, 240, 0.15);
+
+    --badge-verified-bg-lg: #1d9bf0;
+    --badge-verified-bg-lg-hover: #3b8de6;
+    --badge-verified-border-lg: rgba(29, 155, 240, 0.5);
+    --badge-verified-border-lg-hover: rgba(29, 155, 240, 0.6);
+    --badge-verified-lg-shadow: 0 0 18px rgba(29, 155, 240, 0.15);
+
+    --badge-icon-color: #1a1a1a;
 }
 
 [data-theme="light"] {
@@ -58,6 +81,29 @@
     --glass-surface-main: rgba(255, 255, 255, 0.4);
     --bg-main-glass: rgba(255, 255, 255, 0.6);
     --glass-surface-player: rgba(255, 255, 255, 0.7);
+
+    /* Badge colors - Light */
+    --badge-pro-color: #b45309;
+    --badge-pro-bg: rgba(180, 83, 9, 0.5);
+    --badge-pro-bg-hover: rgba(180, 83, 9, 0.65);
+    --badge-pro-border: rgba(180, 83, 9, 0.3);
+    --badge-pro-border-hover: rgba(180, 83, 9, 0.4);
+    --badge-pro-shadow: 0 0 12px rgba(180, 83, 9, 0.15);
+    --badge-pro-lg-shadow: 0 0 18px rgba(180, 83, 9, 0.2);
+
+    --badge-verified-bg: rgba(30, 102, 245, 0.5);
+    --badge-verified-bg-hover: rgba(30, 102, 245, 0.7);
+    --badge-verified-border: rgba(30, 102, 245, 0.3);
+    --badge-verified-border-hover: rgba(30, 102, 245, 0.45);
+    --badge-verified-shadow: 0 0 12px rgba(30, 102, 245, 0.12);
+
+    --badge-verified-bg-lg: rgba(30, 102, 245, 0.7);
+    --badge-verified-bg-lg-hover: rgba(30, 102, 245, 0.85);
+    --badge-verified-border-lg: rgba(30, 102, 245, 0.4);
+    --badge-verified-border-lg-hover: rgba(30, 102, 245, 0.55);
+    --badge-verified-lg-shadow: 0 0 18px rgba(30, 102, 245, 0.15);
+
+    --badge-icon-color: #fff;
 }
 
 :root {

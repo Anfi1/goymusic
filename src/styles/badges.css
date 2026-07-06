@@ -9,9 +9,9 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.2);
-    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: var(--badge-pro-color);
+    background: var(--badge-pro-bg);
+    border: 1px solid var(--badge-pro-border);
     cursor: default;
     pointer-events: auto;
     transition: all 0.2s ease;
@@ -20,9 +20,9 @@
 }
 
 .pro-badge:hover {
-    background: rgba(245, 158, 11, 0.35);
-    border-color: rgba(245, 158, 11, 0.55);
-    box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+    background: var(--badge-pro-bg-hover);
+    border-color: var(--badge-pro-border-hover);
+    box-shadow: var(--badge-pro-shadow);
     transform: scale(1.1);
 }
 
@@ -35,6 +35,7 @@
     height: 12px;
     font-size: 12px;
     line-height: 1;
+    color: var(--badge-icon-color);
     fill: currentColor;
 }
 
@@ -46,6 +47,26 @@
     z-index: 3;
 }
 
+/* Средний размер — для карточек артистов */
+.pro-badge--md {
+    width: 20px;
+    height: 20px;
+}
+
+.pro-badge--md span {
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+}
+
+/* Правый верхний угол — для бейджа на аватаре */
+.pro-badge--tr {
+    left: auto;
+    right: 4px;
+    top: 4px;
+}
+
+/* Крупная звёздочка — для бейджа на аватаре */
 .pro-badge--absolute span {
     width: 18px;
     height: 18px;
@@ -58,8 +79,8 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: rgba(245, 158, 11, 0.4);
-    border-color: rgba(245, 158, 11, 0.6);
+    background: var(--badge-pro-bg);
+    border-color: var(--badge-pro-border);
     margin-left: 6px;
     vertical-align: middle;
     font-size: 0;
@@ -71,12 +92,15 @@
     height: 20px;
     font-size: 20px;
     line-height: 1;
+    color: var(--badge-icon-color);
+    fill: currentColor;
 }
 
 .pro-badge--lg:hover {
-    background: rgba(245, 158, 11, 0.4);
-    border-color: rgba(245, 158, 11, 0.65);
-    box-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
+    background: var(--badge-pro-bg-hover);
+    border-color: var(--badge-pro-border-hover);
+    box-shadow: var(--badge-pro-lg-shadow);
+    transform: scale(1.1);
 }
 
 /* Verified badge — галочка */
@@ -88,9 +112,8 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    color: #1d9bf0;
-    background: rgba(29, 155, 240, 0.1);
-    border: 1px solid rgba(29, 155, 240, 0.2);
+    background: var(--badge-verified-bg);
+    border: 1px solid var(--badge-verified-border);
     cursor: default;
     transition: all 0.2s ease;
     font-size: 0;
@@ -98,14 +121,63 @@
 }
 
 .verified-badge:hover {
-    background: rgba(29, 155, 240, 0.35);
-    border-color: rgba(29, 155, 240, 0.55);
-    box-shadow: 0 0 12px rgba(29, 155, 240, 0.2);
+    background: var(--badge-verified-bg-hover);
+    border-color: var(--badge-verified-border-hover);
+    box-shadow: var(--badge-verified-shadow);
     transform: scale(1.1);
 }
 
 .verified-badge svg {
     width: 12px;
     height: 12px;
-    fill: currentColor;
+    fill: #fff;
+}
+
+/* Verified badge для аватара — абсолютное позиционирование */
+.verified-badge--tr {
+    position: absolute;
+    left: auto;
+    right: 30px;
+    top: 4px;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    padding: 2px;
+    background: var(--badge-verified-bg);
+    border-color: var(--badge-verified-border);
+}
+
+.verified-badge--tr:hover {
+    background: var(--badge-verified-bg-hover);
+    border-color: var(--badge-verified-border-hover);
+    box-shadow: var(--badge-verified-shadow);
+    transform: scale(1.1);
+}
+
+.verified-badge--tr svg {
+    width: 14px;
+    height: 14px;
+    fill: #fff;
+}
+
+/* Крупный verified бейдж — для страницы артиста */
+.verified-badge-lg {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--badge-verified-bg-lg);
+    border-color: var(--badge-verified-border-lg);
+}
+
+.verified-badge-lg:hover {
+    background: var(--badge-verified-bg-lg-hover);
+    border-color: var(--badge-verified-border-lg-hover);
+    box-shadow: var(--badge-verified-lg-shadow);
+    transform: scale(1.1);
+}
+
+.verified-badge-lg svg {
+    width: 18px;
+    height: 18px;
+    fill: #fff;
 }

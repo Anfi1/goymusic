@@ -353,22 +353,26 @@
 
 .verifiedBadge {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
     vertical-align: middle;
     margin-left: 0.5rem;
-    color: #1d9bf0;
+    width: 44px;
+    height: 44px;
+    padding: 2px;
     flex-shrink: 0;
-    border-radius: 50%;
-    background: rgba(29, 155, 240, 0.4);
-    border: 1px solid rgba(29, 155, 240, 0.25);
-    padding: 1px;
-    cursor: default;
-    transition: all 0.2s ease;
+    background: #1d9bf0 !important;
+    border: 1px solid #1d9bf0 !important;
 }
 
 .verifiedBadge:hover {
-    background: rgba(29, 155, 240, 0.35);
-    border-color: rgba(29, 155, 240, 0.55);
-    box-shadow: 0 0 18px rgba(29, 155, 240, 0.25);
+    box-shadow: var(--badge-verified-lg-shadow);
     transform: scale(1.1);
+}
+
+.verifiedBadge svg {
+    width: 28px !important;
+    height: 28px !important;
+    fill: white !important;
 }
 

@@ -33,7 +33,7 @@ body {
     position: fixed;
     background: #1e1e2e;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #cdd6f4;
+    color: var(--tooltip-color, #cdd6f4);
     font-size: 12px;
     font-weight: 500;
     font-family: var(--font-main);

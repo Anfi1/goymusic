@@ -224,24 +224,25 @@ function App() {
       const el = (e.target as Element).closest('[data-tooltip]');
       if (!el) return;
       // For PRO/verified badges — show tooltip with themed color
-      const badgeEl = el.classList.contains('pro-badge') ? el : el.parentElement?.classList.contains('pro-badge') ? el.parentElement : null;
-      const verifiedEl = el.classList.contains('verified-badge') ? el : el.parentElement?.classList.contains('verified-badge') ? el.parentElement : null;
-      if (badgeEl || verifiedEl) {
+      const isProBadge = el.classList.contains('pro-badge');
+      const isVerifiedBadge = el.classList.contains('verified-badge') || el.classList.contains('verified-badge-lg') || el.classList.contains('verified-badge--tr') || el.classList.contains('verified-badge--sm');
+      const isVerifiedBadgeLg = el.classList.contains('verified-badge-lg');
+      const isVerifiedBadgeTr = el.classList.contains('verified-badge--tr');
+      const isVerifiedBadgeSm = el.classList.contains('verified-badge--sm');
+      const badgeEl = isProBadge ? el : (el.parentElement && el.parentElement.classList.contains('pro-badge')) ? el.parentElement : null;
+      const verifiedEl = isVerifiedBadge ? (isVerifiedBadgeLg ? el : isVerifiedBadgeTr ? el : isVerifiedBadgeSm ? el : el.parentElement && el.parentElement.classList.contains('verified-badge') ? el.parentElement : el) : null;
+      if (badgeEl || verifiedEl || isVerifiedBadgeLg || isVerifiedBadgeTr || isVerifiedBadgeSm) {
         if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+        if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
         pendingEl = null;
-        current = badgeEl || verifiedEl;
-        tip.textContent = badgeEl ? 'Artist PRO' : 'Verified';
+        current = isVerifiedBadgeLg ? el : isVerifiedBadgeTr ? el : isVerifiedBadgeSm ? el : (badgeEl || verifiedEl);
+        tip.textContent = isVerifiedBadgeLg ? 'Verified' : isVerifiedBadgeTr ? 'Verified' : isVerifiedBadgeSm ? 'Verified' : (badgeEl ? 'Artist PRO' : 'Verified');
         const tw = tip.offsetWidth || 200;
         const cx = e.clientX, cy = e.clientY;
         const x = Math.min(cx + 14, window.innerWidth - tw - 8);
         const y = cy - 28 < 8 ? cy + 20 : cy - 28;
-        if (badgeEl) {
-          tip.style.color = '#f59e0b';
-          tip.style.borderColor = 'rgba(245, 158, 11, 0.3)';
-        } else {
-          tip.style.color = '#1d9bf0';
-          tip.style.borderColor = 'rgba(29, 155, 240, 0.3)';
-        }
+        tip.style.setProperty('--tooltip-color', isVerifiedBadgeLg ? '#1d9bf0' : (badgeEl ? '#f59e0b' : '#1d9bf0'));
+        tip.style.borderColor = isVerifiedBadgeLg ? 'rgba(29, 155, 240, 0.3)' : (badgeEl ? 'rgba(245, 158, 11, 0.3)' : 'rgba(29, 155, 240, 0.3)');
         tip.style.left = x + 'px';
         tip.style.top = y + 'px';
         tip.style.transition = 'opacity 0.18s cubic-bezier(0.0, 0.0, 0.2, 1)';
@@ -266,8 +267,8 @@ function App() {
         showTimer = null;
         pendingEl = null;
         current = el;
-        tip.style.color = '';
-        tip.style.borderColor = '';
+        tip.style.removeProperty('--tooltip-color');
+        tip.style.removeProperty('border-color');
         tip.textContent = el.getAttribute('data-tooltip');
         const tw = tip.offsetWidth || 200;
         const x = Math.min(cx + 14, window.innerWidth - tw - 8);
@@ -280,18 +281,38 @@ function App() {
     };
     const hide = (e: MouseEvent) => {
       const target = e.target as Element;
-      const badgeEl = target.classList.contains('pro-badge') ? target : target.parentElement?.classList.contains('pro-badge') ? target.parentElement : null;
-      const verifiedEl = target.classList.contains('verified-badge') ? target : target.parentElement?.classList.contains('verified-badge') ? target.parentElement : null;
-      if (badgeEl || verifiedEl) {
+      const badgeEl = target.classList.contains('pro-badge') ? target : (target.parentElement && target.parentElement.classList.contains('pro-badge')) ? target.parentElement : null;
+      const verifiedEl = target.classList.contains('verified-badge') ? target : target.classList.contains('verified-badge-lg') ? target : target.classList.contains('verified-badge--tr') ? target : target.classList.contains('verified-badge--sm') ? target : (target.parentElement && target.parentElement.classList.contains('verified-badge')) ? target.parentElement : null;
+      const isVerifiedBadgeLgHide = target.classList.contains('verified-badge-lg');
+      const isVerifiedBadgeTrHide = target.classList.contains('verified-badge--tr');
+      const isVerifiedBadgeSmHide = target.classList.contains('verified-badge--sm');
+      if (badgeEl || verifiedEl || isVerifiedBadgeLgHide || isVerifiedBadgeTrHide || isVerifiedBadgeSmHide) {
         const related = e.relatedTarget as Element | null;
-        if (related && (badgeEl === related || badgeEl.contains(related) || verifiedEl === related || verifiedEl.contains(related))) {
-          return;
+        if (isVerifiedBadgeLgHide && related && (target.contains(related) || verifiedEl?.contains(related))) return;
+        if (isVerifiedBadgeLgHide && related && related.classList.contains('pro-badge')) return;
+        if (isVerifiedBadgeLgHide && related && related.parentElement?.classList.contains('pro-badge')) return;
+        if (isVerifiedBadgeTrHide && related && (target.contains(related) || verifiedEl?.contains(related))) return;
+        if (isVerifiedBadgeTrHide && related && related.classList.contains('pro-badge')) return;
+        if (isVerifiedBadgeTrHide && related && related.parentElement?.classList.contains('pro-badge')) return;
+        if (isVerifiedBadgeSmHide && related && (target.contains(related) || verifiedEl?.contains(related))) return;
+        if (isVerifiedBadgeSmHide && related && related.classList.contains('pro-badge')) return;
+        if (isVerifiedBadgeSmHide && related && related.parentElement?.classList.contains('pro-badge')) return;
+        if (related && (badgeEl?.contains(related) || verifiedEl?.contains(related))) return;
+        let node: Element | null = related;
+        const container = badgeEl?.parentElement || verifiedEl?.parentElement || target.parentElement;
+        while (node && node !== container) {
+          if ((node.classList.contains('pro-badge') || node.classList.contains('verified-badge') || node.classList.contains('verified-badge-lg') || node.classList.contains('verified-badge--tr') || node.classList.contains('verified-badge--sm')) ||
+              (node.parentElement && (node.parentElement.classList.contains('pro-badge') || node.parentElement.classList.contains('verified-badge')))) {
+            return;
+          }
+          node = node.parentElement;
         }
         tip.style.opacity = '0';
         pendingHideTimer = setTimeout(() => {
           pendingHideTimer = null;
-          tip.style.color = '';
-          tip.style.borderColor = '';
+          if (current && document.contains(current)) return;
+          tip.style.removeProperty('--tooltip-color');
+          tip.style.removeProperty('border-color');
           current = null;
         }, STYLE_PERSIST_DURATION);
         return;
@@ -329,9 +350,6 @@ function App() {
     tip.addEventListener('mouseleave', () => {
       tip.style.opacity = '0';
       if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
-      tip.style.color = '';
-      tip.style.borderColor = '';
-      current = null;
     });
     const badgeMouseEnter = (e: MouseEvent) => {
       const target = e.target as Element;

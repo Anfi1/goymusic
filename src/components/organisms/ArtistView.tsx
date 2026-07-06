@@ -331,7 +331,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
               <div>
                 <div className={styles.badgesRow}>
                   {detail.artistPro && <span className="pro-badge pro-badge--lg" data-tooltip="Artist PRO"><span>★</span></span>}
-                  {detail.verified && <CheckCircle size={20} className={`verified-badge ${styles.verifiedBadge}`} data-tooltip="Verified" />}
+                  {detail.verified && <CheckCircle size={32} className={`verified-badge-lg ${styles.verifiedBadge}`} data-tooltip="Verified" />}
                 </div>
                 <h1 className={styles.name}>{detail.name}</h1>
               <div className={styles.stats}>

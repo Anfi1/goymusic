@@ -610,32 +610,6 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
       []
     );
 
-    if (isLoading)
-      return (
-        <div className={styles.container}>
-          <div className={styles.skeletonWrapper}>
-            <div className={styles.skeletonHeader}>
-              <div className={styles.skelIcon} />
-              <div className={styles.skelLines}>
-                <div className={styles.skelLineShort} />
-                <div className={styles.skelLineLong} />
-              </div>
-            </div>
-            <div className={styles.skeletonList}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className={styles.skelRow}>
-                  <div className={styles.skelIdx} />
-                  <div className={styles.skelTitle} />
-                  <div className={styles.skelAlbum} />
-                  <div className={styles.skelPlayed} />
-                  <div className={styles.skelTime} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-
     const rangeLabel = dateRange.start
       ? `${dateRange.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${dateRange.end ? ' - ' + dateRange.end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}`
       : 'All Time';
@@ -649,7 +623,9 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
             </div>
             <div>
               <h1>History</h1>
-              <p>{filteredHistory.length} tracks found</p>
+              <p>
+                {isLoading ? 'Loading...' : `${filteredHistory.length} tracks found`}
+              </p>
             </div>
           </div>
           <button
@@ -658,6 +634,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
               confirm('Clear history?') &&
               historyStore.clearAll().then(() => setHistory([]))
             }
+            disabled={isLoading}
           >
             <Trash2 size={16} />
             <span>Clear All</span>
@@ -706,7 +683,12 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
         </div>
 
         <div className={styles.listContainer}>
-          {flatList.length === 0 ? (
+          {isLoading ? (
+            <div className={styles.loadingOverlay}>
+              <div className={styles.loadingSpinner} />
+              <span className={styles.loadingText}>Loading history</span>
+            </div>
+          ) : flatList.length === 0 ? (
             <div className={styles.empty}>
               <CalendarIcon size={48} />
               <h3>Nothing found</h3>

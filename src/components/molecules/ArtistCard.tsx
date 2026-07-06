@@ -31,6 +31,10 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, sour
           className={styles.thumbnail}
           placeholder={<div className={styles.thumbnailPlaceholder} />}
         />
+        <div className={styles.badgesOverlay}>
+          {artistPro && <span className="pro-badge pro-badge--md" data-tooltip="Artist PRO"><span>★</span></span>}
+          {verified && <CheckCircle className={`verified-badge verified-badge--sm`} data-tooltip="Verified" />}
+        </div>
         {isSc && (
           <div
             style={{
@@ -42,10 +46,6 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, sour
             <SourceBadge source={source} size={14} />
           </div>
         )}
-      </div>
-      <div className={styles.badgesRow}>
-        {artistPro && <span className="pro-badge pro-badge--absolute" data-tooltip="Artist PRO"><span>★</span></span>}
-        {verified && <CheckCircle className={`verified-badge ${styles.verifiedSmall}`} data-tooltip="Verified" />}
       </div>
       <div className={styles.name}>{name}</div>
     </div>

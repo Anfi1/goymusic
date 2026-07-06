@@ -523,6 +523,49 @@
   }
 }
 
+/* Loading spinner overlay */
+.loadingOverlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 1rem;
+}
+
+.loadingSpinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(var(--accent-rgb), 0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loadingText {
+  color: var(--text-sub);
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.6;
+  animation: fadePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fadePulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
 /* Filter secondary button */
 .filterBtnSecondary {
   display: flex;
