@@ -1,5 +1,6 @@
 import type { YTMTrack } from './yt';
 import type { ScLikedEntry } from './likedStore';
+import { likedStore } from './likedStore';
 import { registerSoundCloudTrack } from './stream';
 
 export interface ScSearchEntry {
@@ -173,6 +174,7 @@ export async function getScAccount(): Promise<ScAccount | null> {
 // --- Лайки на SoundCloud (только в авторизованном режиме) ---
 // Множество permalink-URL'ов лайкнутых треков — для статуса лайков в радио/поиске.
 let scLikedSet = new Set<string>();
+let scLocalOnlySet = new Set<string>();
 
 export async function loadScLikedIds(): Promise<void> {
   const t = getScToken();
@@ -188,9 +190,32 @@ export async function loadScLikedIds(): Promise<void> {
   }
 }
 
+// Загружает ID локальных (offline) SC-лайков для isScTrackLiked()
+export async function loadScLocalOnlyIds(): Promise<void> {
+  try {
+    const entries = await likedStore.getAllScTracks();
+    scLocalOnlySet = new Set(entries.filter(e => e.localOnly).map(e => e.scId));
+  } catch {
+    scLocalOnlySet = new Set();
+  }
+}
+
 // Набор хранит числовые scId лайкнутых треков.
 export function isScTrackLiked(scId: string | undefined): boolean {
-  return !!scId && scLikedSet.has(scId);
+  return !!scId && (scLikedSet.has(scId) || scLocalOnlySet.has(scId));
+}
+
+export function getScLocalOnlyCount(): number {
+  return scLocalOnlySet.size;
+}
+
+// Для использования из scLikedManager (разные модули)
+export function addScLocalOnlyId(scId: string): void {
+  scLocalOnlySet.add(scId);
+}
+
+export function removeScLocalOnlyId(scId: string): void {
+  scLocalOnlySet.delete(scId);
 }
 
 // Ставит/снимает лайк на SoundCloud через кастомный профиль Chrome + CDP.
@@ -244,8 +269,12 @@ export async function scEnsureProfile(): Promise<boolean> {
 }
 
 // При старте подтягиваем SC-лайки, если есть токен (чтобы статус был в радио/поиске).
+// Всегда загружаем local-only лайки, даже без SC-авторизации.
 // Гард по window: в node-окружении тестов localStorage отсутствует.
-if (typeof window !== 'undefined' && getScToken()) { loadScLikedIds(); }
+if (typeof window !== 'undefined') {
+  if (getScToken()) loadScLikedIds();
+  loadScLocalOnlyIds();  // always — even without SC auth
+}
 
 export interface ScArtistDetail {
   name: string;
