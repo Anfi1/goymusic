@@ -146,7 +146,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 detail: { message: `Synced ${done}/${localOnly.length} local likes to SoundCloud`, type: done === localOnly.length ? 'success' : 'info' },
             }));
             await loadScLocalOnlyIds();
-            setScLocalCount(0);
+            setScLocalCount(getScLocalOnlyCount());
         } catch (e) {
             console.error('[sc-likes] upload failed', e);
         }
