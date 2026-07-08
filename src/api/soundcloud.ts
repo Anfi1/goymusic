@@ -140,9 +140,17 @@ export function isScAuthed(): boolean {
   return !!getScToken();
 }
 
-export function scDisconnect(): void {
+export async function scDisconnect(): Promise<void> {
+  // Удаляем серверные SC-лайки, но сохраняем localOnly
+  const all = await likedStore.getAllScTracks();
+  const toKeep = all.filter(e => e.localOnly);
+  await likedStore.clearScTracks();
+  if (toKeep.length > 0) await likedStore.putScTracksBatch(toKeep);
+  await likedStore.setScVirtualCount(0);
+
   localStorage.removeItem(SC_TOKEN_KEY);
   localStorage.removeItem(SC_UID_KEY);
+  scLikedSet = new Set();
   try { (window as any).bridge?.scLogout?.(); } catch { /* ignore */ }
 }
 

@@ -6,7 +6,7 @@ import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
-import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount } from '../../api/soundcloud';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLocalOnlyIds, scSetLiked } from '../../api/soundcloud';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import styles from './SettingsView.module.css';
@@ -25,6 +25,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [scTokenInput, setScTokenInput] = useState('');
     const [scConnecting, setScConnecting] = useState(false);
     const [scError, setScError] = useState(false);
+    const [scLocalCount, setScLocalCount] = useState(0);
+    const [scUploading, setScUploading] = useState(false);
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
     const [historyCleanup, setHistoryCleanup] = useState(historyManager.cleanupInterval);
@@ -86,6 +88,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         return () => { alive = false; };
     }, [scEnabled]);
 
+    useEffect(() => {
+        getScLocalOnlyCount().then(setScLocalCount);
+    }, [scAccount]);
+
     const handleScConnect = async () => {
         if (scConnecting || !scTokenInput.trim()) return;
         setScConnecting(true);
@@ -114,10 +120,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         setScConnecting(false);
     };
 
-    const handleScDisconnect = () => {
-        scDisconnect();
+    const handleScDisconnect = async () => {
+        await scDisconnect();
         setScAccount(null);
         setScError(false);
+        const count = await getScLocalOnlyCount();
+        setScLocalCount(count);
+    };
+
+    const handleScUploadLikes = async () => {
+        if (scUploading || !scAccount) return;
+        setScUploading(true);
+        try {
+            const all = await likedStore.getAllScTracks();
+            const localOnly = all.filter(e => e.localOnly);
+            let done = 0;
+            for (const entry of localOnly) {
+                const ok = await scSetLiked(entry.scId, entry.track.scUrl || entry.track.id, true);
+                if (ok) {
+                    await likedStore.putScTrack({ ...entry, localOnly: false });
+                    done++;
+                }
+            }
+            window.dispatchEvent(new CustomEvent('app-toast', {
+                detail: { message: `Synced ${done}/${localOnly.length} local likes to SoundCloud`, type: done === localOnly.length ? 'success' : 'info' },
+            }));
+            await loadScLocalOnlyIds();
+            setScLocalCount(0);
+        } catch (e) {
+            console.error('[sc-likes] upload failed', e);
+        }
+        setScUploading(false);
     };
 
     const handleToggleNormalization = () => {
@@ -232,10 +265,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                             )}
                         </div>
                         {scAccount ? (
-                            <button
-                                onClick={handleScDisconnect}
-                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
-                            >Disconnect</button>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
+                                <button
+                                    onClick={handleScDisconnect}
+                                    style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                                >Disconnect</button>
+                                {scLocalCount > 0 && (
+                                    <button
+                                        onClick={handleScUploadLikes}
+                                        disabled={scUploading}
+                                        style={{
+                                            padding: '6px 14px', borderRadius: 6, border: 'none',
+                                            background: scUploading ? '#888' : '#ff5500',
+                                            color: '#fff', cursor: scUploading ? 'default' : 'pointer',
+                                            fontSize: 13, opacity: scUploading ? 0.6 : 1, whiteSpace: 'nowrap'
+                                        }}
+                                    >{scUploading ? 'Syncing...' : `Sync ${scLocalCount} local likes → SC`}</button>
+                                )}
+                            </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
                                 <button
