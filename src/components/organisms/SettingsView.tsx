@@ -89,7 +89,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     }, [scEnabled]);
 
     useEffect(() => {
-        getScLocalOnlyCount().then(setScLocalCount);
+        setScLocalCount(getScLocalOnlyCount());
     }, [scAccount]);
 
     const handleScConnect = async () => {
@@ -124,7 +124,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         await scDisconnect();
         setScAccount(null);
         setScError(false);
-        const count = await getScLocalOnlyCount();
+        const count = getScLocalOnlyCount();
         setScLocalCount(count);
     };
 
