@@ -1,0 +1,319 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-base);
+    color: var(--text-main);
+    overflow: hidden;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 24px;
+    min-height: 64px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--text-main);
+}
+
+.spacer { flex: 1; }
+
+.presetWrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.presetSelector {
+    position: relative;
+}
+
+.presetBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.presetBtn:hover {
+    background: rgba(255,255,255,0.08);
+}
+
+.presetsDropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 180px;
+    background: var(--glass-popover-bg);
+    backdrop-filter: blur(var(--glass-popover-blur));
+    -webkit-backdrop-filter: blur(var(--glass-popover-blur));
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 10;
+    animation: scaleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.presetItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.presetItem:hover {
+    background: rgba(255,255,255,0.04);
+}
+
+.presetActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent);
+}
+
+.deleteIcon {
+    color: var(--danger);
+    opacity: 0.4;
+    transition: opacity 0.2s;
+    cursor: pointer;
+}
+
+.deleteIcon:hover {
+    opacity: 1;
+}
+
+.saveForm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.saveForm input {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 8px 14px;
+    color: var(--text-main);
+    font-size: 14px;
+    outline: none;
+    width: 200px;
+}
+
+.saveForm input:focus {
+    border-color: var(--accent);
+}
+
+.visualizer {
+    flex: 1;
+    padding: 24px;
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 16px;
+}
+
+.controls {
+    padding: 16px 24px 24px;
+    flex-shrink: 0;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+.hint {
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 0 0 12px;
+}
+
+.bandEditor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.qControl {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 4px;
+}
+
+.qControl span:first-child {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-sub);
+    min-width: 50px;
+}
+
+.qControl span:last-child {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 36px;
+    text-align: right;
+}
+
+.qControl input {
+    flex: 1;
+    height: 4px;
+    appearance: none;
+    background: rgba(137,180,250,0.15);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.qControl input::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-base);
+    box-shadow: 0 0 6px rgba(137,180,250,0.4);
+    cursor: pointer;
+}
+
+.qControl input::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-base);
+    box-shadow: 0 0 6px rgba(137,180,250,0.4);
+    cursor: pointer;
+}
+
+.info {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 4px;
+}
+
+.info span:first-child {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info span:last-child {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    opacity: 0.6;
+}
+
+.typeGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+
+.typeBtn {
+    padding: 10px 4px;
+    font-size: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    color: var(--text-sub);
+    cursor: pointer;
+    text-transform: capitalize;
+    transition: all 0.2s;
+}
+
+.typeBtn:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+.typeActive {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: rgba(137, 180, 250, 0.25);
+}
+
+.bottomBar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.addBandBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 20px;
+    background: rgba(137,180,250,0.08);
+    border: 1px dashed rgba(137,180,250,0.25);
+    border-radius: 10px;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.addBandBtn:hover {
+    background: rgba(137,180,250,0.15);
+    border-color: rgba(137,180,250,0.4);
+}
+
+.resetBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 20px;
+    background: rgba(243,139,168,0.08);
+    border: 1px solid rgba(243,139,168,0.2);
+    border-radius: 10px;
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.resetBtn:hover {
+    background: rgba(243,139,168,0.15);
+    border-color: rgba(243,139,168,0.4);
+}
+
+@keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}

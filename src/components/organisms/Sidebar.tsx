@@ -393,7 +393,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           icon={History}
           label={collapsed ? '' : 'History'}
           active={activeViewType === 'history'}
-          onClick={handleNavigateHistory}
+          onClick={() => onSelectView?.({ type: 'history' })}
           tooltip={collapsed ? 'History' : undefined}
         />
       </div>

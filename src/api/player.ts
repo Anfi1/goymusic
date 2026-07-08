@@ -132,11 +132,10 @@ class PlayerStore {
             this.analyzer.smoothingTimeConstant = 0.8;
 
             const freqs = [60, 250, 1000, 4000, 8000, 16000];
+            const types: BiquadFilterType[] = ['lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf'];
             this.filters = freqs.map((f, i) => {
                 const filter = this.audioContext!.createBiquadFilter();
-                if (i === 0) filter.type = 'lowshelf';
-                else if (i === freqs.length - 1) filter.type = 'highshelf';
-                else filter.type = 'peaking';
+                filter.type = types[i];
                 filter.frequency.value = f;
                 filter.Q.value = 1;
                 filter.gain.value = 0;
@@ -169,13 +168,12 @@ class PlayerStore {
         
         let lastNode: AudioNode = this.normalizationGain;
 
-        // 2. Equalizer
-        const isFlat = this.filters.every(f => Math.abs(f.gain.value) < 0.01);
-        if (!isFlat) {
-            this.filters.forEach(f => {
+        // 2. Equalizer — skip filters near 0 dB (they don't affect sound)
+        for (const f of this.filters) {
+            if (Math.abs(f.gain.value) > 0.1) {
                 lastNode.connect(f);
                 lastNode = f;
-            });
+            }
         }
         
         // 3. Analyzer
@@ -195,7 +193,9 @@ class PlayerStore {
                         if (this.filters[i]) {
                             this.filters[i].gain.value = b.gain;
                             this.filters[i].frequency.value = b.frequency;
-                            this.filters[i].type = b.type;
+                            if (b.type) {
+                                this.filters[i].type = b.type;
+                            }
                         }
                     });
                 }
@@ -205,12 +205,17 @@ class PlayerStore {
         }
     }
 
-    setBand(index: number, gain: number, freq?: number, type?: BiquadFilterType) {
+    setBand(index: number, gain: number, freq?: number, type?: BiquadFilterType, Q?: number) {
         this.initAudioContext();
         if (this.filters[index]) {
             this.filters[index].gain.value = gain;
             if (freq !== undefined) this.filters[index].frequency.value = freq;
-            if (type !== undefined) this.filters[index].type = type;
+            if (type !== undefined) {
+                this.filters[index].type = type;
+            }
+            if (Q !== undefined) {
+                this.filters[index].Q.value = Q;
+            }
             this.rebuildAudioChain();
             this.notify('state');
         }
@@ -225,10 +230,46 @@ class PlayerStore {
         }));
     }
 
+    /** Add a new peaking band at the given frequency/gain. */
+    addBand(frequency: number, gain: number) {
+        this.initAudioContext();
+        const filter = this.audioContext!.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = Math.max(20, Math.min(20000, frequency));
+        filter.Q.value = 1;
+        filter.gain.value = gain;
+        this.filters.push(filter);
+        this.rebuildAudioChain();
+        this.notify('state');
+    }
+
+    /** Remove a band by index. */
+    removeBand(index: number) {
+        if (index < 0 || index >= this.filters.length) return;
+        this.filters[index].disconnect();
+        this.filters.splice(index, 1);
+        this.rebuildAudioChain();
+        this.notify('state');
+    }
+
     getAnalyzerData() {
         if (!this.analyzer || !this.audioContext || this.audioContext.state !== 'running') return new Uint8Array(0);
         const data = new Uint8Array(this.analyzer.frequencyBinCount);
         this.analyzer.getByteFrequencyData(data);
+        return data;
+    }
+
+    /** Half of the audio context sample rate (Hz) — upper frequency the FFT covers. */
+    getAnalyzerSampleRate(): number {
+        if (!this.audioContext) return 44100;
+        return this.audioContext.sampleRate;
+    }
+
+    /** Time-domain (oscilloscope) samples, 0–255 with 128 as the zero line. */
+    getWaveformData() {
+        if (!this.analyzer || !this.audioContext || this.audioContext.state !== 'running') return new Uint8Array(0);
+        const data = new Uint8Array(this.analyzer.fftSize);
+        this.analyzer.getByteTimeDomainData(data);
         return data;
     }
 

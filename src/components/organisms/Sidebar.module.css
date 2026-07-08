@@ -248,3 +248,14 @@
 .logoutBtn:hover {
     background: rgba(243, 139, 168, 0.1);
 }
+
+/* ── Эквалайзер в сайдбаре ── */
+.eqSection {
+    padding: 8px 4px 12px;
+    display: flex;
+    justify-content: center;
+}
+
+.collapsed .eqSection {
+    padding: 8px 0 12px;
+}

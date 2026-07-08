@@ -42,6 +42,7 @@ const MainContentWrapper = memo(
     user,
     isAuthenticated,
     isInitializing,
+    navigate,
   }: any) => {
     const viewKey = `${activeView.type}-${activeView.playlistId || ''}-${activeView.artistId || ''}-${activeView.albumId || ''}-${activeView.searchQuery || ''}-${refreshKey}`;
 
@@ -156,7 +157,13 @@ function App() {
 
   const navigate = useCallback((view: ActiveView) => {
     setActiveView((prev) => {
-      if (JSON.stringify(view) === JSON.stringify(prev)) {
+      // Безопасное сравнение без JSON.stringify (может падать на circular refs)
+      const same = prev.type === view.type &&
+        prev.playlistId === view.playlistId &&
+        prev.artistId === view.artistId &&
+        prev.albumId === view.albumId &&
+        prev.searchQuery === view.searchQuery;
+      if (same) {
         setRefreshKey((k) => k + 1);
         return prev;
       }
@@ -353,9 +360,10 @@ function App() {
     });
     const badgeMouseEnter = (e: MouseEvent) => {
       const target = e.target as Element;
-      const badgeEl = target.classList.contains('pro-badge') ? target : target.parentElement?.classList.contains('pro-badge') ? target.parentElement : null;
-      const verifiedEl = target.classList.contains('verified-badge') ? target : target.parentElement?.classList.contains('verified-badge') ? target.parentElement : null;
-      if (badgeEl || verifiedEl) {
+      const isBadge = target.classList.contains('pro-badge') || target.classList.contains('verified-badge');
+      const parent = target.parentElement;
+      const badgeEl = isBadge ? target : (parent?.classList && (parent.classList.contains('pro-badge') || parent.classList.contains('verified-badge'))) ? parent : null;
+      if (badgeEl) {
         if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
       }
     };
@@ -623,6 +631,7 @@ function App() {
         user={user}
         isAuthenticated={isAuthenticated}
         isInitializing={isInitializing}
+        navigate={navigate}
       />
     ),
     [
@@ -639,6 +648,7 @@ function App() {
       user,
       isAuthenticated,
       isInitializing,
+      navigate,
     ]
   );
 
