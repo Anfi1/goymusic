@@ -226,7 +226,8 @@ class PlayerStore {
         return this.filters.map(f => ({
             gain: f.gain.value,
             frequency: f.frequency.value,
-            type: f.type
+            type: f.type,
+            Q: f.Q.value
         }));
     }
 
@@ -1082,14 +1083,7 @@ class PlayerStore {
 
     async refreshRecommendations() {
         if (!this.currentTrack || this.isRecommendationsLoading) return;
-        this.isRecommendationsLoading = true;
-        this.notify('state');
-        try {
-            await this.fetchRecommendations(this.currentTrack.id, true);
-        } finally {
-            this.isRecommendationsLoading = false;
-            this.notify('state');
-        }
+        await this.fetchRecommendations(this.currentTrack.id, true);
     }
 
     private async fetchRecommendations(videoId: string, forceReplace = false) {

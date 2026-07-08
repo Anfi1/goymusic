@@ -137,7 +137,7 @@
 .verified-badge--tr {
     position: absolute;
     left: auto;
-    right: 30px;
+    right: calc(20px + 8px);
     top: 4px;
     z-index: 3;
     width: 20px;

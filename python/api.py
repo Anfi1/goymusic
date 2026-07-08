@@ -16,6 +16,7 @@ import yt_dlp
 import requests
 import re
 import html as html_lib
+from urllib.parse import urlparse, urlunparse
 
 from ytmusicapi import YTMusic, OAuthCredentials
 from pytubefix import YouTube
@@ -264,6 +265,37 @@ def _patched_send_request(self, endpoint, body, additionalParams=""):
 
 YTMusic._send_request = _patched_send_request
 
+def _extract_pro_badge(badges):
+    """Extract PRO badge info from YouTube Music badges array."""
+    if not badges:
+        return None
+    try:
+        for badge in badges:
+            if badge.get('badge_type') == 'VERIFIED_ARTIST':
+                return 'pro'
+    except Exception:
+        pass
+    return None
+
+def _extract_badge_label(badges, label):
+    """Extract a badge label from badges array."""
+    if not badges:
+        return None
+    try:
+        for badge in badges:
+            badge_label = badge.get('text', {}) if isinstance(badge, dict) else {}
+            if isinstance(badge_label, dict) and badge_label.get('text') == label:
+                return True
+    except Exception:
+        pass
+    return None
+
+def sanitize(s):
+    result = "".join(['-' if c in r'<>:"/\|?* ' else c for c in str(s)]).strip('-')
+    while '..' in result:
+        result = result.replace('..', '-')
+    return result or 'Unknown'
+
 def extract_loudness(obj):
     """Deep search for loudnessDb in a dictionary or list."""
     if isinstance(obj, str):
@@ -400,15 +432,7 @@ def artist_to_dict(a):
         if not name and a.get('artists'):
             name = a['artists'][0].get('name')
 
-        badges = a.get('badges', [])
-        is_pro = False
-        for badge in badges:
-            inline = badge.get('musicInlineBadgeRenderer', {})
-            acc = inline.get('accessibilityData', {}).get('accessibilityData', {})
-            label = (acc.get('label') or '').upper()
-            if label == 'PRO':
-                is_pro = True
-                break
+        is_pro = bool(_extract_pro_badge(a.get('badges')))
 
         return {
             'id': a.get('browseId') or a.get('id'),
@@ -825,14 +849,7 @@ def _build_formatted_section(section):
                 if m_playlist_id: d['playlistId'] = m_playlist_id
                 items.append(d)
         elif nav_type == 'artist':
-            badges = item.get('badges', [])
-            is_pro = False
-            for badge in badges:
-                inline = badge.get('musicInlineBadgeRenderer', {})
-                acc = inline.get('accessibilityData', {}).get('accessibilityData', {})
-                if (acc.get('label') or '').upper() == 'PRO':
-                    is_pro = True
-                    break
+            is_pro = bool(_extract_pro_badge(item.get('badges')))
             items.append({'id': b_id, 'type': 'artist', 'display_type': 'Artist', 'title': item.get('title') or item.get('name'), 'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '', 'menu_tokens': item.get('menu_tokens'), 'isPinned': item.get('isPinned'), 'description': item.get('description'), 'artistPro': is_pro})
         elif nav_type == 'album':
             al = item.get('artists', [])
@@ -1116,13 +1133,9 @@ def handle_request(request):
             try:
                 header = nav(raw_response, ['header', 'musicHeaderRenderer'])
                 badges = header.get('badges', []) if header else []
-                for badge in badges:
-                    inline = badge.get('musicInlineBadgeRenderer', {})
-                    acc = inline.get('accessibilityData', {}).get('accessibilityData', {})
-                    if (acc.get('label') or '').upper() == 'VERIFIED':
-                        raw_verified = True
-                        break
-            except: pass
+                raw_verified = bool(_extract_badge_label(badges, 'VERIFIED'))
+            except Exception:
+                pass
             
             # Парсим ежемесячных слушателей
             monthly_listeners = None
@@ -2311,7 +2324,13 @@ def handle_request(request):
 
                 # Critical Fix: yt-dlp sometimes omits '?' before CloudFront Policy params in SoundCloud
                 if stream_url and 'Policy=' in stream_url and '?' not in stream_url:
-                    stream_url = stream_url.replace('Policy=', '?Policy=')
+                    parsed = urlparse(stream_url)
+                    path = parsed.path
+                    idx = path.find('Policy=')
+                    if idx >= 0:
+                        new_path = path[:idx]
+                        new_query = path[idx:]
+                        stream_url = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, new_query, parsed.fragment))
 
                 print(f"[debug] get_preview_url: url={url[:60]} proto={protocol} ext={ext} stream={stream_url[:120] if stream_url else 'NONE'}", file=sys.stderr)
 
@@ -2402,9 +2421,6 @@ def handle_request(request):
                     # Формируем имя файла {artist}-{title}_{suffix}.ext
                     artist = info.get('uploader') or info.get('artist', 'Unknown Artist')
                     title = info.get('title', 'Unknown Title')
-                    
-                    def sanitize(s):
-                        return "".join(['-' if c in r'<>:"/\|?* ' else c for c in str(s)]).strip('-') or 'Unknown'
 
                     artist_s = sanitize(artist)
                     title_s = sanitize(title)
@@ -2548,7 +2564,7 @@ def handle_request(request):
             songs_path = request.get('songsPath', '')
             os.makedirs(songs_path, exist_ok=True)
 
-            video_id_sanitized = "".join(['-' if c in r'<>:"/\|?* ' else c for c in str(raw_video_id)]).strip('-') or 'unknown'
+            video_id_sanitized = sanitize(raw_video_id)
             suffix = str(int(time.time() * 1000))
             output_template = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.%(ext)s')
 
@@ -2622,7 +2638,8 @@ def handle_request(request):
                             res = _ffmpeg_loudnorm_i(filepath, ss=30, t=12)
                             if res is not None:
                                 gain_db = float(res) + 14.0
-                        except: pass
+                        except Exception:
+                            print(f"[warn] loudnorm failed", file=sys.stderr)
 
                     safe_print({'status': 'ok', 'filename': os.path.basename(filepath), 'gainDb': gain_db, 'callId': call_id})
                     return
@@ -2663,7 +2680,8 @@ def handle_request(request):
                         res = _ffmpeg_loudnorm_i(filepath, ss=30, t=12)
                         if res is not None:
                             gain_db = float(res) + 14.0
-                    except: pass
+                    except Exception:
+                        print(f"[warn] loudnorm failed", file=sys.stderr)
 
                 safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
             except Exception as e:
@@ -2691,7 +2709,7 @@ def handle_request(request):
                         for _ in range(10):
                             try:
                                 size = os.path.getsize(filepath)
-                            except:
+                            except OSError:
                                 size = -1
                             if size == last_size and size > 0:
                                 stable_ticks += 1
@@ -2701,8 +2719,8 @@ def handle_request(request):
                             if stable_ticks >= 2:
                                 break
                             time.sleep(0.1)
-                    except:
-                        pass
+                    except Exception:
+                        print(f"[warn] loudnorm failed", file=sys.stderr)
 
                     # Use subprocess.PIPE to avoid deadlocks on Windows
                     ffmpeg_proc = subprocess.run(

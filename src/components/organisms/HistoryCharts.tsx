@@ -284,9 +284,25 @@ export default function HistoryCharts({
     () => rawHistory.filter((h) => h.timestamp >= startTime).length,
     [rawHistory, startTime]
   );
-  const currentTrackId = player.currentTrack?.id;
-  const currentArtistIds = player.currentTrack?.artistIds || [];
-  const currentAlbumId = player.currentTrack?.albumId;
+  const [playerState, setPlayerState] = useState({
+    currentTrackId: player.currentTrack?.id,
+    currentArtistIds: player.currentTrack?.artistIds || [] as string[],
+    currentAlbumId: player.currentTrack?.albumId,
+    isPlaying: player.isPlaying,
+  });
+
+  useEffect(() => {
+    return player.subscribe(() => {
+      setPlayerState({
+        currentTrackId: player.currentTrack?.id,
+        currentArtistIds: player.currentTrack?.artistIds || [],
+        currentAlbumId: player.currentTrack?.albumId,
+        isPlaying: player.isPlaying,
+      });
+    });
+  }, []);
+
+  const { currentTrackId, currentArtistIds, currentAlbumId, isPlaying } = playerState;
 
   const handleLegendClick = (item: ChartDataItem) => {
     if (item.key === 'other') return;
@@ -589,7 +605,7 @@ export default function HistoryCharts({
               const statusText =
                 metric === 'tracks' &&
                 s.track?.id === currentTrackId &&
-                player.isPlaying
+                isPlaying
                   ? 'Now playing'
                   : metric === 'tracks' && s.track?.id === currentTrackId
                     ? 'Current'
@@ -623,6 +639,7 @@ export default function HistoryCharts({
                       alt={title}
                       className={styles.legendImage}
                       loading="lazy"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                     />
                   ) : image ? (
                     <img
@@ -630,6 +647,7 @@ export default function HistoryCharts({
                       alt={title}
                       className={styles.legendImage}
                       loading="lazy"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                     />
                   ) : (
                     <div className={styles.legendImagePlaceholder}>

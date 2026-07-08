@@ -252,12 +252,17 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
     trackMenuRef.current?.open(e, track, { type, index });
   }, []);
 
-  const onSuggestedPlay = useCallback((index?: number) => { 
-    if (index !== undefined && recommendations[index]) {
-      player.addRecommendationsAndPlay(recommendations[index]); 
+  // Read recommendations through a ref so onSuggestedPlay stays stable
+  const recsRef = useRef(recommendations);
+  recsRef.current = recommendations;
+
+  const onSuggestedPlay = useCallback((index?: number) => {
+    const recs = recsRef.current;
+    if (index !== undefined && recs[index]) {
+      player.addRecommendationsAndPlay(recs[index]);
     }
-  }, [recommendations]);
-  
+  }, []);
+
   const handleRefreshRecs = useCallback(() => { player.refreshRecommendations(); }, []);
 
   const components = useMemo(() => ({
@@ -273,8 +278,22 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
     )
   }), [recommendations, isRecommendationsLoading, onSuggestedPlay, handleContextMenu, handleRefreshRecs, onSelectArtist]);
 
-  // STATIC itemContent to fix scrolling re-renders. 
-  // It only depends on fullQueue which only changes when data changes.
+  // Keep refs for callbacks so renderItem stays stable between renders
+  const playFromQueueRef = useRef(playFromQueue);
+  const ctxMenuRef = useRef(handleContextMenu);
+  const dragStartRef = useRef(handleDragStart);
+  const dragEndRef = useRef(handleDragEnd);
+  const dragOverRef = useRef(handleDragOver);
+  const dropRef = useRef(handleDrop);
+  const onArtistRef = useRef(onSelectArtist);
+  playFromQueueRef.current = playFromQueue;
+  ctxMenuRef.current = handleContextMenu;
+  dragStartRef.current = handleDragStart;
+  dragEndRef.current = handleDragEnd;
+  dragOverRef.current = handleDragOver;
+  dropRef.current = handleDrop;
+  onArtistRef.current = onSelectArtist;
+
   const renderItem = useCallback((index: number, track: any) => {
     return (
       <MemoizedQueueItem 
@@ -282,18 +301,18 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
         track={track}
         currentIndex={currentIndex}
         fullQueueLength={fullQueue.length}
-        onPlay={playFromQueue}
-        onContextMenu={handleContextMenu}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
+        onPlay={playFromQueueRef.current}
+        onContextMenu={ctxMenuRef.current}
+        onDragStart={dragStartRef.current}
+        onDragEnd={dragEndRef.current}
+        onDragOver={dragOverRef.current}
+        onDrop={dropRef.current}
         draggedIndex={draggedIndex}
         dragOverIndex={dragOverIndex}
-        onSelectArtist={onSelectArtist}
+        onSelectArtist={onArtistRef.current}
       />
     );
-  }, [currentIndex, fullQueue.length, playFromQueue, handleContextMenu, handleDragStart, handleDragEnd, handleDragOver, handleDrop, draggedIndex, dragOverIndex, onSelectArtist]);
+  }, [currentIndex, fullQueue.length, draggedIndex, dragOverIndex]);
 
   return (
     <aside className={`${styles.panel} ${waveMode ? styles.waveMode : ''}`}>

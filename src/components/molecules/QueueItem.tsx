@@ -1,6 +1,6 @@
 import { likedManager } from '../../api/likedManager';
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-react';
+import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload, Music2 } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
@@ -158,6 +158,7 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
   hideDislike,
   source
 }) => {
+  const [imgError, setImgError] = useState(false);
 
   const handleItemClick = useCallback(() => {
     if (isActive) player.togglePlay();
@@ -181,7 +182,13 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
       onDragStart={handleDragStartInternal}
     >
       <div className={styles.coverWrapper} style={{ position: 'relative' }}>
-        {thumbUrl ? <img src={thumbUrl} alt="" className={styles.cover} /> : <div className={styles.cover} />}
+        {thumbUrl && !imgError ? (
+          <img src={thumbUrl} alt="" className={styles.cover} onError={() => setImgError(true)} />
+        ) : (
+          <div className={styles.cover} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
+            {!thumbUrl ? null : <Music2 size={18} />}
+          </div>
+        )}
         <PlaybackOverlay id={id} isActive={isActive} />
         {resolveSource(source) === 'soundcloud' && (
           <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>

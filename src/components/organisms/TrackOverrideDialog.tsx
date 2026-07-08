@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save, Clock } from 'lucide-react';
+import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save, Clock, Music2 } from 'lucide-react';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { streamCache } from '../../api/cache';
@@ -55,6 +55,8 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
   const [urlInput, setUrlInput] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  const [thumbError, setThumbError] = useState(false);
+  const [erroredResultThumbs, setErroredResultThumbs] = useState<Set<string>>(new Set());
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [statusText, setStatusText] = useState('');
@@ -95,6 +97,8 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
     setSearchResults([]);
     setSelectedResult(null);
     setPreviewInfo(null);
+    setThumbError(false);
+    setErroredResultThumbs(new Set());
     didAutoSearchRef.current = false;
 
     getOverride(track.id).then((override) => {
@@ -335,7 +339,13 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <div className={styles.trackInfo}>
-            {track.thumbUrl && <img src={track.thumbUrl} alt="" className={styles.thumb} />}
+            {track.thumbUrl && !thumbError ? (
+              <img src={track.thumbUrl} alt="" className={styles.thumb} onError={() => setThumbError(true)} />
+            ) : (
+              <div className={styles.thumb} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
+                {!track.thumbUrl ? null : <Music2 size={18} />}
+              </div>
+            )}
             <div>
               <div className={styles.trackTitle}>{track.title}</div>
               <div className={styles.trackArtist}>{track.artists?.join(', ')}{track.duration ? <><Clock size={14} style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 6px 0 8px', opacity: 0.5 }} /> {track.duration}</> : ''}</div>
@@ -428,7 +438,13 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
                           key={i}
                           className={`${styles.resultRow} ${selectedResult === r ? styles.resultSelected : ''}`}
                         >
-                          {r.thumbUrl && <img src={r.thumbUrl} alt="" className={styles.resultThumb} />}
+                          {r.thumbUrl && !erroredResultThumbs.has(r.thumbUrl) ? (
+                            <img src={r.thumbUrl} alt="" className={styles.resultThumb} onError={() => setErroredResultThumbs(prev => new Set(prev).add(r.thumbUrl))} />
+                          ) : (
+                            <div className={styles.resultThumb} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
+                              {!r.thumbUrl ? null : <Music2 size={16} />}
+                            </div>
+                          )}
                           <div className={styles.resultMeta}>
                             <div className={styles.resultTitle}>{r.title}</div>
                             <div className={styles.resultArtist}>{r.artist}{r.duration ? ` · ${formatDuration(r.duration)}` : ''}</div>

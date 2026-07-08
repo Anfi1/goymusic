@@ -84,6 +84,7 @@ const CanvasVisualizer: React.FC<{
     const hoveredRef = useRef(hoveredBandIndex);
     const dragRef = useRef<{ bandIdx: number } | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
+    const cleanupDragRef = useRef<(() => void) | null>(null);
 
     bandsRef.current = bands;
     selectedRef.current = selectedBand;
@@ -101,6 +102,11 @@ const CanvasVisualizer: React.FC<{
         });
         resizeObserverRef.current.observe(canvas);
         return () => { resizeObserverRef.current?.disconnect(); };
+    }, []);
+
+    // Safety net: remove any lingering document-level listeners on unmount
+    useEffect(() => {
+        return () => cleanupDragRef.current?.();
     }, []);
 
     // Compute gain at point x — true biquad curve for all filter types
@@ -353,8 +359,15 @@ const CanvasVisualizer: React.FC<{
         if (idx !== -1) {
             onBandSelect(idx);
             dragRef.current = { bandIdx: idx };
-            document.addEventListener('mousemove', handleDocumentMouseMove);
-            document.addEventListener('mouseup', handleDocumentMouseUp);
+            const onMove = handleDocumentMouseMove;
+            const onUp = handleDocumentMouseUp;
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            cleanupDragRef.current = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                cleanupDragRef.current = null;
+            };
         }
     }, [findBandAtPoint, onBandSelect, handleDocumentMouseMove, handleDocumentMouseUp]);
 
@@ -420,9 +433,14 @@ const EqualizerPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [cursorStyle, setCursorStyle] = useState<string>('crosshair');
 
     const containerRef = useRef<HTMLDivElement>(null);
+    const draggingRef = useRef(false);
 
-    // Sync bands from player
+    // Sync bands from player (but not during a drag — local state is already up to date)
     useEffect(() => {
+        if (draggingRef.current) {
+            draggingRef.current = false;
+            return;
+        }
         const pb = player.getEQBands();
         if (pb.length > 0) {
             const normalized = (pb as any[]).map((b: any) => ({ ...b, Q: b.Q ?? DEFAULT_Q }));
@@ -438,6 +456,7 @@ const EqualizerPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }, []);
 
     const handleBandDrag = useCallback((idx: number, freq: number, gain: number) => {
+        draggingRef.current = true;
         const nb = [...bands];
         nb[idx] = { ...nb[idx], frequency: freq, gain };
         setBands(nb);
@@ -496,9 +515,10 @@ const EqualizerPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const deletePreset = (name: string, e: React.MouseEvent) => {
         e.stopPropagation();
         if (name === 'Flat') return;
-        setPresets(presets.filter(p => p.name !== name));
+        const nextPresets = presets.filter(p => p.name !== name);
+        setPresets(nextPresets);
         if (activePreset === name) applyPreset(presets.find(p => p.name === 'Flat')!);
-        localStorage.setItem('ytm-eq-presets', JSON.stringify(presets.filter(p => p.name !== name)));
+        localStorage.setItem('ytm-eq-presets', JSON.stringify(nextPresets));
     };
 
     const updateType = (type: BiquadFilterType) => {

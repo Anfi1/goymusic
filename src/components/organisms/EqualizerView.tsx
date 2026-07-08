@@ -80,6 +80,7 @@ const CanvasVisualizer: React.FC<{
     const selectedRef = useRef(selectedBand);
     const dragRef = useRef<{ bandIdx: number } | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
+    const cleanupDragRef = useRef<(() => void) | null>(null);
 
     bandsRef.current = bands;
     selectedRef.current = selectedBand;
@@ -98,6 +99,11 @@ const CanvasVisualizer: React.FC<{
         return () => {
             resizeObserverRef.current?.disconnect();
         };
+    }, []);
+
+    // Safety net: remove any lingering document-level listeners on unmount
+    useEffect(() => {
+        return () => cleanupDragRef.current?.();
     }, []);
 
         // Compute gain at point x — true biquad curve for all filter types
@@ -448,8 +454,15 @@ const CanvasVisualizer: React.FC<{
         if (idx !== -1) {
             onBandSelect(idx);
             dragRef.current = { bandIdx: idx };
-            document.addEventListener('mousemove', handleDocumentMouseMove);
-            document.addEventListener('mouseup', handleDocumentMouseUp);
+            const onMove = handleDocumentMouseMove;
+            const onUp = handleDocumentMouseUp;
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            cleanupDragRef.current = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                cleanupDragRef.current = null;
+            };
         }
     }, [findBandAtPoint, onBandSelect, handleDocumentMouseMove, handleDocumentMouseUp]);
 
@@ -488,13 +501,11 @@ const CanvasVisualizer: React.FC<{
 // ── EqualizerView (full-screen page) ──
 
 export const EqualizerView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const initBands = useCallback(() => {
+    const [bands, setBands] = useState<Band[]>(() => {
         const pb = player.getEQBands();
         if ((pb as any[])?.length > 0) return (pb as any[]).map((b: any) => ({ ...b, Q: b.Q ?? DEFAULT_Q }));
         return DEFAULT_BANDS;
-    }, []);
-
-    const [bands, setBands] = useState<Band[]>(initBands);
+    });
     const syncedRef = useRef(false);
 
     const [presets, setPresets] = useState<Preset[]>(() => {
@@ -576,9 +587,10 @@ export const EqualizerView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const deletePreset = (name: string, e: React.MouseEvent) => {
         e.stopPropagation();
         if (name === 'Flat') return;
-        setPresets(presets.filter(p => p.name !== name));
+        const nextPresets = presets.filter(p => p.name !== name);
+        setPresets(nextPresets);
         if (activePreset === name) applyPreset(presets.find(p => p.name === 'Flat')!);
-        localStorage.setItem('ytm-eq-presets', JSON.stringify(presets.filter(p => p.name !== name)));
+        localStorage.setItem('ytm-eq-presets', JSON.stringify(nextPresets));
     };
 
     const updateType = (type: BiquadFilterType) => {

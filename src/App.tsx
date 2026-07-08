@@ -359,7 +359,8 @@ function App() {
       if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
     });
     const badgeMouseEnter = (e: MouseEvent) => {
-      const target = e.target as Element;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
       const isBadge = target.classList.contains('pro-badge') || target.classList.contains('verified-badge');
       const parent = target.parentElement;
       const badgeEl = isBadge ? target : (parent?.classList && (parent.classList.contains('pro-badge') || parent.classList.contains('verified-badge'))) ? parent : null;

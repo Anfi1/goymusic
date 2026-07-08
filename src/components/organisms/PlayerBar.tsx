@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, Fragment, memo, useMemo, useRe
 import {
   Shuffle, SkipBack, Pause, Play, SkipForward, Repeat, Repeat1,
   ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HeartCrack, HardDriveDownload, AlertCircle,
-  Infinity as InfinityIcon
+  Infinity as InfinityIcon, Music2
 } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
 import { SourceBadge } from '../atoms/SourceBadge';
@@ -144,6 +144,7 @@ const AutoplayButton = memo(() => {
 const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onSelectArtist?: (id: string) => void, onSelectAlbum?: (id: string) => void, onOpenOverride: (track: YTMTrack) => void }) => {
   const [track, setTrack] = useState(player.currentTrack);
   const [isLoading, setIsLoading] = useState(player.isStreamLoading);
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     return player.subscribe((ev) => {
@@ -182,7 +183,13 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
   return (
     <div className={`${styles.nowPlaying} ${(track?.albumId || player.queueSourceId) ? styles.clickable : ''} ${isLoading ? styles.loading : ''}`} onClick={handleSourceClick}>
       <div className={styles.artWrapper} onClick={handleArtClick}>
-        {track?.thumbUrl ? <img src={track.thumbUrl} alt="" className={styles.albumArt} /> : <div className={styles.albumArtEmpty} />}
+        {track?.thumbUrl && !imgError ? (
+          <img src={track.thumbUrl} alt="" className={styles.albumArt} onError={() => setImgError(true)} />
+        ) : (
+          <div className={styles.albumArtEmpty} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)', borderRadius: 6 }}>
+            {!track?.thumbUrl ? null : <Music2 size={22} />}
+          </div>
+        )}
         {track?.source === 'soundcloud' && (
           <span style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
             <SourceBadge source={track.source} size={12} />
