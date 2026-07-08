@@ -491,8 +491,15 @@ class PlayerStore {
                 this.wtFlush('ended');
                 this.wtUrl = null;
                 if (this.repeat === 'one') {
-                    audio.currentTime = 0;
-                    audio.play();
+                    const currentUrl = audio.src;
+                    const isExpired = currentUrl &&
+                        getExpirationFromUrl(currentUrl) < Math.floor(Date.now() / 1000) + 30;
+                    if (isExpired) {
+                        this.startPlayback(this.currentTrack!, false, 0);
+                    } else {
+                        audio.currentTime = 0;
+                        audio.play();
+                    }
                 } else {
                     this.next();
                 }

@@ -61,15 +61,29 @@ let currentAbortController: AbortController | null = null;
 let prefetchTimeout: any = null;
 
 /**
- * Извлекает UNIX-время истечения ссылки из URL YouTube.
+ * Извлекает UNIX-время истечения ссылки из URL.
+ * YouTube: параметр expire.
+ * SoundCloud (CloudFront): декодируем Policy (base64 → JSON → DateLessThan).
  */
 export function getExpirationFromUrl(url: string): number {
     try {
         const urlObj = new URL(url);
         const expire = urlObj.searchParams.get('expire');
-        return expire ? parseInt(expire, 10) : Math.floor(Date.now() / 1000) + 3600;
+        if (expire) return parseInt(expire, 10);
+
+        const policy = urlObj.searchParams.get('Policy');
+        if (policy) {
+            try {
+                const decoded = atob(policy.replace(/-/g, '+').replace(/_/g, '/'));
+                const parsed = JSON.parse(decoded);
+                const epochTime = parsed?.Statement?.[0]?.Condition?.DateLessThan?.['AWS:EpochTime'];
+                if (epochTime) return epochTime;
+            } catch {}
+        }
+
+        return Math.floor(Date.now() / 1000) + 600;
     } catch {
-        return Math.floor(Date.now() / 1000) + 3600;
+        return Math.floor(Date.now() / 1000) + 600;
     }
 }
 
