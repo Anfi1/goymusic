@@ -172,16 +172,31 @@ class LikedManager {
 
     // SoundCloud-трек: лайк уходит на SoundCloud (нужен oauth_token), не в YT-библиотеку.
     if (track.source === 'soundcloud') {
-      const ok = isScAuthed() && await scSetLiked(track.scId, track.scUrl || track.id, newStatus === 'LIKE');
-      if (ok) {
-        // Локальное зеркало SC-лайков (с временем лайка = сейчас).
-        if (newStatus === 'LIKE') scLikedManager.addLocal({ ...track, likeStatus: 'LIKE' });
-        else if (track.scId) scLikedManager.removeLocal(track.scId);
-        window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'success', likeStatus: newStatus } }));
-        return true;
+      if (isScAuthed()) {
+        const ok = await scSetLiked(track.scId, track.scUrl || track.id, newStatus === 'LIKE');
+        if (ok) {
+          if (newStatus === 'LIKE') scLikedManager.addLocal({ ...track, likeStatus: 'LIKE' });
+          else if (track.scId) scLikedManager.removeLocal(track.scId);
+          window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'success', likeStatus: newStatus } }));
+          return true;
+        }
+        window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+        return false;
       }
-      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
-      return false;
+
+      // Не авторизован — сохраняем локально с флагом localOnly
+      if (newStatus === 'LIKE') scLikedManager.addLocal({ ...track, likeStatus: 'LIKE' }, true);
+      else if (track.scId) scLikedManager.removeLocal(track.scId);
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'success', likeStatus: newStatus } }));
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: {
+          message: newStatus === 'LIKE'
+            ? 'Лайк сохранён локально. Войдите в SoundCloud, чтобы синхронизировать'
+            : 'Лайк убран локально',
+          type: 'info',
+        },
+      }));
+      return true;
     }
 
     const success = await rateSong(id, newStatus as any);
