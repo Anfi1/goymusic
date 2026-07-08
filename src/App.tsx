@@ -16,6 +16,7 @@ import { NewReleasesView } from './components/organisms/NewReleasesView';
 import { RadioView } from './components/organisms/RadioView';
 import { MyWaveView } from './components/organisms/MyWaveView';
 import { ImageViewer } from './components/molecules/ImageViewer';
+
 import { ToastProvider } from './components/atoms/Toast';
 import { isLoggedIn, loadAuth, clearTokens } from './api/yt';
 import { player } from './api/player';
@@ -147,7 +148,6 @@ function App() {
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [hideGlobalBack, setHideGlobalBack] = useState(false);
-
   const {
     playlists,
     user,

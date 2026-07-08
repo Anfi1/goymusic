@@ -873,6 +873,134 @@ def _build_formatted_section(section):
     return {'title': section.get('title'), 'category': category, 'contents': items}
 
 
+# ─── nodriver helpers (SoundCloud лайки) ──────────────────────────────────
+# Запускаем Chrome с кастомным профилем, сворачиваем окно (юзер не видит),
+# инжектим сохранённый oauth_token, кликаем лайк.
+
+def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None, liked: bool = True) -> str:
+    """Возвращает 'liked' | 'unliked' | 'error'. Всегда закрывает браузер."""
+    import asyncio
+    import nodriver as uc
+
+    async def _do():
+        browser = await uc.start(
+            user_data_dir=profile_dir,
+            headless=False,
+            sandbox=False,
+            browser_args=['--window-position=-32000,-32000', '--window-size=400,300'],
+        )
+        try:
+            tab = await browser.get(url)
+            await asyncio.sleep(5)
+
+            # Инжектим токен
+            if oauth_token:
+                await tab.evaluate(
+                    f'document.cookie = "oauth_token={oauth_token}; '
+                    f'domain=.soundcloud.com; path=/; max-age=31536000; secure;"'
+                )
+                await asyncio.sleep(1)
+
+            # Определяем текущее состояние кнопки
+            def _check():
+                return tab.evaluate('''(() => {
+                    const b = document.querySelector('button.playbackSoundBadge__like,button.sc-button-like,button.likeButton');
+                    if (!b) return 'no_button';
+                    const span = b.querySelector('span');
+                    const txt = (span ? span.textContent.trim().toLowerCase() : '');
+                    if (txt === 'liked') return 'liked';
+                    if (txt === 'like') return 'unliked';
+                    const c = b.className, l = (b.getAttribute('aria-label')||'').toLowerCase();
+                    if (c.includes('sc-button-selected')||l.includes('unlike')) return 'liked';
+                    if (l.includes('like')) return 'unliked';
+                    return 'unknown';
+                })()''')
+
+            cur = await _check()
+            want = 'liked' if liked else 'unliked'
+            print(f"[nodriver] cur={cur} want={want}", file=sys.stderr)
+
+            if cur == want:
+                return want
+            if cur == 'no_button' or cur == 'unknown':
+                return 'error'
+
+            # Нужно кликнуть (переключить состояние)
+            for sel in [
+                'button.playbackSoundBadge__like',
+                'button.sc-button-like',
+                'button.likeButton',
+                'button[aria-label*="Like"]',
+                'button[aria-label*="Unlike"]',
+            ]:
+                try:
+                    btn = await tab.select(sel, timeout=2)
+                    if btn:
+                        await btn.click()
+                        print(f"[nodriver] clicked via: {sel}", file=sys.stderr)
+                        break
+                except:
+                    continue
+            else:
+                # JS fallback
+                print("[nodriver] JS fallback click", file=sys.stderr)
+                await tab.evaluate('''(() => {
+                    for (const b of document.querySelectorAll('button')) {
+                        const t = (b.textContent||'').toLowerCase();
+                        const c = b.className.toLowerCase();
+                        if (t.includes('like')||c.includes('like')) { b.click(); return true; }
+                    }
+                    return false;
+                })()''')
+
+            await asyncio.sleep(2)
+
+            after = await _check()
+            print(f"[nodriver] after click: {after}", file=sys.stderr)
+            return after if after in ('liked', 'unliked') else 'error'
+        finally:
+            try:
+                await browser.stop()
+            except:
+                pass
+    return asyncio.run(_do())
+
+
+def _sc_nodriver_login(profile_dir: str) -> str | None:
+    import asyncio
+    import nodriver as uc
+
+    async def _do():
+        browser = await uc.start(
+            user_data_dir=profile_dir,
+            headless=False,
+            sandbox=False,
+        )
+        try:
+            tab = await browser.get('https://soundcloud.com')
+            try: await tab.minimize()
+            except: pass
+            for _ in range(300):
+                try:
+                    cs = await tab.evaluate('document.cookie')
+                    if cs and 'oauth_token' in cs:
+                        for part in cs.split(';'):
+                            part = part.strip()
+                            if part.startswith('oauth_token='):
+                                tok = part.split('=', 1)[1]
+                                print("[nodriver] got oauth_token", file=sys.stderr)
+                                return tok
+                except:
+                    break
+                await asyncio.sleep(2)
+            return None
+        finally:
+            try: browser.stop()
+            except: pass
+    return asyncio.run(_do())
+
+
+
 def handle_request(request):
     global _auth_data, _auth_type
     command = request.get('command')
@@ -2091,6 +2219,36 @@ def handle_request(request):
             except Exception as e:
                 print(f"[error] {command}: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'sc_like_nodriver':
+            sc_id = request.get('scId', '')
+            track_url = request.get('url', '')
+            url = track_url or f'https://soundcloud.com/tracks/{sc_id}'
+            liked = request.get('liked', True)
+            profile_dir = request.get('profileDir', '')
+            oauth_token = request.get('oauthToken') or None
+            try:
+                result = _sc_nodriver_like(profile_dir, url, oauth_token, liked)
+                safe_print({'status': 'ok' if result != 'error' else 'error',
+                            'liked': result, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_like_nodriver: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e),
+                            'callId': call_id})
+
+        elif command == 'sc_setup_profile':
+            profile_dir = request.get('profileDir', '')
+            try:
+                token = _sc_nodriver_login(profile_dir)
+                if token:
+                    safe_print({'status': 'ok', 'token': token, 'callId': call_id})
+                else:
+                    safe_print({'status': 'error', 'message': 'Login cancelled or failed',
+                                'callId': call_id})
+            except Exception as e:
+                print(f"[error] sc_setup_profile: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e),
+                            'callId': call_id})
 
         elif command == 'sc_liked_ids':
             # Permalink-URL'ы лайкнутых треков пользователя (для статуса лайков в радио/поиске).

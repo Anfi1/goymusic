@@ -193,35 +193,52 @@ export function isScTrackLiked(scId: string | undefined): boolean {
   return !!scId && scLikedSet.has(scId);
 }
 
-// Ставит/снимает лайк на SoundCloud через webview (PUT/DELETE из контекста soundcloud.com,
-// чтобы пройти DataDome). Нужны токен, uid и числовой scId. При успехе обновляет набор.
-export async function scSetLiked(scId: string | undefined, _url: string | undefined, liked: boolean): Promise<boolean> {
+// Ставит/снимает лайк на SoundCloud через кастомный профиль Chrome + CDP.
+// Если профиль ещё не настроен — пробует настроить (открыть Chrome для логина) и ретраит.
+export async function scSetLiked(scId: string | undefined, scUrl: string | undefined, liked: boolean): Promise<boolean> {
   const token = getScToken();
   if (!token || !scId) return false;
 
-  // Лайк через webview (из контекста soundcloud.com) — несёт DataDome-куку, проходит анти-бот.
-  const uid = getScUid();
-  if (!uid) return false;
-  const { cid, appVersion } = await ensureScClientId();
-  if (!cid) return false;
+  const trackUrl = (scUrl && scUrl.startsWith('https://soundcloud.com/'))
+    ? scUrl
+    : `https://soundcloud.com/tracks/${scId}`;
+
+  const bridge = (window as any).bridge;
+  let profileDir: string;
   try {
-    const res = await (window as any).bridge.scWrite({
-      method: liked ? 'PUT' : 'DELETE',
-      uid, tid: scId, cid, token, appVersion,
+    profileDir = await bridge.getScProfileDir();
+  } catch {
+    return false;
+  }
+
+  const doLike = async (): Promise<boolean> => {
+    const res = await bridge.pyCall('sc_like_nodriver', {
+      scId, url: trackUrl, liked, profileDir, oauthToken: token,
     });
-    if (res?.ok) {
-      if (liked) scLikedSet.add(scId); else scLikedSet.delete(scId);
+    if (res?.status === 'ok') {
+      const actualLiked = res.liked === 'liked';
+      if (actualLiked) scLikedSet.add(scId); else scLikedSet.delete(scId);
       return true;
     }
-    // DataDome требует разовое прохождение проверки — окно уже показано, просим пользователя её решить.
-    if (res?.needsCaptcha && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('app-toast', {
-        detail: { message: 'Пройдите проверку SoundCloud в открывшемся окне и повторите лайк', type: 'info' }
-      }));
+    return false;
+  };
+
+  return doLike();
+}
+
+// Открывает Chrome с кастомным профилем, юзер логинится в SC руками,
+// забираем oauth_token и сохраняем.
+export async function scEnsureProfile(): Promise<boolean> {
+  try {
+    const bridge = (window as any).bridge;
+    const profileDir = await bridge.getScProfileDir();
+    const res = await bridge.pyCall('sc_setup_profile', { profileDir });
+    if (res?.status === 'ok' && res.token) {
+      const acc = await scConnect(res.token);
+      if (acc) return true;
     }
-    console.warn('[soundcloud] sc webview like failed', { scId, res });
   } catch (e) {
-    console.warn('[soundcloud] scSetLiked error', e);
+    console.warn('[soundcloud] profile setup failed', e);
   }
   return false;
 }

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, session, screen, dialog } from 'electron'
 import { join, dirname } from 'path'
 import { pathToFileURL } from 'url'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, exec, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
@@ -176,10 +176,13 @@ function createPyProc() {
   const root = getAppRoot();
   const scriptPath = join(root, 'python', 'api.py')
   
-  // Priority: Bundled portable Python -> Venv -> System Python
+  // Priority: Venv -> Bundled portable Python -> System Python
+  // В dev-режиме venv содержит pip-пакеты (nodriver), bundled — нет.
   const bundledPython = join(root, 'python', 'bin', 'python.exe')
   const venvPython = join(root, 'venv', 'Scripts', 'python.exe')
-  const candidates = [bundledPython, venvPython, 'python', 'python3', 'py'];
+  const candidates = isPackaged
+    ? [bundledPython, venvPython, 'python', 'python3', 'py']
+    : [venvPython, bundledPython, 'python', 'python3', 'py'];
   
   logToFile(`Searching for Python interpreter...`);
   logToFile(`Bundled path: ${bundledPython} (exists: ${existsSync(bundledPython)})`);
@@ -299,6 +302,16 @@ function exitPyProc() {
     pyProc.kill()
     pyProc = null
   }
+  killScChrome()
+}
+
+function killScChrome() {
+  const scDir = join(app.getPath('userData'), 'sc-chrome')
+  const escaped = scDir.replace(/\\/g, '\\\\')
+  exec(
+    `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\\"name='chrome.exe'\\\" | Where-Object { $_.CommandLine -like '*${escaped}*' } | Stop-Process -Force"`,
+    () => {} // silence errors
+  )
 }
 
 function initAutoUpdater() {
@@ -791,40 +804,9 @@ ipcMain.handle('sc:login', async () => {
   })
 })
 
-// Выполняет PUT/DELETE лайка ВНУТРИ страницы soundcloud.com (несёт DataDome-куку → проходит).
-ipcMain.handle('sc:write', async (_event, args: { method: string, uid: string | number, tid: string, cid: string, token: string, appVersion: string }) => {
-  try {
-    const win = await ensureScWindow(false)
-    const url = `https://api-v2.soundcloud.com/users/${args.uid}/track_likes/${args.tid}?client_id=${args.cid}&app_version=${args.appVersion}&app_locale=en`
-    const js = `(async () => { try {`
-      + ` const r = await fetch(${JSON.stringify(url)}, { method: ${JSON.stringify(args.method)},`
-      + ` headers: { 'Authorization': 'OAuth ' + ${JSON.stringify(args.token)} }, credentials: 'include' });`
-      + ` let body = ''; try { body = await r.text(); } catch (e) {}`
-      + ` return { status: r.status, body }; } catch (e) { return { status: -1, body: '' }; } })()`
-    const res = await win.webContents.executeJavaScript(js, true)
-    const status = res && typeof res === 'object' ? res.status : res
-    if (status === 403) {
-      // DataDome challenge: в теле 403 лежит ТОЧНЫЙ URL капчи (geo.captcha-delivery.com).
-      // Открываем именно его — перезагрузка /discover капчу часто не вызывает.
-      // Пользователь решает её один раз → выдаётся валидная datadome-кука, следующий лайк проходит.
-      let captchaUrl = ''
-      try { captchaUrl = (JSON.parse(res.body || '{}').url) || '' } catch { /* ignore */ }
-      win.show()
-      try { await win.loadURL(captchaUrl || 'https://soundcloud.com/discover') } catch { /* ignore */ }
-      return { ok: false, status, needsCaptcha: true }
-    }
-    return { ok: status >= 200 && status < 300, status }
-  } catch (e: any) {
-    return { ok: false, status: -1, error: String(e?.message || e) }
-  }
-})
-
-ipcMain.handle('sc:open', async () => { await ensureScWindow(true); return true })
-
-ipcMain.handle('sc:logout', async () => {
-  try { await session.fromPartition(SC_PARTITION).clearStorageData() } catch { /* ignore */ }
-  if (scWin && !scWin.isDestroyed()) scWin.close()
-  return true
+// Путь к кастомному профилю Chrome для лайков SC.
+ipcMain.handle('sc:profile-path', () => {
+  return join(app.getPath('userData'), 'sc-chrome')
 })
 
 ipcMain.handle('open-external', async (event, url) => {

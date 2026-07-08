@@ -12,9 +12,6 @@ contextBridge.exposeInMainWorld('bridge', {
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   authStart: () => ipcRenderer.invoke('auth:start'),
   scLogin: () => ipcRenderer.invoke('sc:login'),
-  scWrite: (args: any) => ipcRenderer.invoke('sc:write', args),
-  scOpen: () => ipcRenderer.invoke('sc:open'),
-  scLogout: () => ipcRenderer.invoke('sc:logout'),
   winMinimize: () => ipcRenderer.send('win:minimize'),
   winMaximize: () => ipcRenderer.send('win:maximize'),
   winFullscreen: () => ipcRenderer.send('win:fullscreen'),
@@ -41,6 +38,7 @@ contextBridge.exposeInMainWorld('bridge', {
   pickSongsFolder: () => ipcRenderer.invoke('songs:pick-folder'),
   deleteSongFile: (filename: string) => ipcRenderer.invoke('songs:delete-file', filename),
   importSongFile: () => ipcRenderer.invoke('songs:import-file'),
+  getScProfileDir: () => ipcRenderer.invoke('sc:profile-path'),
 
   onDeepLink: (callback: (url: string) => void) => {
     const listener = (_e: any, url: string) => callback(url);

@@ -6,7 +6,7 @@ import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
-import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scLoginViaWebview, ScAccount } from '../../api/soundcloud';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount } from '../../api/soundcloud';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import styles from './SettingsView.module.css';
@@ -104,8 +104,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         if (scConnecting) return;
         setScConnecting(true);
         setScError(false);
-        const acc = await scLoginViaWebview();
-        if (acc) setScAccount(acc); else setScError(true);
+        const ok = await scEnsureProfile();
+        if (ok) {
+            const acc = await getScAccount();
+            setScAccount(acc);
+        } else {
+            setScError(true);
+        }
         setScConnecting(false);
     };
 
