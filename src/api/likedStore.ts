@@ -15,6 +15,7 @@ export interface ScLikedEntry {
   scId: string;
   track: YTMTrack;
   likedAt: number; // created_at лайка из api-v2 (ms) — всегда известно
+  localOnly?: boolean; // true = лайкнут без авторизации SC
 }
 
 class LikedStore {
@@ -209,3 +210,8 @@ class LikedStore {
 }
 
 export const likedStore = new LikedStore();
+
+export async function getScLocalOnlyCount(): Promise<number> {
+  const all = await likedStore.getAllScTracks();
+  return all.filter(e => e.localOnly).length;
+}
