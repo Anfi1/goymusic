@@ -2594,6 +2594,28 @@ def handle_request(request):
                 print(f"[error] get_soundcloud_playlist: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
+        elif command == 'resolve_sc_track':
+            url = request.get('url', '')
+            try:
+                data = _sc_api_get('/resolve', {'url': url})
+                if not data or data.get('kind') != 'track':
+                    safe_print({'status': 'error', 'message': 'Not a SC track', 'callId': call_id})
+                    return
+                user = data.get('user', {})
+                safe_print({
+                    'status': 'ok',
+                    'title': data.get('title', ''),
+                    'artist': user.get('username', ''),
+                    'duration': int((data.get('duration') or 0) / 1000),
+                    'thumbUrl': _sc_pick_thumb(data.get('artwork_url') or ''),
+                    'scId': str(data.get('id') or ''),
+                    'uploaderUrl': user.get('permalink_url', ''),
+                    'callId': call_id,
+                })
+            except Exception as e:
+                print(f"[error] resolve_sc_track: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
         elif command == 'get_preview_url':
             url = request.get('url', '')
             try:

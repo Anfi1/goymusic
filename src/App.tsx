@@ -21,6 +21,7 @@ import { ToastProvider } from './components/atoms/Toast';
 import { isLoggedIn, loadAuth, clearTokens } from './api/yt';
 import { player } from './api/player';
 import { parseDeepLink } from './api/trackLink';
+import { resolveScTrack } from './api/soundcloud';
 import { ActiveView } from './types';
 import './styles/theme.css';
 import './styles/base.css';
@@ -189,11 +190,11 @@ function App() {
   }, [isMyWave]);
 
   useEffect(() => {
-    return window.bridge.onDeepLink((url: string) => {
+    return window.bridge.onDeepLink(async (url: string) => {
       const link = parseDeepLink(url);
       if (!link) return;
       if (link.type === 'track') {
-        player.startRadio({
+        let track = {
           id: link.id,
           title: link.title,
           artists: link.artists,
@@ -202,7 +203,12 @@ function App() {
           duration: '',
           scUrl: link.scUrl,
           source: link.source,
-        } as any);
+        } as any;
+        if (link.source === 'soundcloud' && link.scUrl) {
+          const resolved = await resolveScTrack(link.scUrl);
+          if (resolved) track = resolved;
+        }
+        player.startRadio(track);
       } else if (link.type === 'album') {
         navigate({ type: 'album', albumId: link.id });
       }

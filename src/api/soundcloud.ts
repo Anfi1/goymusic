@@ -516,3 +516,27 @@ export async function searchSoundCloud(query: string, limit = 5): Promise<YTMTra
   }
   return [];
 }
+
+export async function resolveScTrack(scUrl: string): Promise<YTMTrack | null> {
+  try {
+    const res = await (window as any).bridge.pyCall('resolve_sc_track', { url: scUrl });
+    if (res?.status === 'ok') {
+      const entry: ScSearchEntry = {
+        url: scUrl,
+        title: res.title || '',
+        artist: res.artist || '',
+        duration: res.duration || null,
+        thumbUrl: res.thumbUrl || '',
+        source: 'soundcloud',
+        scId: res.scId || '',
+        uploaderUrl: res.uploaderUrl || '',
+      };
+      const track = scEntryToTrack(entry);
+      registerSoundCloudTrack(track.id, track.scUrl!);
+      return track;
+    }
+  } catch (e) {
+    console.warn('[soundcloud] resolveScTrack failed', e);
+  }
+  return null;
+}
