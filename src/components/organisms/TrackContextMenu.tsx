@@ -1,6 +1,8 @@
 import React, { useState, useImperativeHandle, forwardRef, useMemo, useCallback } from 'react';
 import { ContextMenu } from '../molecules/ContextMenu';
+import { ShareDialog } from '../molecules/ShareDialog';
 import { useTrackMenu } from '../../hooks/useTrackMenu';
+import { getTrackLink } from '../../api/trackLink';
 import { YTMTrack } from '../../api/yt';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 
@@ -41,6 +43,7 @@ export const TrackContextMenu = forwardRef<TrackContextMenuHandle, TrackContextM
   } | null>(null);
 
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
+  const [shareTrack, setShareTrack] = useState<YTMTrack | null>(null);
 
   const handleClose = useCallback(() => {
     setMenuState(null);
@@ -68,6 +71,7 @@ export const TrackContextMenu = forwardRef<TrackContextMenuHandle, TrackContextM
       onRemoveFromQueue,
       onPlayFromQueue,
       onOpenOverrideDialog: setOverrideTrack,
+      onOpenShareDialog: setShareTrack,
       playlistId: menuState.runtimeOptions.playlistId || playlistId,
       isOwnedPlaylist: menuState.runtimeOptions.isOwnedPlaylist ?? isOwnedPlaylist,
       ...menuState.runtimeOptions
@@ -91,6 +95,13 @@ export const TrackContextMenu = forwardRef<TrackContextMenuHandle, TrackContextM
           track={overrideTrack}
           isOpen={!!overrideTrack}
           onClose={() => setOverrideTrack(null)}
+        />
+      )}
+      {shareTrack && (
+        <ShareDialog
+          isOpen={!!shareTrack}
+          link={getTrackLink(shareTrack)}
+          onClose={() => setShareTrack(null)}
         />
       )}
     </>

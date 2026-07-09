@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { Play, ListMusic, Plus, Trash2, PlusCircle, Radio, ListVideo, HardDriveDownload, Link } from 'lucide-react';
-import { getTrackLink } from '../api/trackLink';
 import { player } from '../api/player';
 import { 
   addPlaylistItems, 
@@ -28,6 +27,7 @@ interface UseTrackMenuOptions {
   onPlayFromQueue?: (index: number) => void;
   onRemoveFromHistory?: (timestamp: number) => void;
   onOpenOverrideDialog?: (track: YTMTrack) => void;
+  onOpenShareDialog?: (track: YTMTrack) => void;
 }
 
 /**
@@ -40,7 +40,7 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
   const {
     track, playlistId, isOwnedPlaylist, type = 'list', index, timestamp,
     onSelectArtist, onSelectAlbum, onSelectPlaylist,
-    onRemoveFromQueue, onPlayFromQueue, onRemoveFromHistory, onOpenOverrideDialog
+    onRemoveFromQueue, onPlayFromQueue, onRemoveFromHistory, onOpenOverrideDialog, onOpenShareDialog
   } = options;
 
   const { showToast } = useToast();
@@ -120,8 +120,7 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
         label: 'Copy Link',
         icon: Link,
         onClick: () => {
-          navigator.clipboard.writeText(getTrackLink(track));
-          showToast('Link copied!', 'success');
+          onOpenShareDialog?.(track);
         }
       });
     }
@@ -258,7 +257,7 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
     }
 
     return items;
-  }, [track, ownedPlaylists, isLoading, type, index, timestamp, playlistId, isOwnedPlaylist, onPlayFromQueue, onRemoveFromQueue, onRemoveFromHistory, onOpenOverrideDialog, onSelectArtist, onSelectAlbum, onSelectPlaylist, queryClient, showToast]);
+  }, [track, ownedPlaylists, isLoading, type, index, timestamp, playlistId, isOwnedPlaylist, onPlayFromQueue, onRemoveFromQueue, onRemoveFromHistory, onOpenOverrideDialog, onOpenShareDialog, onSelectArtist, onSelectAlbum, onSelectPlaylist, queryClient, showToast]);
 
   return menuItems;
 };

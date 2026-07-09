@@ -1,0 +1,218 @@
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000000;
+}
+
+.dialog {
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  animation: dialogAppear 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dialogAppear {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #cdd6f4;
+}
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.playBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #89b4fa;
+  color: #11111b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.playBtn:hover {
+  background: #b4befe;
+  transform: scale(1.05);
+}
+
+.playBtn:active {
+  transform: scale(0.95);
+}
+
+.time {
+  font-size: 12px;
+  color: #a6adc8;
+  font-variant-numeric: tabular-nums;
+  min-width: 32px;
+  user-select: none;
+}
+
+.progressBar {
+  flex: 1;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #a6adc8;
+  margin-bottom: 16px;
+  user-select: none;
+  position: relative;
+}
+
+.checkbox input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.checkmark {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.checkbox input:checked + .checkmark {
+  background: #89b4fa;
+  border-color: #89b4fa;
+}
+
+.checkbox input:checked + .checkmark::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  border: solid #11111b;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.checkbox input:focus-visible + .checkmark {
+  outline: 2px solid #89b4fa;
+  outline-offset: 2px;
+}
+
+.timeInputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  animation: slideIn 0.15s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.timeInput {
+  width: 80px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #cdd6f4;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.timeInput:focus {
+  border-color: #89b4fa;
+}
+
+.timeHint {
+  font-size: 12px;
+  color: #6c7086;
+}
+
+.linkRow {
+  margin-bottom: 16px;
+}
+
+.linkInput {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #a6adc8;
+  font-size: 13px;
+  outline: none;
+  font-family: monospace;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.cancelBtn, .copyBtn {
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cancelBtn {
+  background: transparent;
+  color: #a6adc8;
+}
+
+.cancelBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #cdd6f4;
+}
+
+.copyBtn {
+  background: #89b4fa;
+  color: #11111b;
+}
+
+.copyBtn:hover {
+  background: #b4befe;
+  transform: translateY(-1px);
+}

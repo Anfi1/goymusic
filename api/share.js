@@ -23,9 +23,8 @@ function decodeMeta(search) {
     const params = new URLSearchParams(search);
     const m = params.get('m');
     if (!m) return null;
-    // URL-safe base64: replace - with + and _ with /
     const base64 = m.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(decodeURIComponent(escape(Buffer.from(base64, 'base64').toString('binary'))));
+    return JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
   } catch { return null; }
 }
 
@@ -77,7 +76,7 @@ module.exports = async function handler(req, res) {
       }
     }
     const meta = { t: urlMeta?.t || ogTitle.replace(/ — GoyMusic$/, ''), a: urlMeta?.a || [ogDescription], i: ogImage };
-    const b64 = Buffer.from(unescape(encodeURIComponent(JSON.stringify(meta)))).toString('base64');
+    const b64 = Buffer.from(unescape(encodeURIComponent(JSON.stringify(meta))), 'binary').toString('base64');
     // URL-safe base64: replace + with - and / with _
     const safeB64 = b64.replace(/\+/g, '-').replace(/\//g, '_');
     const timeParam = timecode ? `&t=${timecode}` : '';
