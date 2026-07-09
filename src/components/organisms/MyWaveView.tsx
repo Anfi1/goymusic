@@ -261,6 +261,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const [builtMoods, setBuiltMoods] = useState<string[]>([]);
   const [, force] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const wheelDrag = useRef<{ isDown: boolean; startY: number; scrollTop: number; moved: boolean }>({ isDown: false, startY: 0, scrollTop: 0, moved: false });
   const filterListRef = useRef<HTMLDivElement>(null);
   const firstItemRef = useRef<HTMLButtonElement>(null);
   const secondItemRef = useRef<HTMLButtonElement>(null);
@@ -482,11 +483,38 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       const p = Math.min(1, (now - t0) / dur);
       el.scrollTop = start + dist * (1 - Math.pow(1 - p, 3));
       if (p < 1) { requestAnimationFrame(step); return; }
-      // Невидимо возвращаем в среднюю копию (±d показывает идентичный контент).
       if (d) { let s = el.scrollTop; while (s < d) s += d; while (s >= 2 * d) s -= d; el.scrollTop = s; }
       suppressRecenter.current = false;
     };
     requestAnimationFrame(step);
+  }, []);
+
+  // Drag-to-scroll для колеса станций (работает и на кнопках станций)
+  const onWheelPointerDown = useCallback((e: React.PointerEvent) => {
+    const el = listRef.current;
+    if (!el || e.button !== 0) return;
+    wheelDrag.current = { isDown: true, startY: e.pageY, scrollTop: el.scrollTop, moved: false };
+    const onMove = (ev: PointerEvent) => {
+      if (!wheelDrag.current.isDown) return;
+      const dy = ev.pageY - wheelDrag.current.startY;
+      if (Math.abs(dy) > 6) {
+        wheelDrag.current.moved = true;
+        el.style.cursor = 'grabbing';
+        el.style.userSelect = 'none';
+      }
+      if (wheelDrag.current.moved) {
+        el.scrollTop = wheelDrag.current.scrollTop - dy;
+      }
+    };
+    const onUp = () => {
+      wheelDrag.current.isDown = false;
+      el.style.cursor = '';
+      el.style.userSelect = '';
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }, []);
 
   // «Для тебя»: лайки (YT + SC), при их отсутствии — недавняя история.
@@ -648,7 +676,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         ref={ref}
         data-station-id={st.id}
         className={`${styles.station} ${isActive ? styles.stationActive : ''}`}
-        onClick={(e) => startStation(st, e.currentTarget)}
+        onClick={(e) => { if (!wheelDrag.current.moved) startStation(st, e.currentTarget); }}
         disabled={loadingId !== null}
       >
         <span className={styles.stationThumb}>
@@ -744,7 +772,12 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       </div>
 
       <aside className={`${styles.sidebar} ${panelOpen ? styles.sidebarHidden : ''}`}>
-        <div className={styles.wheel} ref={listRef} onScroll={handleScroll}>
+        <div
+          className={styles.wheel}
+          ref={listRef}
+          onScroll={handleScroll}
+          onPointerDown={onWheelPointerDown}
+        >
           {loading && stations.length === 0 ? (
             Array.from({ length: 6 }).map((_, i) => (
               <div key={`skel-${i}`} className={styles.skeletonStation} aria-hidden="true">

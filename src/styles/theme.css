@@ -19,6 +19,9 @@
 
     /* Glassmorphism */
     --glass-blur: 24px; /* Restoring the beautiful blur */
+    --wave-bg-blur: 80px;
+    --wave-bg-saturate: 1.8;
+    --wave-bg-brightness: 0.5;
     --glass-opacity: 0.015; 
     --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
     --border-subtle: rgba(255, 255, 255, 0.05);

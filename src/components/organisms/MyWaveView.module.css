@@ -13,7 +13,7 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: clamp(296px, 32vw, 460px);
+  width: clamp(340px, 36vw, 520px);
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -160,6 +160,9 @@
   --tilt: 55deg;
   --shift: 36px;
   --min-scale: 0.68;
+  /* Snap scroll: всегда одна станция по центру */
+  scroll-snap-type: none;
+  cursor: default;
   /* «Колесо»: элементы тают у верх/низ (изгиб) И у правого края — список бесшовно
      перетекает в зону трека. Затухание живёт здесь, а не на .sidebar, чтобы шапка
      и стрелки фильтра не растворялись (иначе правую стрелку не видно). */
@@ -204,14 +207,14 @@
 .skeletonStation {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 9px 14px 9px 11px;
+  gap: 16px;
+  padding: 12px 16px 12px 14px;
 }
 .skelThumb {
-  width: 64px;
-  height: 64px;
+  width: 76px;
+  height: 76px;
   flex-shrink: 0;
-  border-radius: 16px;
+  border-radius: 18px;
 }
 .skelText {
   display: flex;
@@ -240,10 +243,10 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 9px 14px 9px 11px;
+  gap: 16px;
+  padding: 12px 16px 12px 14px;
   border: none;
-  border-radius: 16px;
+  border-radius: 18px;
   background: transparent;
   color: var(--text-secondary);
   text-align: left;
@@ -270,10 +273,10 @@
 
 .stationThumb {
   position: relative;
-  width: 64px;
-  height: 64px;
+  width: 76px;
+  height: 76px;
   flex-shrink: 0;
-  border-radius: 16px;
+  border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 8px 22px -7px rgba(0, 0, 0, 0.65);
   transition: box-shadow 0.18s ease, transform 0.18s ease;
@@ -303,7 +306,7 @@
 
 .stationText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stationLabel {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -311,8 +314,8 @@
 }
 
 @media (min-width: 1700px) {
-  .stationLabel { font-size: 15.5px; }
-  .stationKind { font-size: 11.5px; }
+  .stationLabel { font-size: 17px; }
+  .stationKind { font-size: 12px; }
 }
 .stationKind {
   font-size: 11px;
@@ -341,7 +344,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-left: clamp(150px, 24%, 400px);
+  padding-left: clamp(260px, 38%, 560px);
   padding-right: 0;
 }
 
@@ -350,7 +353,7 @@
   inset: -12%;
   background-size: cover;
   background-position: center;
-  filter: blur(80px) saturate(1.8) brightness(0.5);
+  filter: blur(var(--wave-bg-blur)) saturate(var(--wave-bg-saturate)) brightness(var(--wave-bg-brightness));
   transform: scale(1.3);
   transition: background-image 0.7s ease;
 }
@@ -418,7 +421,7 @@
     width: clamp(118px, 21vw, 210px);
     height: clamp(118px, 21vw, 210px);
   }
-  .stage { padding-left: clamp(180px, 28%, 320px); }
+  .stage { padding-left: clamp(300px, 36%, 440px); }
 }
 
 .trackMeta { text-align: center; color: #fff; max-width: 100%; }
@@ -613,7 +616,7 @@
 /* ─── Lyrics mode ───────────────────────────────────────────────────────── */
 .lyricsMode .bg,
 .lyricsMode .bgOverlay { transition: filter 0.5s ease; }
-.lyricsMode .bg { filter: blur(60px) saturate(1.6) brightness(0.42); }
+.lyricsMode .bg { filter: blur(calc(var(--wave-bg-blur) * 0.75)) saturate(calc(var(--wave-bg-saturate) * 0.89)) brightness(calc(var(--wave-bg-brightness) * 0.84)); }
 
 .sidebarHidden {
   transform: translateX(-100%);

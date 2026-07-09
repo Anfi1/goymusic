@@ -145,27 +145,13 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Pro
 export async function getStreamUrl(videoId: string, forceBypassCache: boolean = false): Promise<CacheEntry | null> {
     await streamCache.init();
 
-    // SoundCloud: резолвим через get_preview_url вместо YouTube get_stream_url
-    const scUrl = scRegistry.get(videoId);
-    if (scUrl) {
-        if (!forceBypassCache) {
-            const cached = await streamCache.get(videoId);
-            if (cached) {
-                console.log(`[stream] Instant cache hit (SC) for ${videoId}`);
-                return cached;
-            }
-        } else {
-            await streamCache.delete(videoId);
-        }
-        return fetchSoundCloudStream(videoId, scUrl);
-    }
-
+    // Приоритет 1: локальный файл — проверяем ПЕРВЫМ делом
     const override = await getOverride(videoId);
     if (override) {
         const fileExists = await (window as any).bridge.songFileExists(override.filename);
         if (fileExists) {
             const fileUrl = await (window as any).bridge.getSongFileUrl(override.filename);
-            console.log(`[stream] Local override for ${videoId}: ${override.filename}`);
+            console.log(`[stream] SOURCE: local (${videoId}): ${override.filename}`);
             return { url: fileUrl, expires: 9999999999, loudness: override.gainDb };
         }
         console.warn(`[stream] Local file missing for ${videoId}, falling back to stream`);
@@ -190,10 +176,26 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
         }
     }
 
+    // Приоритет 2: SoundCloud
+    const scUrl = scRegistry.get(videoId);
+    if (scUrl) {
+        if (!forceBypassCache) {
+            const cached = await streamCache.get(videoId);
+            if (cached) {
+                console.log(`[stream] SOURCE: soundcloud-cache (${videoId})`);
+                return cached;
+            }
+        } else {
+            await streamCache.delete(videoId);
+        }
+        console.log(`[stream] SOURCE: soundcloud-stream (${videoId}): ${scUrl}`);
+        return fetchSoundCloudStream(videoId, scUrl);
+    }
+
     if (!forceBypassCache) {
         const cached = await streamCache.get(videoId);
         if (cached) {
-            console.log(`[stream] Instant cache hit for ${videoId} (loudness: ${cached.loudness})`);
+            console.log(`[stream] SOURCE: youtube-cache (${videoId})`);
             return cached;
         }
     } else {
@@ -207,9 +209,9 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
     }
     currentAbortController = new AbortController();
 
-    console.log(`[stream] High-priority fetch started: ${videoId}`);
+    console.log(`[stream] SOURCE: youtube-fetch (${videoId})`);
     const entry = await fetchStreamFromPython(videoId, currentAbortController.signal);
-    if (entry) console.log(`[stream] High-priority fetch finished: ${videoId}`);
+    if (entry) console.log(`[stream] SOURCE: youtube-stream (${videoId})`);
     
     return entry;
 }
