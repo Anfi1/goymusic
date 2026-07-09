@@ -200,6 +200,8 @@ function App() {
           thumbUrl: link.thumbUrl,
           album: '',
           duration: '',
+          scUrl: link.scUrl,
+          source: link.source,
         } as any);
       } else if (link.type === 'album') {
         navigate({ type: 'album', albumId: link.id });

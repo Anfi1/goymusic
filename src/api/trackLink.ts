@@ -15,7 +15,7 @@ export function getAlbumLink(browseId: string): string {
 }
 
 export type ParsedDeepLink =
-  | { type: 'track'; id: string; title: string; artists: string[]; thumbUrl: string }
+  | { type: 'track'; id: string; title: string; artists: string[]; thumbUrl: string; scUrl?: string; source?: string }
   | { type: 'album'; id: string };
 
 export function parseDeepLink(url: string): ParsedDeepLink | null {
@@ -27,6 +27,8 @@ export function parseDeepLink(url: string): ParsedDeepLink | null {
       title: '',
       artists: [],
       thumbUrl: '',
+      scUrl: `https://soundcloud.com/${scMatch[1]}`,
+      source: 'soundcloud',
     };
   }
 
