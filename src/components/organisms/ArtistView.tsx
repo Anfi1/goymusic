@@ -129,16 +129,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
 
   const isModalOpen = viewMode === 'all-songs' || viewMode === 'discography';
 
-  // Lock parent scroll when modal is open
-  useEffect(() => {
-    if (isModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isModalOpen]);
-
 
 
   // 1. Fetch Basic Artist Details (Fast). Для SC-артиста — минимальный detail (имя, аватар, треки).
@@ -311,6 +301,9 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
   const [isPlaying, setIsPlaying] = useState<boolean>(player.isPlaying);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [modalBounds, setModalBounds] = useState({ top: 0, left: 0, width: '100vw', height: '100vh' });
+  const [isTableScrolled, setIsTableScrolled] = useState(false);
+  const modalContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return player.subscribe((event) => {
@@ -321,10 +314,48 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   }, []);
 
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTo({ top: 0, behavior: 'instant' });
-    }
+    // Don't scroll to top when switching to main from modal close
   }, [viewMode, discoCategory]);
+
+  // Measure container bounds for fixed modal positioning
+  useEffect(() => {
+    if (isModalOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setModalBounds({
+        top: rect.top,
+        left: rect.left,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+      });
+    }
+  }, [isModalOpen]);
+
+  // Update bounds on resize
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const handleResize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setModalBounds({
+          top: rect.top,
+          left: rect.left,
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+        });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isModalOpen]);
+
+  // Track scroll position in modal to darken table header
+  useEffect(() => {
+    const el = modalContentRef.current;
+    if (!el || !isModalOpen) return;
+    const handleScroll = () => setIsTableScrolled(el.scrollTop > 10);
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [isModalOpen]);
 
   useEffect(() => {
     setViewModeWithNotification('main');
@@ -351,7 +382,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   if (!detail) return <div className={styles.container}>Artist not found.</div>;
 
   return (
-    <div className={`${styles.container} ${isModalOpen ? styles.scrollLocked : ''}`} ref={containerRef} data-artist-view>
+    <div className={styles.container} ref={containerRef} data-artist-view>
       <header className={styles.header}>
         <div className={styles.bannerWrapper} style={{ '--shadow-color': shadowColor } as React.CSSProperties}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
@@ -553,7 +584,15 @@ export const ArtistView = React.memo<ArtistViewProps>(({
 
       {/* All Songs Modal */}
       {viewMode === 'all-songs' && (
-        <div className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}>
+        <div 
+          className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}
+          style={{
+            top: modalBounds.top,
+            left: modalBounds.left,
+            width: modalBounds.width,
+            height: modalBounds.height,
+          }}
+        >
           <button className={styles.allSongsBackBtn} onClick={closeModal}>
             <ArrowLeft size={22} />
           </button>
@@ -572,13 +611,13 @@ export const ArtistView = React.memo<ArtistViewProps>(({
               </span>
             </div>
           </header>
-          <div className={styles.allSongsContent}>
+          <div className={styles.allSongsContent} ref={modalContentRef}>
             {isSongsInitialLoading ? (
               <div className={styles.allSongsTrackList}>
                 <table className={styles.trackList} style={{ tableLayout: 'fixed' }}>
                   <AllSongsColumnGroup />
                   <thead>
-                    <tr className={styles.tableHeaderRow}>
+                    <tr className={`${styles.tableHeaderRow} ${isTableScrolled ? styles.scrolled : ''}`}>
                       <th style={{ textAlign: 'center' }}>#</th>
                       <th>Title</th>
                       <th>Album</th>
@@ -611,7 +650,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                   endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
                   computeItemKey={(index, track) => track.id || index}
                   fixedHeaderContent={() => (
-                    <tr className={styles.tableHeaderRow}>
+                    <tr className={`${styles.tableHeaderRow} ${isTableScrolled ? styles.scrolled : ''}`}>
                       <th style={{ textAlign: 'center' }}>#</th>
                       <th>Title</th>
                       <th>Album</th>
@@ -649,7 +688,15 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         const items = discography.filter(item => item.category === discoCategory);
         const isLoading = fullAlbums.length === 0 && fullSingles.length === 0 && (!!detail?.albumsId || !!detail?.singlesId);
         return (
-          <div className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}>
+          <div 
+            className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}
+            style={{
+              top: modalBounds.top,
+              left: modalBounds.left,
+              width: modalBounds.width,
+              height: modalBounds.height,
+            }}
+          >
             <button className={styles.allSongsBackBtn} onClick={closeModal}>
               <ArrowLeft size={22} />
             </button>
