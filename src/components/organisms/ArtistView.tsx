@@ -26,6 +26,25 @@ import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 
+function extractDominantColor(url: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve('rgba(0,0,0,0.5)'); return; }
+      canvas.width = 1;
+      canvas.height = 1;
+      ctx.drawImage(img, 0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      resolve(`rgba(${r}, ${g}, ${b}, 0.6)`);
+    };
+    img.onerror = () => resolve('rgba(0,0,0,0.5)');
+    img.src = url;
+  });
+}
+
 const AllSongsColumnGroup = memo(() => (
   <colgroup>
     <col style={{ width: 48 }} />
@@ -78,6 +97,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const [discoCategory, setDiscoCategory] = useState<'Album' | 'Single'>('Album');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [shadowColor, setShadowColor] = useState('rgba(0,0,0,0.5)');
   const trackMenuRef = useRef<TrackContextMenuHandle>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, track: YTMTrack) => {
@@ -148,6 +168,13 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     },
     staleTime: 1000 * 60 * 10,
   });
+
+  // Extract dominant color from artist image for shadow
+  useEffect(() => {
+    if (detail?.thumbUrl) {
+      extractDominantColor(detail.thumbUrl).then(setShadowColor);
+    }
+  }, [detail?.thumbUrl]);
 
   // 2. Background Fetch Full Discography (Albums + Singles)
   const { data: fullAlbums = [] } = useQuery({
@@ -323,7 +350,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   return (
     <div className={`${styles.container} ${isModalOpen ? styles.scrollLocked : ''}`} ref={containerRef} data-artist-view>
       <header className={styles.header}>
-        <div className={styles.bannerWrapper}>
+        <div className={styles.bannerWrapper} style={{ '--shadow-color': shadowColor } as React.CSSProperties}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
           <div className={styles.bannerOverlay}>
               <div>
