@@ -183,6 +183,25 @@
     transform: scale(0.9);
 }
 
+.likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
+.likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    transition: opacity 0.15s ease, width 0.15s ease, padding 0.15s ease;
+}
+
+.item:hover .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
+.item:hover .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
+    opacity: 1;
+    pointer-events: auto;
+    width: 20px;
+    padding: 3px;
+    transition: opacity 0.15s ease, width 0.15s ease, padding 0.15s ease;
+}
+
 .spinner {
     animation: spin 0.8s linear infinite;
     opacity: 0.7;

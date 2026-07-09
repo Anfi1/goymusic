@@ -249,19 +249,36 @@ const LargeHeader = memo(({
             </>
           )}
         </div>
-        {!showSkeletons && (
-          <div className={styles.statsUnderCover}>
-            {metadata?.year && <div className={styles.yearUnder}>{metadata.year}</div>}
-            <div className={styles.trackCountUnder}>{displayCount}</div>
-          </div>
-        )}
+        <div className={styles.statsUnderCover}>
+          {showSkeletons ? (
+            <>
+              <Skeleton width={40} height={12} borderRadius={4} />
+              <Skeleton width={60} height={12} borderRadius={4} />
+            </>
+          ) : (
+            <>
+              {metadata?.year && <div className={styles.yearUnder}>{metadata.year}</div>}
+              <div className={styles.trackCountUnder}>{displayCount}</div>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className={styles.info}>
+      <div className={styles.info} style={showSkeletons ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
         {showSkeletons ? (
           <>
-            <div style={{ marginBottom: '12px' }}><Skeleton width={120} height={14} borderRadius={4} /></div>
-            <Skeleton width="80%" height={60} borderRadius={8} />
+            <div className={styles.label}><Skeleton width={80} height={12} borderRadius={4} /></div>
+            <Skeleton width="85%" height={52} borderRadius={8} style={{ marginTop: '4px' }} />
+            <div className={styles.headerMeta} style={{ animation: 'none' }}>
+              <div className={styles.metaTextInfo}>
+                <Skeleton width={140} height={14} borderRadius={4} />
+                <Skeleton width={50} height={14} borderRadius={4} />
+              </div>
+              <div className={styles.headerActions}>
+                <Skeleton width={42} height={42} borderRadius="50%" />
+                <Skeleton width={42} height={42} borderRadius="50%" />
+              </div>
+            </div>
           </>
         ) : (
           <>
@@ -296,7 +313,7 @@ const LargeHeader = memo(({
             )}
 
             {metadata && (
-              <div className={styles.headerMeta}>
+            <div className={styles.headerMeta}>
                 <div className={styles.metaTextInfo}>
                   {!isLikedSongs && (
                     <div className={styles.artistLinks}>

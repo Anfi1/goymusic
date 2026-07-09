@@ -88,6 +88,10 @@
   border-radius: 50%;
 }
 
+.thumbWrapper.round {
+  border-radius: 50%;
+}
+
 .thumbPlaceholder {
   width: 100%;
   height: 100%;

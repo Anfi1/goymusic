@@ -334,9 +334,12 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   if (isLoading) {
     return (
       <div className={styles.container}>
-        <header className={styles.header}><Skeleton width="100%" height={300} borderRadius={24} /></header>
+        <header className={styles.header}><Skeleton width="100%" height={250} borderRadius={12} /></header>
         <section className={styles.section}>
-          <Skeleton width={150} height={32} borderRadius={4} style={{ marginBottom: '1.5rem' }} />
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Top Songs</h2>
+            <button className={styles.seeAllBtn} disabled>See all</button>
+          </div>
           <table className={styles.trackList}>
             <tbody>{Array.from({ length: 5 }).map((_, i) => <TrackRowSkeleton key={i} index={i} />)}</tbody>
           </table>

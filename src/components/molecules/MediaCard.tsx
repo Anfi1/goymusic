@@ -159,7 +159,7 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
-      <div className={styles.thumbWrapper}>
+      <div className={`${styles.thumbWrapper} ${isArtist ? styles.round : ''}`}>
         <LazyImage 
           src={thumbUrl} 
           alt={title} 
