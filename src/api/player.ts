@@ -52,6 +52,7 @@ class PlayerStore {
     private updateInterval: any = null;
     private playbackId: number = 0;
     private consecutiveErrors: number = 0;
+    private _seekedToEnd: boolean = false;
 
     private wtUrl: string | null = null;
     private originalQueue: YTMTrack[] = [];
@@ -487,6 +488,7 @@ class PlayerStore {
 
             audio.addEventListener('ended', () => {
                 if (this.activePlayer !== playerLabel) return;
+                if (this._seekedToEnd) { this._seekedToEnd = false; return; }
                 console.log(`[player] Player ${playerLabel} ended`);
                 this.wtFlush('ended');
                 this.wtUrl = null;
@@ -922,6 +924,7 @@ class PlayerStore {
         this.isStreamLoading = true;
         this.hasStreamError = false;
         this.isPlaying = true;
+        this._seekedToEnd = false;
 
         this.stopTimer();
         this.audioA.pause();
@@ -1320,6 +1323,7 @@ class PlayerStore {
         if (active.src) {
             active.currentTime = time;
             this.currentTime = time;
+            this._seekedToEnd = this.duration > 0 && time >= this.duration - 2;
             this.updateRPC(true);
             this.notify('tick'); 
         }

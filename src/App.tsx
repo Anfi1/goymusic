@@ -439,9 +439,24 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
       if (e.key === 'F5') {
         e.preventDefault();
         handleRefresh();
+      }
+      if (e.key === ' ' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        player.togglePlay();
+      }
+      if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        if (player.duration) player.seek(Math.max(0, player.currentTime - 5));
+      }
+      if (e.key === 'ArrowRight' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        if (player.duration) player.seek(Math.min(player.duration, player.currentTime + 5));
       }
     };
     window.addEventListener('keydown', onKeyDown);

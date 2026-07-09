@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import { moodTagCategories } from '../../utils/curatedMix';
+import { EmojiText } from '../atoms/EmojiText';
 import styles from './CuratePanel.module.css';
 
 interface CuratePanelProps {
@@ -13,8 +14,23 @@ interface CuratePanelProps {
 
 export const CuratePanel: React.FC<CuratePanelProps> = ({ selected, onToggle, onBuild, building, onClose }) => {
   const cats = moodTagCategories();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [openLeft, setOpenLeft] = useState(false);
+
+  useEffect(() => {
+    if (!panelRef.current) return;
+    const rect = panelRef.current.getBoundingClientRect();
+    const spaceRight = window.innerWidth - rect.right;
+    if (spaceRight < 0) setOpenLeft(true);
+  }, []);
+
   return (
-    <div className={styles.panel} role="dialog" aria-label="Подбор настроений">
+    <div
+      ref={panelRef}
+      className={`${styles.panel} ${openLeft ? styles.panelLeft : ''}`}
+      role="dialog"
+      aria-label="Подбор настроений"
+    >
       <div className={styles.list}>
         {cats.map(cat => {
           const on = selected.includes(cat.id);
@@ -28,7 +44,7 @@ export const CuratePanel: React.FC<CuratePanelProps> = ({ selected, onToggle, on
               aria-pressed={on}
             >
               <span className={styles.check}>{on && <Check size={13} />}</span>
-              <span className={styles.emoji}>{cat.emoji}</span>
+              <EmojiText emoji={cat.emoji} className={styles.emoji} />
               <span className={styles.label}>{cat.label}</span>
             </button>
           );

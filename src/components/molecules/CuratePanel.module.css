@@ -2,14 +2,18 @@
   position: absolute;
   top: calc(100% + 6px);
   left: 12px;
-  z-index: 20;
+  z-index: 100;
   width: 240px;
   padding: 8px;
   border-radius: 14px;
-  background: rgba(18, 18, 22, 0.96);
-  backdrop-filter: blur(24px);
+  background: var(--glass-surface, rgba(18, 18, 22, 0.96));
+  backdrop-filter: blur(var(--glass-blur, 24px));
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.panelLeft {
+  left: auto;
+  right: 12px;
 }
 .list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
 .row {

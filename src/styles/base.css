@@ -90,3 +90,10 @@ button {
     0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
 }
+
+img.emoji {
+    height: 1em;
+    width: 1em;
+    vertical-align: -0.125em;
+    display: inline;
+}

@@ -42,6 +42,9 @@
   z-index: 3;
   transition: right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.filterStripOpen {
+  z-index: 10;
+}
 /* Скролл-область фильтров: стрелки якорятся к ней, а не ко всей ленте,
    поэтому правая стрелка не наезжает на чип «Подобрать». */
 .filterScrollArea {
@@ -61,8 +64,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 50%;
   background: rgba(18, 18, 22, 0.72);
@@ -83,7 +86,6 @@
   overflow-x: auto;
   scrollbar-width: none;
   flex: 1;
-  cursor: grab;
   user-select: none;
 }
 /* Градиентная маска намекает на скролл только с той стороны, где ещё есть контент —
@@ -101,7 +103,6 @@
   mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
 }
 .filterList::-webkit-scrollbar { display: none; }
-.filterList:active { cursor: grabbing; }
 
 .filterPill {
   display: flex;

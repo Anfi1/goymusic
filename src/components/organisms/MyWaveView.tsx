@@ -17,6 +17,7 @@ import { openImageViewer } from '../molecules/ImageViewer';
 import { LyricsView } from './LyricsView';
 import { QueuePanel } from './QueuePanel';
 import { CuratePanel } from '../molecules/CuratePanel';
+import { EmojiText } from '../atoms/EmojiText';
 import { MOOD_CATEGORIES, assignCategory, groupKey, MoodCategory } from '../../utils/moodCategories';
 import { blendTracks, pickMixesForMoods, moodTagCategories } from '../../utils/curatedMix';
 import styles from './MyWaveView.module.css';
@@ -193,14 +194,10 @@ const WaveProgressBar = React.memo(({ onSeek }: { onSeek: (pct: number) => void 
   const currentRef = useRef<HTMLSpanElement>(null);
   const durationRef = useRef<HTMLSpanElement>(null);
   const progressBarRef = useRef<ProgressBarRef>(null);
-  const lastUpdateRef = useRef<number>(0);
 
   useEffect(() => {
-    const updateTime = (force = false) => {
+    const updateTime = () => {
       if (player.queueSourceId !== WAVE_SOURCE_ID) return;
-      const now = Date.now();
-      if (!force && now - lastUpdateRef.current < 400) return;
-      lastUpdateRef.current = now;
 
       if (currentRef.current) currentRef.current.textContent = formatTime(player.currentTime);
       if (durationRef.current) durationRef.current.textContent = formatTime(player.duration);
@@ -211,10 +208,9 @@ const WaveProgressBar = React.memo(({ onSeek }: { onSeek: (pct: number) => void 
     };
 
     const unsub = player.subscribe((ev) => {
-      if (ev === 'tick' || ev === 'buffer') updateTime();
-      else if (ev === 'state') updateTime(true);
+      if (ev === 'tick' || ev === 'buffer' || ev === 'state') updateTime();
     }, { tick: true, buffer: true });
-    updateTime(true);
+    updateTime();
     return unsub;
   }, []);
 
@@ -269,7 +265,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const firstItemRef = useRef<HTMLButtonElement>(null);
   const secondItemRef = useRef<HTMLButtonElement>(null);
   const suppressRecenter = useRef(false);
-  const filterDrag = useRef<{ isDown: boolean; startX: number; scrollLeft: number }>({ isDown: false, startX: 0, scrollLeft: 0 });
+  const filterDrag = useRef<{ isDown: boolean; startX: number; scrollLeft: number; moved: boolean }>({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const curateWrapRef = useRef<HTMLDivElement>(null);
 
   // Закрытие панели «Подобрать» по клику вне и по Escape (не во время сборки микса).
@@ -424,27 +420,30 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     else if (el.scrollTop >= d * 1.5) el.scrollTop -= d;
   }, [looping]);
 
-  // Drag-to-scroll для фильтров через Pointer Events + setPointerCapture:
-  // захват работает даже если курсор выходит за границы окна.
+  // Drag-to-scroll для фильтров: document-level слушатели,
+  // чтобы click на чипах работал через обычный bubbling (без setPointerCapture).
   const onFilterPointerDown = useCallback((e: React.PointerEvent) => {
     const el = filterListRef.current;
     if (!el || e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('button')) return;
-    el.setPointerCapture(e.pointerId);
-    filterDrag.current = { isDown: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft };
+    filterDrag.current = { isDown: true, startX: e.pageX, scrollLeft: el.scrollLeft, moved: false };
     el.style.cursor = 'grabbing';
-  }, []);
-  const onFilterPointerMove = useCallback((e: React.PointerEvent) => {
-    const el = filterListRef.current;
-    if (!el || !filterDrag.current.isDown) return;
-    e.preventDefault();
-    const x = e.pageX - el.offsetLeft;
-    const walk = (x - filterDrag.current.startX) * 1.4;
-    el.scrollLeft = filterDrag.current.scrollLeft - walk;
-  }, []);
-  const endFilterDrag = useCallback(() => {
-    filterDrag.current.isDown = false;
-    if (filterListRef.current) filterListRef.current.style.cursor = 'grab';
+    const onMove = (ev: PointerEvent) => {
+      if (!filterDrag.current.isDown) return;
+      const dx = ev.pageX - filterDrag.current.startX;
+      if (Math.abs(dx) > 8) filterDrag.current.moved = true;
+      if (filterDrag.current.moved) {
+        el.scrollLeft = filterDrag.current.scrollLeft - dx * 1.4;
+      }
+    };
+    const onUp = () => {
+      filterDrag.current.isDown = false;
+      setTimeout(() => { filterDrag.current.moved = false; }, 80);
+      el.style.cursor = '';
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }, []);
 
   const checkFilterScroll = useCallback(() => {
@@ -689,7 +688,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       />
       <div className={styles.bgOverlay} />
 
-      <div className={styles.filterStrip}>
+      <div className={`${styles.filterStrip} ${curateOpen ? styles.filterStripOpen : ''}`}>
         <div className={styles.filterScrollArea}>
           {canScrollLeft && (
             <button className={styles.filterArrow} onClick={() => scrollFilters(-1)} aria-label="Назад" type="button">
@@ -700,9 +699,6 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
             className={`${styles.filterList} ${canScrollLeft ? styles.fadeLeft : ''} ${canScrollRight ? styles.fadeRight : ''}`}
             ref={filterListRef}
             onPointerDown={onFilterPointerDown}
-            onPointerMove={onFilterPointerMove}
-            onPointerUp={endFilterDrag}
-            onPointerLeave={endFilterDrag}
             onScroll={checkFilterScroll}
           >
             {MOOD_CATEGORIES.map(cat => (
@@ -710,10 +706,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                 key={cat.id}
                 className={`${styles.filterPill} ${selectedFilter === cat.id ? styles.filterPillActive : ''}`}
                 style={{ '--mood-color': cat.color } as React.CSSProperties}
-                onClick={() => setSelectedFilter(cat.id)}
+                onClick={() => { if (!filterDrag.current.moved) setSelectedFilter(cat.id); }}
                 title={cat.label}
               >
-                <span className={styles.filterEmoji}>{cat.emoji}</span>
+                <EmojiText emoji={cat.emoji} className={styles.filterEmoji} />
                 <span className={styles.filterLabel}>{cat.label}</span>
               </button>
             ))}

@@ -74,6 +74,10 @@
     transition: none !important;
 }
 
+.container[data-seeking] .fill {
+    transition: none !important;
+}
+
 .hoverFill {
     height: 100%;
     background: rgba(255, 255, 255, 0.08);
@@ -112,6 +116,10 @@
 }
 
 .container.dragging .thumbWrapper {
+    transition: none !important;
+}
+
+.container[data-seeking] .thumbWrapper {
     transition: none !important;
 }
 

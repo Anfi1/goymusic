@@ -225,13 +225,16 @@ const TimeProgress = memo(() => {
   const durationRef = useRef<HTMLSpanElement>(null);
   const progressBarRef = useRef<ProgressBarRef>(null);
   const lastUpdateRef = useRef<number>(0);
+  const lastDisplayedTimeRef = useRef<number>(0);
 
   useEffect(() => {
     const updateTime = (force = false) => {
       const now = Date.now();
-      // Throttle updates to ~400ms to reliably catch 500ms ticks from player
-      if (!force && now - lastUpdateRef.current < 400) return;
+      // Если currentTime прыгнул > 3с — это seek, пропускаем throttle
+      const seekJump = Math.abs(player.currentTime - lastDisplayedTimeRef.current) > 3;
+      if (!force && !seekJump && now - lastUpdateRef.current < 400) return;
       lastUpdateRef.current = now;
+      lastDisplayedTimeRef.current = player.currentTime;
 
       if (currentRef.current) currentRef.current.textContent = formatTime(player.currentTime);
       if (durationRef.current) durationRef.current.textContent = formatTime(player.duration);

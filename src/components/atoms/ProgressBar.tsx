@@ -29,12 +29,22 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const seekCountRef = useRef(0);
 
   const setProgressInternal = useCallback((pct: number) => {
-    if (containerRef.current) {
-      const clamped = Math.min(100, Math.max(0, pct));
-      containerRef.current.style.setProperty('--progress', `${clamped}%`);
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const clamped = Math.min(100, Math.max(0, pct));
+    // Если скачок > 3% — отключаем transition (seek через клавиатуру).
+    const prev = parseFloat(el.style.getPropertyValue('--progress')) || 0;
+    if (Math.abs(clamped - prev) > 3) {
+      const mySeek = ++seekCountRef.current;
+      el.setAttribute('data-seeking', '');
+      setTimeout(() => {
+        if (seekCountRef.current === mySeek) el.removeAttribute('data-seeking');
+      }, 50);
     }
+    el.style.setProperty('--progress', `${clamped}%`);
   }, []);
 
   useImperativeHandle(ref, () => ({

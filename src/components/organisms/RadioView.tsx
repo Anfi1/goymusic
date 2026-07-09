@@ -6,6 +6,7 @@ import { player } from '../../api/player';
 import { LazyImage } from '../atoms/LazyImage';
 import { Skeleton } from '../atoms/Skeleton';
 import { MOOD_CATEGORIES, assignCategory, groupKey, MoodCategory } from '../../utils/moodCategories';
+import { EmojiText } from '../atoms/EmojiText';
 import styles from './RadioView.module.css';
 
 // ─── Grouping ────────────────────────────────────────────────────────────────
@@ -199,7 +200,7 @@ const SimpleMode: React.FC<SimpleModeProps> = ({ moodGroups, activePlaylistId })
                             style={{ '--mood-color': category.color } as React.CSSProperties}
                             onClick={() => setSelectedCat(category.id)}
                         >
-                            <span className={styles.genreEmoji}>{category.emoji}</span>
+                            <EmojiText emoji={category.emoji} className={styles.genreEmoji} />
                             <span className={styles.genreLabel}>{category.label}</span>
                             {isPlaying && <span className={styles.genrePlaying}><Volume2 size={11} /></span>}
                         </button>
@@ -246,7 +247,7 @@ const SimpleSkeleton: React.FC = () => (
                     style={{ '--mood-color': cat.color, opacity: 0.45, cursor: 'default', pointerEvents: 'none' } as React.CSSProperties}
                     disabled
                 >
-                    <span className={styles.genreEmoji}>{cat.emoji}</span>
+                    <EmojiText emoji={cat.emoji} className={styles.genreEmoji} />
                     <span className={styles.genreLabel}>{cat.label}</span>
                 </button>
             ))}
