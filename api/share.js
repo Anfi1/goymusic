@@ -18,10 +18,25 @@ async function fetchOembed(url, ttl = 3600000) {
   } catch { return null; }
 }
 
+function decodeMeta(search) {
+  try {
+    const params = new URLSearchParams(search);
+    const m = params.get('m');
+    if (!m) return null;
+    return JSON.parse(decodeURIComponent(escape(Buffer.from(m, 'base64').toString('binary'))));
+  } catch { return null; }
+}
+
 module.exports = async function handler(req, res) {
-  const parts = (req.url ?? '/').replace(/^\//, '').split('/');
+  const fullUrl = req.url ?? '/';
+  const qIdx = fullUrl.indexOf('?');
+  const path = qIdx >= 0 ? fullUrl.slice(0, qIdx) : fullUrl;
+  const search = qIdx >= 0 ? fullUrl.slice(qIdx) : '';
+  const parts = path.replace(/^\//, '').split('/');
   const type    = parts[0];
   const id      = parts[1];
+
+  const urlMeta = decodeMeta(search);
 
   let ogTitle       = 'GoyMusic';
   let ogDescription = 'Listen on GoyMusic desktop app or YouTube Music';
@@ -46,12 +61,18 @@ module.exports = async function handler(req, res) {
   } else if (type === 'track' && id) {
     fallbackUrl   = `https://music.youtube.com/watch?v=${id}`;
     ogImage       = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-    const oembed = await fetchOembed(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
-    if (oembed) {
-      ogTitle       = escapeHtml(oembed.title ?? 'Track on GoyMusic');
-      ogDescription = escapeHtml(oembed.author_name ?? 'GoyMusic');
+    if (urlMeta) {
+      ogTitle       = escapeHtml(urlMeta.t || 'Track on GoyMusic');
+      ogDescription = escapeHtml((urlMeta.a || []).join(', ') || 'GoyMusic');
+      if (urlMeta.i) ogImage = escapeHtml(urlMeta.i);
+    } else {
+      const oembed = await fetchOembed(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
+      if (oembed) {
+        ogTitle       = escapeHtml(oembed.title ?? 'Track on GoyMusic');
+        ogDescription = escapeHtml(oembed.author_name ?? 'GoyMusic');
+      }
     }
-    const meta = { t: oembed?.title || '', a: oembed?.author_name ? [oembed.author_name] : [], i: ogImage };
+    const meta = { t: urlMeta?.t || ogTitle.replace(/ — GoyMusic$/, ''), a: urlMeta?.a || [ogDescription], i: ogImage };
     const b64 = Buffer.from(unescape(encodeURIComponent(JSON.stringify(meta)))).toString('base64');
     protocolUrl   = `goymusic://track/${id}?m=${b64}`;
   } else if (type === 'album' && id) {
