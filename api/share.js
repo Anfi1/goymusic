@@ -8,7 +8,10 @@ async function fetchOembed(url, ttl = 3600000) {
   const cached = cache.get(url);
   if (cached && Date.now() - cached.ts < ttl) return cached.data;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GoyMusic/1.0)' }
+    });
+    if (!res.ok) return null;
     const data = await res.json();
     cache.set(url, { data, ts: Date.now() });
     return data;
