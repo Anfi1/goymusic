@@ -7,7 +7,9 @@ export function getTrackLink(track: YTMTrack): string {
     const slug = track.scUrl.replace(/^https:\/\/soundcloud\.com\//, '');
     return `${WEB}track/sc/${slug}`;
   }
-  return `${WEB}track/${track.id}`;
+  const meta = { t: track.title || '', a: track.artists || [], i: track.thumbUrl || '' };
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(meta))));
+  return `${WEB}track/${track.id}?m=${b64}`;
 }
 
 export function getAlbumLink(browseId: string): string {
@@ -17,6 +19,15 @@ export function getAlbumLink(browseId: string): string {
 export type ParsedDeepLink =
   | { type: 'track'; id: string; title: string; artists: string[]; thumbUrl: string; scUrl?: string; source?: string }
   | { type: 'album'; id: string };
+
+function decodeMeta(search: string): { t?: string; a?: string[]; i?: string } {
+  try {
+    const params = new URLSearchParams(search);
+    const m = params.get('m');
+    if (!m) return {};
+    return JSON.parse(decodeURIComponent(escape(atob(m))));
+  } catch { return {}; }
+}
 
 export function parseDeepLink(url: string): ParsedDeepLink | null {
   const scMatch = url.match(/^goymusic:\/\/track\/sc\/([\w-]+\/[\w-]+)/);
@@ -34,12 +45,14 @@ export function parseDeepLink(url: string): ParsedDeepLink | null {
 
   const trackMatch = url.match(/^goymusic:\/\/track\/([^/?#/]+)/);
   if (trackMatch) {
+    const qIdx = url.indexOf('?');
+    const meta = qIdx >= 0 ? decodeMeta(url.slice(qIdx)) : {};
     return {
       type: 'track',
       id: trackMatch[1],
-      title: '',
-      artists: [],
-      thumbUrl: `https://i.ytimg.com/vi/${trackMatch[1]}/hqdefault.jpg`,
+      title: meta.t || '',
+      artists: meta.a || [],
+      thumbUrl: meta.i || `https://i.ytimg.com/vi/${trackMatch[1]}/hqdefault.jpg`,
     };
   }
 

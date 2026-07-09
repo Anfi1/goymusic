@@ -44,7 +44,6 @@ module.exports = async function handler(req, res) {
       }
     }
   } else if (type === 'track' && id) {
-    protocolUrl   = `goymusic://track/${id}`;
     fallbackUrl   = `https://music.youtube.com/watch?v=${id}`;
     ogImage       = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
     const oembed = await fetchOembed(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
@@ -52,6 +51,9 @@ module.exports = async function handler(req, res) {
       ogTitle       = escapeHtml(oembed.title ?? 'Track on GoyMusic');
       ogDescription = escapeHtml(oembed.author_name ?? 'GoyMusic');
     }
+    const meta = { t: oembed?.title || '', a: oembed?.author_name ? [oembed.author_name] : [], i: ogImage };
+    const b64 = Buffer.from(unescape(encodeURIComponent(JSON.stringify(meta)))).toString('base64');
+    protocolUrl   = `goymusic://track/${id}?m=${b64}`;
   } else if (type === 'album' && id) {
     ogTitle       = 'Album on GoyMusic';
     ogDescription = 'Open album in GoyMusic desktop app';
