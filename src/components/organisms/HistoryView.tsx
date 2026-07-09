@@ -446,9 +446,17 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
         const data = await historyStore.getHistory(3000);
         const allLikedTracks = await likedStore.getAllTracks();
         const likedIds = new Set(allLikedTracks.map((t) => t.videoId));
+        const allScLikedTracks = await likedStore.getAllScTracks();
+        const scLikedIds = new Set(allScLikedTracks.map((e) => e.scId));
 
         const hydratedData = data.map((entry) => {
-          if (likedIds.has(entry.track.id)) {
+          const isSCTrack = entry.track.source === 'soundcloud';
+          if (isSCTrack && entry.track.scId && scLikedIds.has(entry.track.scId)) {
+            return {
+              ...entry,
+              track: { ...entry.track, likeStatus: 'LIKE' as const },
+            };
+          } else if (!isSCTrack && likedIds.has(entry.track.id)) {
             return {
               ...entry,
               track: { ...entry.track, likeStatus: 'LIKE' as const },

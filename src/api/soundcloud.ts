@@ -289,7 +289,14 @@ export interface ScArtistDetail {
   thumbUrl: string;
   artistPro?: boolean;
   verified?: boolean;
+  description?: string;
+  followersCount?: number;
+  tracksCount?: number;
   tracks: YTMTrack[];
+  popular: YTMTrack[];
+  albums: ScAlbumResult[];
+  playlists: { url: string; title: string; thumbUrl: string; trackCount: number }[];
+  related: { id: string; name: string; thumbUrl: string; subscribers?: number }[];
 }
 
 // SoundCloud-id это URL профиля/трека; используем как маркер «это SC».
@@ -304,7 +311,32 @@ export async function getSoundCloudArtist(url: string): Promise<ScArtistDetail |
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: ScSearchEntry) => scEntryToTrack(e));
       tracks.forEach((t: YTMTrack) => { if (t.scUrl) registerSoundCloudTrack(t.id, t.scUrl); });
-      return { name: res.name || '', thumbUrl: res.thumbUrl || '', artistPro: res.artistPro, verified: res.verified, tracks };
+      const popular = (res.popular || []).map((e: ScSearchEntry) => scEntryToTrack(e));
+      popular.forEach((t: YTMTrack) => { if (t.scUrl) registerSoundCloudTrack(t.id, t.scUrl); });
+      const albums = (res.albums || []).map((a: any) => ({
+        id: a.url, title: a.title || 'Unknown', thumbUrl: a.thumbUrl || '',
+        artists: [a.artist || ''], source: 'soundcloud' as const,
+      }));
+      const playlists = (res.playlists || []).map((p: any) => ({
+        url: p.url, title: p.title || 'Unknown', thumbUrl: p.thumbUrl || '', trackCount: p.trackCount || 0,
+      }));
+      const related = (res.related || []).map((r: any) => ({
+        id: r.id, name: r.name || 'Unknown', thumbUrl: r.thumbUrl || '', subscribers: r.subscribers || 0,
+      }));
+      return {
+        name: res.name || '',
+        thumbUrl: res.thumbUrl || '',
+        artistPro: res.artistPro,
+        verified: res.verified,
+        description: res.description || '',
+        followersCount: res.followersCount || 0,
+        tracksCount: res.tracksCount || 0,
+        tracks,
+        popular,
+        albums,
+        playlists,
+        related,
+      };
     }
   } catch (e) {
     console.warn('[soundcloud] getSoundCloudArtist failed', e);
@@ -353,6 +385,35 @@ export async function getSoundCloudAlbum(url: string): Promise<ScAlbumDetail | n
     }
   } catch (e) {
     console.warn('[soundcloud] getSoundCloudAlbum failed', e);
+  }
+  return null;
+}
+
+export interface ScPlaylistDetail {
+  title: string;
+  description: string;
+  thumbUrl: string;
+  trackCount: number;
+  tracks: YTMTrack[];
+}
+
+export async function getSoundCloudPlaylist(url: string): Promise<ScPlaylistDetail | null> {
+  if (!url) return null;
+  try {
+    const res = await (window as any).bridge.pyCall('get_soundcloud_playlist', { url });
+    if (res?.status === 'ok' && Array.isArray(res.tracks)) {
+      const tracks = res.tracks.map((e: ScSearchEntry) => scEntryToTrack(e));
+      tracks.forEach((t: YTMTrack) => { if (t.scUrl) registerSoundCloudTrack(t.id, t.scUrl); });
+      return {
+        title: res.title || '',
+        description: res.description || '',
+        thumbUrl: res.thumbUrl || '',
+        trackCount: res.trackCount || tracks.length,
+        tracks,
+      };
+    }
+  } catch (e) {
+    console.warn('[soundcloud] getSoundCloudPlaylist failed', e);
   }
   return null;
 }

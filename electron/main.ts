@@ -302,7 +302,7 @@ function exitPyProc() {
     pyProc.kill()
     pyProc = null
   }
-  killScChrome()
+  //killScChrome()
 }
 
 function killScChrome() {

@@ -1,10 +1,10 @@
 .container {
-    padding: 2rem;
+    padding: 1rem 2rem;
     height: 100%;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 3rem;
+    gap: 1.5rem;
 }
 
 .header {
@@ -12,9 +12,9 @@
 }
 
 .bannerWrapper {
-    height: 300px;
+    height: 250px;
     width: 100%;
-    border-radius: 24px;
+    border-radius: 16px;
     position: relative;
     overflow: hidden;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
@@ -37,7 +37,7 @@
 .bannerOverlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(9, 9, 15, 0.9) 0%, transparent 100%);
+    background: linear-gradient(to top, rgba(9, 9, 15, 0.3) 0%, transparent 60%);
     display: flex;
     align-items: flex-end;
     padding: 2.5rem;

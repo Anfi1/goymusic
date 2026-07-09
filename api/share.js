@@ -1,33 +1,54 @@
-function decodeMeta(str) {
-  try {
-    const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
-  } catch { return null; }
-}
+const cache = new Map();
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-module.exports = function handler(req, res) {
+async function fetchOembed(url, ttl = 3600000) {
+  const cached = cache.get(url);
+  if (cached && Date.now() - cached.ts < ttl) return cached.data;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    cache.set(url, { data, ts: Date.now() });
+    return data;
+  } catch { return null; }
+}
+
+module.exports = async function handler(req, res) {
   const parts = (req.url ?? '/').replace(/^\//, '').split('/');
   const type    = parts[0];
   const id      = parts[1];
-  const metaStr = parts[2] ? parts[2].split('?')[0] : undefined;
 
   let ogTitle       = 'GoyMusic';
   let ogDescription = 'Listen on GoyMusic desktop app or YouTube Music';
   let ogImage       = '';
   let protocolUrl   = '';
   let fallbackUrl   = '';
+  let fallbackLabel = 'Open in YouTube Music';
 
-  if (type === 'track' && id) {
-    const meta = metaStr ? decodeMeta(metaStr) : null;
-    ogTitle       = meta && meta.t ? escapeHtml(meta.t) : 'Track on GoyMusic';
-    ogDescription = meta && meta.a && meta.a.length ? escapeHtml(meta.a.join(', ')) : 'GoyMusic';
-    ogImage       = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-    protocolUrl   = `goymusic://track/${id}${metaStr ? '/' + metaStr : ''}`;
+  if (type === 'track' && id === 'sc') {
+    const scSlug = parts.slice(2).join('/');
+    if (scSlug) {
+      protocolUrl   = `goymusic://track/sc/${scSlug}`;
+      fallbackUrl   = `https://soundcloud.com/${scSlug}`;
+      fallbackLabel = 'Open in SoundCloud';
+      const oembed = await fetchOembed(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(fallbackUrl)}`);
+      if (oembed) {
+        ogTitle       = escapeHtml(oembed.title ?? 'Track on GoyMusic');
+        ogDescription = escapeHtml(oembed.author_name ?? '');
+        ogImage       = escapeHtml(oembed.thumbnail_url ?? '');
+      }
+    }
+  } else if (type === 'track' && id) {
+    protocolUrl   = `goymusic://track/${id}`;
     fallbackUrl   = `https://music.youtube.com/watch?v=${id}`;
+    ogImage       = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    const oembed = await fetchOembed(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
+    if (oembed) {
+      ogTitle       = escapeHtml(oembed.title ?? 'Track on GoyMusic');
+      ogDescription = escapeHtml(oembed.author_name ?? 'GoyMusic');
+    }
   } else if (type === 'album' && id) {
     ogTitle       = 'Album on GoyMusic';
     ogDescription = 'Open album in GoyMusic desktop app';
@@ -37,7 +58,7 @@ module.exports = function handler(req, res) {
 
   const thumbDisplay  = ogImage ? `<img class="thumb" src="${escapeHtml(ogImage)}" alt="" />` : '';
   const titleDisplay  = ogTitle !== 'GoyMusic' ? `<div class="track-title">${ogTitle}</div>` : '';
-  const artistDisplay = ogDescription !== 'Listen on GoyMusic desktop app or YouTube Music'
+  const artistDisplay = ogDescription !== 'Listen on GoyMusic desktop app or YouTube Music' && ogDescription !== 'GoyMusic'
     ? `<div class="track-artists">${ogDescription}</div>` : '';
 
   const html = `<!DOCTYPE html>
@@ -101,7 +122,7 @@ module.exports = function handler(req, res) {
     </div>
     <div class="buttons" id="buttons" style="display:none">
       <a class="btn btn-primary" href="${escapeHtml(protocolUrl)}">Open in GoyMusic</a>
-      <a class="btn btn-secondary" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">Open in YouTube Music</a>
+      <a class="btn btn-secondary" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">${fallbackLabel}</a>
     </div>
     <div class="sub" id="sub"></div>
   </div>
@@ -124,7 +145,7 @@ module.exports = function handler(req, res) {
         buttonsEl.style.display = 'flex';
         if (appOpened) {
           statusEl.textContent = 'GoyMusic should be open now.';
-          subEl.textContent = 'Nothing happened? Use the buttons below.';
+          subEl.textContent = 'Nothing happened? Try the buttons above.';
         } else {
           statusEl.textContent = 'GoyMusic not installed?';
         }

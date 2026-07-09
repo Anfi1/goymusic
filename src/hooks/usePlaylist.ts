@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useState, useEffect, useTransition, useRef } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, YTMTrack } from '../api/yt';
-import { isSoundCloudId, getSoundCloudAlbum } from '../api/soundcloud';
+import { isSoundCloudId, getSoundCloudAlbum, getSoundCloudPlaylist } from '../api/soundcloud';
 import { player } from '../api/player';
 import { likedStore, LikedEntry, ScLikedEntry } from '../api/likedStore';
 import { likedManager } from '../api/likedManager';
@@ -141,6 +141,18 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       } 
       
       if (type === 'playlist' && id) {
+        if (isSoundCloudId(id)) {
+          const sc = await getSoundCloudPlaylist(id);
+          const metadata: PlaylistMetadata = {
+            id,
+            title: sc?.title || 'Playlist',
+            type: 'PLAYLIST',
+            description: sc?.description,
+            thumbUrl: sc?.thumbUrl || sc?.tracks[0]?.thumbUrl || '',
+            trackCount: sc?.trackCount || sc?.tracks.length || 0,
+          };
+          return { tracks: sc?.tracks || [], continuation: null, totalCount: sc?.trackCount || sc?.tracks.length || 0, metadata };
+        }
         const res = await getPlaylistTracks(id, 200, signal);
         const metadata: PlaylistMetadata = {
           id,

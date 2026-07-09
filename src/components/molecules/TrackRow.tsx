@@ -112,7 +112,10 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
     albumId: trackData.albumId,
     duration: trackData.duration,
     thumbUrl: trackData.thumbUrl || '',
-    likeStatus: likeStatus as any
+    likeStatus: likeStatus as any,
+    source: (trackData as any).source,
+    scUrl: (trackData as any).scUrl,
+    scId: (trackData as any).scId,
   });
 
   const handleLike = useCallback(async (e: React.MouseEvent) => {

@@ -887,9 +887,10 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
             user_data_dir=profile_dir,
             headless=False,
             sandbox=False,
-            browser_args=['--window-position=-32000,-32000', '--window-size=400,300'],
+            browser_args=['--window-size=400,300', '--mute-audio', '--window-position=-1000,-1000'],
         )
         try:
+            print(f"[nodriver] opening: {url}", file=sys.stderr)
             tab = await browser.get(url)
             await asyncio.sleep(5)
 
@@ -960,7 +961,7 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
             return after if after in ('liked', 'unliked') else 'error'
         finally:
             try:
-                await browser.stop()
+                browser.stop()
             except:
                 pass
     return asyncio.run(_do())
@@ -975,11 +976,10 @@ def _sc_nodriver_login(profile_dir: str) -> str | None:
             user_data_dir=profile_dir,
             headless=False,
             sandbox=False,
+            browser_args=['--mute-audio'],
         )
         try:
             tab = await browser.get('https://soundcloud.com')
-            try: await tab.minimize()
-            except: pass
             for _ in range(300):
                 try:
                     cs = await tab.evaluate('document.cookie')
@@ -2035,14 +2035,24 @@ def handle_request(request):
                         continue
                     thumbs = entry.get('thumbnails') or []
                     thumb_url = thumbs[-1].get('url', '') if thumbs else ''
+                    raw_url = entry.get('url') or entry.get('webpage_url', '')
+                    # yt-dlp иногда отдаёт api.soundcloud.com/tracks/... — ре‐золвим в permalink_url
+                    sc_id = str(entry.get('id') or '')
+                    if 'soundcloud.com/tracks/' in raw_url and not raw_url.startswith('https://soundcloud.com/'):
+                        tid = _sc_extract_track_id(raw_url) or _sc_extract_track_id(sc_id)
+                        if tid:
+                            resolved = _sc_api_get(f'/tracks/{tid}', {}, {})
+                            if resolved and resolved.get('permalink_url'):
+                                raw_url = resolved['permalink_url']
+                                sc_id = str(resolved.get('id') or tid)
                     results.append({
-                        'url': entry.get('url') or entry.get('webpage_url', ''),
+                        'url': raw_url,
                         'title': entry.get('title', ''),
                         'artist': entry.get('uploader') or entry.get('artist', ''),
                         'duration': entry.get('duration'),
                         'thumbUrl': thumb_url,
                         'source': 'soundcloud',
-                        'scId': str(entry.get('id') or ''),
+                        'scId': sc_id,
                         'uploaderUrl': entry.get('uploader_url') or entry.get('channel_url') or '',
                     })
                 safe_print({'status': 'ok', 'results': results, 'callId': call_id})
@@ -2058,22 +2068,115 @@ def handle_request(request):
                 user = _sc_api_get('/resolve', {'url': url})
                 uid = (user or {}).get('id')
                 results = []
+                popular = []
+                albums = []
+                playlists = []
+                related = []
                 if uid:
-                    data = _sc_api_get(f'/users/{uid}/tracks', {'limit': 50})
-                    for t in ((data or {}).get('collection') or []):
-                        if not t or not t.get('permalink_url'):
-                            continue
-                        tuser = t.get('user') or {}
-                        results.append({
-                            'url': t.get('permalink_url', ''),
-                            'title': t.get('title', ''),
-                            'artist': tuser.get('username', '') or (user or {}).get('username', ''),
-                            'duration': int((t.get('duration') or 0) / 1000),
-                            'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
-                            'source': 'soundcloud',
-                            'scId': str(t.get('id') or ''),
-                            'uploaderUrl': (user or {}).get('permalink_url', '') or url,
-                        })
+                    username = (user or {}).get('username', '')
+                    permalink_url = (user or {}).get('permalink_url', '') or url
+
+                    def fetch_all_tracks():
+                        """Загружает все треки с пагинацией."""
+                        all_tracks = []
+                        next_url = f'https://api-v2.soundcloud.com/users/{uid}/tracks?limit=50'
+                        seen_ids = set()
+                        for _ in range(10):  # Макс 10 страниц (500 треков)
+                            data = _sc_api_get(next_url.replace('https://api-v2.soundcloud.com', ''), {})
+                            if not data:
+                                break
+                            for t in ((data or {}).get('collection') or []):
+                                if not t or not t.get('permalink_url'):
+                                    continue
+                                tid = t.get('id')
+                                if tid in seen_ids:
+                                    continue
+                                seen_ids.add(tid)
+                                tuser = t.get('user') or {}
+                                all_tracks.append({
+                                    'url': t.get('permalink_url', ''),
+                                    'title': t.get('title', ''),
+                                    'artist': tuser.get('username', '') or username,
+                                    'duration': int((t.get('duration') or 0) / 1000),
+                                    'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                                    'source': 'soundcloud',
+                                    'scId': str(tid or ''),
+                                    'uploaderUrl': permalink_url,
+                                    'plays': t.get('playback_count', 0),
+                                    'likes': t.get('likes_count', 0),
+                                })
+                            next_href = (data or {}).get('next_href')
+                            if not next_href:
+                                break
+                            next_url = next_href.replace('https://api-v2.soundcloud.com', '')
+                        return all_tracks
+
+                    def fetch_albums():
+                        """Загружает альбомы."""
+                        alb_data = _sc_api_get(f'/users/{uid}/albums', {'limit': 20})
+                        album_list = []
+                        for a in ((alb_data or {}).get('collection') or []):
+                            if not a or not a.get('permalink_url'):
+                                continue
+                            album_list.append({
+                                'url': a.get('permalink_url', ''),
+                                'title': a.get('title', ''),
+                                'artist': username,
+                                'thumbUrl': _sc_pick_thumb(a.get('artwork_url') or ''),
+                                'trackCount': a.get('track_count', 0),
+                            })
+                        return album_list
+
+                    def fetch_playlists():
+                        """Загружает плейлисты."""
+                        pl_data = _sc_api_get(f'/users/{uid}/playlists', {'limit': 20})
+                        playlist_list = []
+                        for p in ((pl_data or {}).get('collection') or []):
+                            if not p or not p.get('permalink_url'):
+                                continue
+                            playlist_list.append({
+                                'url': p.get('permalink_url', ''),
+                                'title': p.get('title', ''),
+                                'artist': username,
+                                'thumbUrl': _sc_pick_thumb(p.get('artwork_url') or ''),
+                                'trackCount': p.get('track_count', 0),
+                            })
+                        return playlist_list
+
+                    def fetch_related():
+                        """Загружает похожих артистов (followings)."""
+                        try:
+                            follow_data = _sc_api_get(f'/users/{uid}/followings', {'limit': 10})
+                            related_list = []
+                            for u in ((follow_data or {}).get('collection') or []):
+                                if not u or not u.get('permalink_url'):
+                                    continue
+                                related_list.append({
+                                    'id': u.get('permalink_url', ''),
+                                    'name': u.get('username', ''),
+                                    'thumbUrl': _sc_pick_thumb(u.get('avatar_url') or ''),
+                                    'subscribers': u.get('followers_count', 0),
+                                })
+                            return related_list
+                        except:
+                            return []
+
+                    # Параллельная загрузка всех данных
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                        future_tracks = executor.submit(fetch_all_tracks)
+                        future_albums = executor.submit(fetch_albums)
+                        future_playlists = executor.submit(fetch_playlists)
+                        future_related = executor.submit(fetch_related)
+
+                        results = future_tracks.result()
+                        albums = future_albums.result()
+                        playlists = future_playlists.result()
+                        related = future_related.result()
+
+                    # Сортируем по просмотрам для популярных
+                    results.sort(key=lambda x: x.get('plays', 0), reverse=True)
+                    # Берём топ-10 как популярные
+                    popular = results[:10]
                 verified = bool((user or {}).get('verified'))
                 safe_print({
                     'status': 'ok',
@@ -2081,7 +2184,14 @@ def handle_request(request):
                     'thumbUrl': _sc_pick_thumb((user or {}).get('avatar_url') or ''),
                     'artistPro': verified,
                     'verified': verified,
+                    'description': (user or {}).get('description', ''),
+                    'followersCount': (user or {}).get('followers_count', 0),
+                    'tracksCount': (user or {}).get('track_count', 0),
                     'results': results,
+                    'popular': popular,
+                    'albums': albums,
+                    'playlists': playlists,
+                    'related': related,
                     'callId': call_id,
                 })
             except Exception as e:
@@ -2222,8 +2332,11 @@ def handle_request(request):
 
         elif command == 'sc_like_nodriver':
             sc_id = request.get('scId', '')
-            track_url = request.get('url', '')
-            url = track_url or f'https://soundcloud.com/tracks/{sc_id}'
+            url = request.get('url', '')
+            tid = _sc_extract_track_id(sc_id) or _sc_extract_track_id(url)
+            if tid and (not url or not url.startswith('https://soundcloud.com/')):
+                resolved = _sc_api_get(f'/tracks/{tid}', {}, {}).get('permalink_url') if tid else ''
+                if resolved: url = resolved
             liked = request.get('liked', True)
             profile_dir = request.get('profileDir', '')
             oauth_token = request.get('oauthToken') or None
@@ -2434,6 +2547,48 @@ def handle_request(request):
                 safe_print({'status': 'ok', 'results': results, 'callId': call_id})
             except Exception as e:
                 print(f"[error] sc_recommendations: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'get_soundcloud_playlist':
+            # SoundCloud плейлист: api-v2 /playlists/{id} или /resolve(url)
+            url = request.get('url', '')
+            try:
+                # Resolve playlist URL to get ID
+                resolved = _sc_api_get('/resolve', {'url': url})
+                if not resolved:
+                    safe_print({'status': 'error', 'message': 'Playlist not found', 'callId': call_id})
+                else:
+                    playlist_id = resolved.get('id')
+                    # Fetch full playlist with tracks
+                    data = _sc_api_get(f'/playlists/{playlist_id}', {})
+                    tracks = []
+                    for t in (data or {}).get('tracks') or []:
+                        if not t or not t.get('permalink_url'):
+                            continue
+                        tuser = t.get('user') or {}
+                        tracks.append({
+                            'url': t.get('permalink_url', ''),
+                            'title': t.get('title', ''),
+                            'artist': tuser.get('username', ''),
+                            'duration': int((t.get('duration') or 0) / 1000),
+                            'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                            'source': 'soundcloud',
+                            'scId': str(t.get('id') or ''),
+                            'uploaderUrl': tuser.get('permalink_url', ''),
+                            'plays': t.get('playback_count', 0),
+                            'likes': t.get('likes_count', 0),
+                        })
+                    safe_print({
+                        'status': 'ok',
+                        'title': (data or {}).get('title', ''),
+                        'description': (data or {}).get('description', ''),
+                        'thumbUrl': _sc_pick_thumb((data or {}).get('artwork_url') or ''),
+                        'trackCount': len(tracks),
+                        'tracks': tracks,
+                        'callId': call_id,
+                    })
+            except Exception as e:
+                print(f"[error] get_soundcloud_playlist: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'get_preview_url':

@@ -2,28 +2,12 @@ import { YTMTrack } from './yt';
 
 const WEB = 'https://goymusic.vercel.app/';
 
-interface TrackMeta { t: string; a: string[] }
-
-function encodeMeta(data: TrackMeta): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(data));
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function decodeMeta(str: string): TrackMeta | null {
-  try {
-    const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch { return null; }
-}
-
 export function getTrackLink(track: YTMTrack): string {
-  const meta = encodeMeta({ t: track.title ?? '', a: track.artists ?? [] });
-  return `${WEB}track/${track.id}/${meta}`;
+  if (track.source === 'soundcloud' && track.scUrl) {
+    const slug = track.scUrl.replace(/^https:\/\/soundcloud\.com\//, '');
+    return `${WEB}track/sc/${slug}`;
+  }
+  return `${WEB}track/${track.id}`;
 }
 
 export function getAlbumLink(browseId: string): string {
@@ -35,16 +19,25 @@ export type ParsedDeepLink =
   | { type: 'album'; id: string };
 
 export function parseDeepLink(url: string): ParsedDeepLink | null {
-  const trackMatch = url.match(/^goymusic:\/\/track\/([^/?#/]+)(?:\/([^/?#]+))?/);
-  if (trackMatch) {
-    const meta = trackMatch[2] ? decodeMeta(trackMatch[2]) : null;
-    const id = trackMatch[1];
+  const scMatch = url.match(/^goymusic:\/\/track\/sc\/([\w-]+\/[\w-]+)/);
+  if (scMatch) {
     return {
       type: 'track',
-      id,
-      title: meta?.t ?? '',
-      artists: meta?.a ?? [],
-      thumbUrl: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      id: `sc/${scMatch[1]}`,
+      title: '',
+      artists: [],
+      thumbUrl: '',
+    };
+  }
+
+  const trackMatch = url.match(/^goymusic:\/\/track\/([^/?#/]+)/);
+  if (trackMatch) {
+    return {
+      type: 'track',
+      id: trackMatch[1],
+      title: '',
+      artists: [],
+      thumbUrl: `https://i.ytimg.com/vi/${trackMatch[1]}/hqdefault.jpg`,
     };
   }
 

@@ -63,7 +63,21 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       if (isSoundCloudArtist) {
         const sc = await getSoundCloudArtist(artistId);
         if (!sc) return null;
-        return { name: sc.name, thumbUrl: sc.thumbUrl, artistPro: sc.artistPro, verified: sc.verified, topSongs: sc.tracks, isSoundCloud: true } as any;
+        return {
+          name: sc.name,
+          thumbUrl: sc.thumbUrl,
+          artistPro: sc.artistPro,
+          verified: sc.verified,
+          description: sc.description,
+          followersCount: sc.followersCount,
+          tracksCount: sc.tracksCount,
+          topSongs: sc.popular,
+          allTracks: sc.tracks,
+          scAlbums: sc.albums,
+          scPlaylists: sc.playlists,
+          related: sc.related,
+          isSoundCloud: true,
+        } as any;
       }
       return getArtistDetail(artistId);
     },
@@ -151,7 +165,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   // Infinite Fetch All Songs
   const { 
     data: allSongsPages, 
-    isLoading: isSongsInitialLoading,
+    isLoading: isSongsInitialLoadingYT,
     isFetching: isSongsFetching,
     fetchNextPage,
     hasNextPage,
@@ -169,7 +183,14 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     enabled: viewMode === 'all-songs' && !!detail?.seeAllSongsId,
   });
 
+  // Для SC артистов загрузка не нужна — все треки уже есть
+  const isSongsInitialLoading = detail?.isSoundCloud ? false : isSongsInitialLoadingYT;
+
   const allSongs = useMemo(() => {
+    // Для SC артистов — все треки из detail.allTracks
+    if (detail?.isSoundCloud && detail?.allTracks) {
+      return detail.allTracks;
+    }
     const fetchedSongs = allSongsPages?.pages.flatMap(page => page.tracks) || [];
     // Если мы только зашли в режим See All и данных еще нет, показываем topSongs из превью
     if (fetchedSongs.length === 0 && detail?.topSongs) {
@@ -249,10 +270,12 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   if (viewMode === 'all-songs') {
     return (
       <div className={styles.container} style={{ padding: 0, gap: 0 }}>
-        <header className={styles.viewHeader} style={{ padding: '2rem 2rem 1rem 2rem' }}>
-          <button className={styles.backBtn} onClick={() => setViewMode('main')}><ArrowLeft size={24} /></button>
-          <h1 className={styles.viewTitle}>Top Songs</h1>
-          {(isSongsInitialLoading || (isSongsFetching && !isFetchingNextPage)) && <Loader2 className="animate-spin" size={20} style={{ marginLeft: '1rem', opacity: 0.5 }} />}
+        <header className={styles.viewHeader} style={{ padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1 className={styles.viewTitle}>All Songs</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            {(isSongsInitialLoading || (isSongsFetching && !isFetchingNextPage)) && <Loader2 className="animate-spin" size={20} style={{ opacity: 0.5 }} />}
+            <button className={styles.backBtn} onClick={() => setViewMode('main')}><ArrowLeft size={24} /></button>
+          </div>
         </header>
         <div style={{ flex: 1, position: 'relative' }}>
           {isSongsInitialLoading ? (
@@ -337,6 +360,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
               <div className={styles.stats}>
                 {detail.monthlyListeners && <div className={styles.statItem}><Headphones size={16} /><span>{detail.monthlyListeners} monthly listeners</span></div>}
                 {detail.subscribers && <div className={styles.statItem}><Users size={16} /><span>{detail.subscribers} subscribers</span></div>}
+                {detail.isSoundCloud && detail.followersCount > 0 && <div className={styles.statItem}><Users size={16} /><span>{detail.followersCount.toLocaleString()} followers</span></div>}
+                {detail.isSoundCloud && detail.tracksCount > 0 && <div className={styles.statItem}><span>{detail.tracksCount} tracks</span></div>}
                 {detail.views && <div className={styles.statItem}><Eye size={16} /><span>{detail.views} total views</span></div>}
               </div>
               {!detail.isSoundCloud && (
@@ -355,6 +380,9 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Top Songs</h2>
+            {detail.isSoundCloud && detail.allTracks?.length > detail.topSongs?.length && (
+              <button className={styles.seeAllBtn} onClick={() => { setViewMode('all-songs'); }}>See all <ChevronRight size={16} /></button>
+            )}
             {detail.seeAllSongsId && <button className={styles.seeAllBtn} onClick={handleSeeAllSongs}>See all <ChevronRight size={16} /></button>}
           </div>
           <table className={styles.trackList}>
@@ -374,6 +402,44 @@ export const ArtistView = React.memo<ArtistViewProps>(({
               />
             ))}</tbody>
           </table>
+        </section>
+      )}
+
+      {/* SC: Альбомы */}
+      {detail.isSoundCloud && detail.scAlbums?.length > 0 && (
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Albums</h2>
+          </div>
+          <Carousel 
+            items={detail.scAlbums}
+            renderItem={(item) => (
+              <MediaCard 
+                key={item.id} 
+                {...item} 
+                onClick={() => onSelectAlbum(item.id)} 
+              />
+            )}
+          />
+        </section>
+      )}
+
+      {/* SC: Плейлисты */}
+      {detail.isSoundCloud && detail.scPlaylists?.length > 0 && (
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Playlists</h2>
+          </div>
+          <Carousel 
+            items={detail.scPlaylists.map((p: any) => ({ id: p.url, title: p.title, thumbUrl: p.thumbUrl, artists: [detail.name] }))}
+            renderItem={(item) => (
+              <MediaCard 
+                key={item.id} 
+                {...item} 
+                onClick={() => onSelectPlaylist(item.id, item.title)} 
+              />
+            )}
+          />
         </section>
       )}
 
@@ -454,7 +520,22 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         </section>
       )}
 
-      {detail.description && (
+      {/* SC: Описание (после Related) */}
+      {detail.isSoundCloud && detail.description && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>About</h2>
+          <div className={styles.bioContainer}>
+            <p className={`${styles.bio} ${isBioExpanded ? styles.expanded : ''}`}>{detail.description}</p>
+            {detail.description.length > 200 && (
+              <button className={styles.expandBtn} onClick={() => setIsBioExpanded(!isBioExpanded)}>
+                {isBioExpanded ? 'Show less' : 'Read more'}
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
+      {!detail.isSoundCloud && detail.description && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>About</h2>
           <div className={styles.bioContainer}>
