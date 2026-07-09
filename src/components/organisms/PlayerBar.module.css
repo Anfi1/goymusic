@@ -6,10 +6,13 @@
     align-items: center;
     padding: 0 24px;
     border-top: 1px solid var(--border-color);
-    z-index: 2000; /* Increased to be above everything */
+    z-index: 2000;
     height: var(--player-height);
-    overflow: visible; /* Changed from hidden to allow popover to spill out */
-    /* Optimization: removed contain: strict because we need overflow: visible */
+    overflow: visible;
+}
+
+.container > .controls {
+    align-self: stretch;
 }
 
 .nowPlaying {
@@ -134,7 +137,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
+    justify-content: center;
 }
 
 .buttons {

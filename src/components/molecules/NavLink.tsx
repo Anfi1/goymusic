@@ -10,6 +10,7 @@ interface NavLinkProps {
   onClick?: () => void;
   className?: string;
   tooltip?: string;
+  hidden?: boolean;
 }
 
 /**
@@ -22,8 +23,10 @@ export const NavLink: React.FC<NavLinkProps> = React.memo(({
   active = false,
   onClick,
   className,
-  tooltip
+  tooltip,
+  hidden
 }) => {
+  if (hidden) return null;
   return (
     <div
       className={`${styles.container} ${active ? styles.active : ''} ${className || ''}`}

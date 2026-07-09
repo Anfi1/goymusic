@@ -32,10 +32,15 @@
 }
 
 .filterStrip {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  z-index: 3;
+  transition: right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 /* Скролл-область фильтров: стрелки якорятся к ней, а не ко всей ленте,
    поэтому правая стрелка не наезжает на чип «Подобрать». */
@@ -45,6 +50,7 @@
   align-items: center;
   flex: 1;
   min-width: 0;
+  transition: max-width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .filterArrow {
   position: absolute;
@@ -73,7 +79,7 @@
 .filterList {
   display: flex;
   gap: 8px;
-  padding: 18px 14px 10px;
+  padding: 6px 14px 10px;
   overflow-x: auto;
   scrollbar-width: none;
   flex: 1;
@@ -130,10 +136,10 @@
 .curateWrap { position: relative; flex-shrink: 0; margin-right: 6px; align-self: center; }
 .curateChip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 7px 12px; border-radius: 999px; white-space: nowrap;
+  padding: 6px 12px; border-radius: 10px; white-space: nowrap;
   border: 1px dashed rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.04); color: var(--text-secondary);
-  font-size: 13px; font-weight: 600; cursor: pointer;
+  background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(8px); color: rgba(255, 255, 255, 0.72);
+  font-size: 12px; font-weight: 600; cursor: pointer;
   transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
 .curateChip:hover { color: #fff; border-color: rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.08); }
@@ -334,8 +340,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* % считается от ширины контейнера → корректно сжимается при открытой очереди. */
   padding-left: clamp(150px, 24%, 400px);
+  padding-right: 0;
 }
 
 .bg {
@@ -372,6 +378,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 18px;
+  margin-top: 12px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.38);
   backdrop-filter: blur(10px);
@@ -606,7 +613,6 @@
 .lyricsMode .bg,
 .lyricsMode .bgOverlay { transition: filter 0.5s ease; }
 .lyricsMode .bg { filter: blur(60px) saturate(1.6) brightness(0.42); }
-.lyricsMode .stage { transition: padding-right 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
 
 .sidebarHidden {
   transform: translateX(-100%);
@@ -615,13 +621,17 @@
 }
 .sidebar,
 .stage {
-  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, padding 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), padding 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .stageLyrics {
   padding-left: 0;
   justify-content: flex-start;
   padding-right: clamp(320px, 34%, 460px);
+}
+
+.lyricsMode .filterStrip {
+  right: clamp(260px, 32%, 340px);
 }
 
 .lyricsPanel {
@@ -633,7 +643,7 @@
   z-index: 3;
   transform: translateX(100%);
   opacity: 0;
-  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
   background: none;
   backdrop-filter: none;
@@ -660,7 +670,7 @@
   z-index: 3;
   transform: translateX(100%);
   opacity: 0;
-  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
   background: none;
   backdrop-filter: none;

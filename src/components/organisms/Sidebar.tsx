@@ -388,6 +388,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           active={activeViewType === 'radio'}
           onClick={handleNavigateRadio}
           tooltip={collapsed ? 'Radio' : undefined}
+          hidden
         />
         <NavLink
           icon={History}

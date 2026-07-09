@@ -12,7 +12,7 @@ import {
 } from '../../api/soundcloud';
 import { LazyImage } from '../atoms/LazyImage';
 import { SourceBadge } from '../atoms/SourceBadge';
-import { ProgressBar } from '../atoms/ProgressBar';
+import { ProgressBar, ProgressBarRef } from '../atoms/ProgressBar';
 import { openImageViewer } from '../molecules/ImageViewer';
 import { LyricsView } from './LyricsView';
 import { QueuePanel } from './QueuePanel';
@@ -79,19 +79,40 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 const WaveVolumeControl: React.FC = () => {
-  const [volume, setVolume] = useState(player.volume);
   const [showInput, setShowInput] = useState(false);
-  const [inputValue, setInputValue] = useState(player.volume.toString());
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputValueRef = useRef(player.volume.toString());
+  const volumeBarRef = useRef<ProgressBarRef>(null);
+  const iconContainerRef = useRef<HTMLDivElement>(null);
+
+  const updateIcon = useCallback(() => {
+    if (!iconContainerRef.current) return;
+    const v = player.volume;
+    const svg = v === 0
+      ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>'
+      : v < 50
+      ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>'
+      : '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+    iconContainerRef.current.innerHTML = svg;
+  }, []);
 
   useEffect(() => {
-    return player.subscribe((ev) => {
-      if (ev === 'state') {
-        setVolume(player.volume);
-        if (!showInput) setInputValue(player.volume.toString());
+    const updateVolume = () => {
+      const v = player.volume;
+      if (volumeBarRef.current) volumeBarRef.current.setProgress(v);
+      updateIcon();
+      if (!showInput && document.activeElement !== inputRef.current) {
+        const s = v.toString();
+        inputValueRef.current = s;
+        if (inputRef.current) inputRef.current.value = s;
       }
+    };
+    const unsub = player.subscribe((ev) => {
+      if (ev === 'state') updateVolume();
     });
-  }, [showInput]);
+    updateVolume();
+    return unsub;
+  }, [showInput, updateIcon]);
 
   useEffect(() => {
     if (showInput && inputRef.current) {
@@ -124,7 +145,7 @@ const WaveVolumeControl: React.FC = () => {
       if (val > 100) { val = 100; finalStr = '100'; }
       player.setVolume(val);
     }
-    setInputValue(finalStr);
+    inputValueRef.current = finalStr;
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
@@ -135,8 +156,6 @@ const WaveVolumeControl: React.FC = () => {
     player.setVolume(Math.round(pct));
   }, []);
 
-  const VolumeIcon = volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2;
-
   return (
     <div
       className={styles.volumeControl}
@@ -144,10 +163,10 @@ const WaveVolumeControl: React.FC = () => {
       onContextMenu={handleContextMenu}
     >
       <button className={styles.volumeBtn} onClick={() => player.toggleMute()} title="Громкость">
-        <VolumeIcon size={18} />
+        <div ref={iconContainerRef} />
       </button>
       <ProgressBar
-        progress={volume}
+        ref={volumeBarRef}
         onSeek={handleSeek}
         showThumb={true}
         className={styles.volumeBar}
@@ -159,7 +178,7 @@ const WaveVolumeControl: React.FC = () => {
             ref={inputRef}
             type="text"
             className={styles.volumeInput}
-            value={inputValue}
+            defaultValue={inputValueRef.current}
             onChange={handleInputChange}
             onKeyDown={handleInputKeyDown}
           />
@@ -168,6 +187,54 @@ const WaveVolumeControl: React.FC = () => {
     </div>
   );
 };
+
+// Прогресс-бар с обновлением через ref'ы — нулевое количество ре-рендеров на tick.
+const WaveProgressBar = React.memo(({ onSeek }: { onSeek: (pct: number) => void }) => {
+  const currentRef = useRef<HTMLSpanElement>(null);
+  const durationRef = useRef<HTMLSpanElement>(null);
+  const progressBarRef = useRef<ProgressBarRef>(null);
+  const lastUpdateRef = useRef<number>(0);
+
+  useEffect(() => {
+    const updateTime = (force = false) => {
+      if (player.queueSourceId !== WAVE_SOURCE_ID) return;
+      const now = Date.now();
+      if (!force && now - lastUpdateRef.current < 400) return;
+      lastUpdateRef.current = now;
+
+      if (currentRef.current) currentRef.current.textContent = formatTime(player.currentTime);
+      if (durationRef.current) durationRef.current.textContent = formatTime(player.duration);
+      if (progressBarRef.current) {
+        const pct = player.duration > 0 ? (player.currentTime / player.duration) * 100 : 0;
+        progressBarRef.current.setProgress(pct);
+      }
+    };
+
+    const unsub = player.subscribe((ev) => {
+      if (ev === 'tick' || ev === 'buffer') updateTime();
+      else if (ev === 'state') updateTime(true);
+    }, { tick: true, buffer: true });
+    updateTime(true);
+    return unsub;
+  }, []);
+
+  return (
+    <div className={styles.waveProgress}>
+      <ProgressBar
+        ref={progressBarRef}
+        buffered={player.buffered}
+        onSeek={onSeek}
+        className={styles.progressBar}
+        nyanMode={true}
+        isPlaying={player.isPlaying}
+      />
+      <div className={styles.timeRow}>
+        <span ref={currentRef}>{formatTime(player.currentTime)}</span>
+        <span ref={durationRef}>{formatTime(player.duration)}</span>
+      </div>
+    </div>
+  );
+});
 
 interface MyWaveViewProps {
   onSelectArtist?: (id: string) => void;
@@ -189,7 +256,6 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const [showQueue, setShowQueue] = useState(false);
   const [shuffleOn, setShuffleOn] = useState(player.shuffle);
   const [repeatState, setRepeatState] = useState<'off' | 'all' | 'one'>(player.repeat);
-  const [progress, setProgress] = useState({ current: 0, duration: 0, pct: 0 });
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
   const [curateOpen, setCurateOpen] = useState(false);
   const [curatedMoods, setCuratedMoods] = useState<string[]>(getSavedCuratedMoods());
@@ -243,21 +309,16 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // Перерисовка при смене трека / play-pause / лайке + обновление прогресса.
+  // Перерисовка при смене трека / play-pause / лайке.
   useEffect(() => {
     const unsub = player.subscribe((e) => {
-      if (e === 'tick') {
-        const current = player.currentTime;
-        const duration = player.duration;
-        setProgress({ current, duration, pct: duration > 0 ? (current / duration) * 100 : 0 });
-        return;
-      }
+      if (e === 'tick') return;
       if (e === 'state') {
         setShuffleOn(player.shuffle);
         setRepeatState(player.repeat);
       }
       force(n => n + 1);
-    }, { tick: true });
+    });
     const onLikeUpdated = () => force(n => n + 1);
     const currentId = player.currentTrack?.id;
     const onLikeStart = (e: Event) => {
@@ -628,65 +689,65 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       />
       <div className={styles.bgOverlay} />
 
-      <aside className={`${styles.sidebar} ${panelOpen ? styles.sidebarHidden : ''}`}>
-        <div className={styles.filterStrip}>
-          {/* Стрелки живут внутри скролл-области — не наезжают на чип «Подобрать» справа. */}
-          <div className={styles.filterScrollArea}>
-            {canScrollLeft && (
-              <button className={styles.filterArrow} onClick={() => scrollFilters(-1)} aria-label="Назад" type="button">
-                <ChevronLeft size={16} />
-              </button>
-            )}
-            <div
-              className={`${styles.filterList} ${canScrollLeft ? styles.fadeLeft : ''} ${canScrollRight ? styles.fadeRight : ''}`}
-              ref={filterListRef}
-              onPointerDown={onFilterPointerDown}
-              onPointerMove={onFilterPointerMove}
-              onPointerUp={endFilterDrag}
-              onPointerLeave={endFilterDrag}
-              onScroll={checkFilterScroll}
-            >
-              {MOOD_CATEGORIES.map(cat => (
-                <button
-                  key={cat.id}
-                  className={`${styles.filterPill} ${selectedFilter === cat.id ? styles.filterPillActive : ''}`}
-                  style={{ '--mood-color': cat.color } as React.CSSProperties}
-                  onClick={() => setSelectedFilter(cat.id)}
-                  title={cat.label}
-                >
-                  <span className={styles.filterEmoji}>{cat.emoji}</span>
-                  <span className={styles.filterLabel}>{cat.label}</span>
-                </button>
-              ))}
-            </div>
-            {canScrollRight && (
-              <button className={`${styles.filterArrow} ${styles.filterArrowRight}`} onClick={() => scrollFilters(1)} aria-label="Вперёд" type="button">
-                <ChevronRight size={16} />
-              </button>
-            )}
-          </div>
-          <div className={styles.curateWrap} ref={curateWrapRef}>
-            <button
-              type="button"
-              className={`${styles.curateChip} ${curateOpen ? styles.curateChipOn : ''}`}
-              onClick={() => setCurateOpen(v => !v)}
-              title="Собрать свой микс по настроениям"
-              aria-expanded={curateOpen}
-              aria-haspopup="dialog"
-            >
-              + Подобрать
+      <div className={styles.filterStrip}>
+        <div className={styles.filterScrollArea}>
+          {canScrollLeft && (
+            <button className={styles.filterArrow} onClick={() => scrollFilters(-1)} aria-label="Назад" type="button">
+              <ChevronLeft size={16} />
             </button>
-            {curateOpen && (
-              <CuratePanel
-                selected={curatedMoods}
-                onToggle={(id) => setCuratedMoods(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
-                onBuild={() => buildCuratedMix(curatedMoods)}
-                building={curateBuilding}
-                onClose={() => setCurateOpen(false)}
-              />
-            )}
+          )}
+          <div
+            className={`${styles.filterList} ${canScrollLeft ? styles.fadeLeft : ''} ${canScrollRight ? styles.fadeRight : ''}`}
+            ref={filterListRef}
+            onPointerDown={onFilterPointerDown}
+            onPointerMove={onFilterPointerMove}
+            onPointerUp={endFilterDrag}
+            onPointerLeave={endFilterDrag}
+            onScroll={checkFilterScroll}
+          >
+            {MOOD_CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                className={`${styles.filterPill} ${selectedFilter === cat.id ? styles.filterPillActive : ''}`}
+                style={{ '--mood-color': cat.color } as React.CSSProperties}
+                onClick={() => setSelectedFilter(cat.id)}
+                title={cat.label}
+              >
+                <span className={styles.filterEmoji}>{cat.emoji}</span>
+                <span className={styles.filterLabel}>{cat.label}</span>
+              </button>
+            ))}
           </div>
+          {canScrollRight && (
+            <button className={`${styles.filterArrow} ${styles.filterArrowRight}`} onClick={() => scrollFilters(1)} aria-label="Вперёд" type="button">
+              <ChevronRight size={16} />
+            </button>
+          )}
         </div>
+        <div className={styles.curateWrap} ref={curateWrapRef}>
+          <button
+            type="button"
+            className={`${styles.curateChip} ${curateOpen ? styles.curateChipOn : ''}`}
+            onClick={() => setCurateOpen(v => !v)}
+            title="Собрать свой микс по настроениям"
+            aria-expanded={curateOpen}
+            aria-haspopup="dialog"
+          >
+            + Подобрать
+          </button>
+          {curateOpen && (
+            <CuratePanel
+              selected={curatedMoods}
+              onToggle={(id) => setCuratedMoods(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+              onBuild={() => buildCuratedMix(curatedMoods)}
+              building={curateBuilding}
+              onClose={() => setCurateOpen(false)}
+            />
+          )}
+        </div>
+      </div>
+
+      <aside className={`${styles.sidebar} ${panelOpen ? styles.sidebarHidden : ''}`}>
         <div className={styles.wheel} ref={listRef} onScroll={handleScroll}>
           {loading && stations.length === 0 ? (
             Array.from({ length: 6 }).map((_, i) => (
@@ -757,18 +818,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                     </span>
                   )}
                 </div>
-                <ProgressBar
-                  progress={progress.pct}
-                  buffered={player.buffered}
-                  onSeek={handleSeek}
-                  className={styles.progressBar}
-                  nyanMode={true}
-                  isPlaying={isPlaying}
-                />
-                <div className={styles.timeRow}>
-                  <span>{formatTime(progress.current)}</span>
-                  <span>{formatTime(progress.duration)}</span>
-                </div>
+                <WaveProgressBar onSeek={handleSeek} />
               </div>
 
               <div className={styles.controls}>
