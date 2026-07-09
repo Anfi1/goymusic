@@ -25,7 +25,8 @@ function decodeMeta(search: string): { t?: string; a?: string[]; i?: string } {
     const params = new URLSearchParams(search);
     const m = params.get('m');
     if (!m) return {};
-    return JSON.parse(decodeURIComponent(escape(atob(m))));
+    const bytes = Uint8Array.from(atob(m), c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch { return {}; }
 }
 
