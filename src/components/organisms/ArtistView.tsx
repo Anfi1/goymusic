@@ -19,7 +19,8 @@ import { LazyImage } from '../atoms/LazyImage';
 import { player } from '../../api/player';
 import { 
   ChevronRight, ArrowLeft,
-  Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle
+  Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle,
+  Music, Clock, Volume2
 } from 'lucide-react';
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
@@ -269,26 +270,58 @@ export const ArtistView = React.memo<ArtistViewProps>(({
 
   if (viewMode === 'all-songs') {
     return (
-      <div className={styles.container} style={{ padding: 0, gap: 0 }}>
-        <header className={styles.viewHeader} style={{ padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1 className={styles.viewTitle}>All Songs</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            {(isSongsInitialLoading || (isSongsFetching && !isFetchingNextPage)) && <Loader2 className="animate-spin" size={20} style={{ opacity: 0.5 }} />}
-            <button className={styles.backBtn} onClick={() => setViewMode('main')}><ArrowLeft size={24} /></button>
+      <div className={styles.allSongsView}>
+        <header className={styles.allSongsHeader}>
+          <button className={styles.allSongsBackBtn} onClick={() => setViewMode('main')}>
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className={styles.allSongsTitle}>All Songs</h1>
+          <div className={styles.allSongsArtistInfo}>
+            {detail.thumbUrl && (
+              <img src={detail.thumbUrl} alt={detail.name} className={styles.allSongsArtistAvatar} />
+            )}
+            <span className={styles.allSongsArtistName}>{detail.name}</span>
+            <span className={styles.allSongsTrackCount}>{allSongs.length} tracks</span>
           </div>
         </header>
-        <div style={{ flex: 1, position: 'relative' }}>
+        
+        <div className={styles.allSongsContent}>
           {isSongsInitialLoading ? (
-            <div style={{ padding: '0 2rem' }}>
-              <table className={styles.trackList}>
-                <tbody>{Array.from({ length: 15 }).map((_, i) => <TrackRowSkeleton key={i} index={i} />)}</tbody>
-              </table>
+            <div className={styles.allSongsTrackList}>
+              {Array.from({ length: 15 }).map((_, i) => (
+                <div key={i} className={styles.skeletonTrackRow}>
+                  <div className={styles.skeletonIndex} />
+                  <div className={styles.skeletonTrackInfo}>
+                    <div className={styles.skeletonArt} />
+                    <div className={styles.skeletonText}>
+                      <div className={styles.skeletonTitle} />
+                      <div className={styles.skeletonAlbum} />
+                    </div>
+                  </div>
+                  <div className={styles.skeletonDuration} />
+                </div>
+              ))}
+            </div>
+          ) : allSongs.length === 0 ? (
+            <div className={styles.allSongsEmpty}>
+              <Music size={64} className={styles.allSongsEmptyIcon} />
+              <div className={styles.allSongsEmptyText}>No songs found</div>
+              <div className={styles.allSongsEmptyHint}>This artist doesn't have any tracks yet</div>
             </div>
           ) : (
             <TableVirtuoso
               style={{ height: '100%' }}
               data={allSongs}
-              fixedHeaderContent={renderTableHead}
+              fixedHeaderContent={() => (
+                <tr className={styles.tableHeaderRow}>
+                  <th style={{ width: 48, textAlign: 'center' }}>#</th>
+                  <th style={{ width: '45%' }}>Title</th>
+                  <th style={{ width: '35%' }}>Album</th>
+                  <th style={{ width: 110, textAlign: 'right', paddingRight: 24 }}>
+                    <Clock size={14} style={{ opacity: 0.5 }} />
+                  </th>
+                </tr>
+              )}
               increaseViewportBy={400}
               endReached={() => {
                 if (hasNextPage && !isFetchingNextPage) {
@@ -296,27 +329,58 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 }
               }}
               itemContent={(index, song) => (
-                <TrackRow 
-                  index={index + 1} {...song}
-                  isActive={activeTrackId === song.id}
-                  isPlaying={isPlaying} 
-                  renderOnlyCells={true}
-                  onSelectArtist={onSelectArtist} 
-                  onSelectAlbum={onSelectAlbum}
-                  onContextMenu={(e) => handleContextMenu(e, song)}
-                />
+                <td colSpan={3}>
+                  <div 
+                    className={`${styles.allSongsTrackRow} ${activeTrackId === song.id ? styles.active : ''}`}
+                    onClick={() => player.playTrackList(allSongs, index)}
+                    onContextMenu={(e) => handleContextMenu(e, song)}
+                  >
+                    <div className={styles.allSongsTrackIndex}>
+                      {activeTrackId === song.id ? (
+                        <Volume2 size={14} className={styles.playingIcon} />
+                      ) : (
+                        index + 1
+                      )}
+                    </div>
+                    <div className={styles.allSongsTrackInfo}>
+                      {song.thumbUrl && (
+                        <img src={song.thumbUrl} alt="" className={styles.allSongsTrackArt} />
+                      )}
+                      <div className={styles.allSongsTrackDetails}>
+                        <div className={styles.allSongsTrackTitle}>{song.title}</div>
+                        <div className={styles.allSongsTrackAlbum}>
+                          {song.artists?.join(', ') || 'Unknown artist'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.allSongsTrackDuration}>
+                      {song.duration || '0:00'}
+                    </div>
+                  </div>
+                </td>
               )}
               components={{
-                ...TableComponents,
+                Table: (props) => (
+                  <table {...props} className={styles.allSongsTrackList} />
+                ),
+                TableHead: (props) => <thead {...props} />,
+                TableBody: (props) => <tbody {...props} />,
+                TableRow: (props) => <tr {...props} />,
                 TableFoot: () => isFetchingNextPage ? (
-                  <div style={{ padding: '2rem', display: 'flex', justifyContent: 'center' }}>
-                    <Loader2 className="animate-spin" size={24} />
-                  </div>
+                  <tr>
+                    <td colSpan={4}>
+                      <div className={styles.allSongsLoading}>
+                        <Loader2 className="animate-spin" size={24} />
+                        <span>Loading more tracks...</span>
+                      </div>
+                    </td>
+                  </tr>
                 ) : null
               }}
             />
           )}
         </div>
+        
         <TrackContextMenu ref={trackMenuRef} />
       </div>
     );

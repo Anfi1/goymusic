@@ -41,9 +41,19 @@ function formatSeconds(s: number) {
 
 function formatTotalTime(total: number) {
   const h = Math.floor(total / 3600);
-  if (h >= 24) return `${Math.floor(h / 24)}d`;
-  if (h > 0) return `${h}h`;
-  return `${Math.floor(total / 60)}m`;
+  const m = Math.floor((total % 3600) / 60);
+  if (h >= 24) {
+    const days = Math.floor(h / 24);
+    const remainingHours = h % 24;
+    if (remainingHours > 0) return `${days}d ${remainingHours}h`;
+    return `${days}d`;
+  }
+  if (h > 0) {
+    if (m > 0) return `${h}h ${m}m`;
+    return `${h}h`;
+  }
+  if (m > 0) return `${m}m`;
+  return `${Math.floor(total)}s`;
 }
 
 function makeShadowColor(color: string, alpha = 0.28) {
@@ -162,8 +172,8 @@ export default function HistoryCharts({
     const map = new Map<string, ChartDataItem>();
     rawHistory.forEach((h) => {
       if (h.timestamp < startTime) return;
-      const seconds =
-        h.listenedSeconds && h.listenedSeconds > 0 ? h.listenedSeconds : 60;
+      // Используем реальное время прослушивания; если 0 — трек был переключён быстро
+      const seconds = h.listenedSeconds || 0;
       const cover = h.track.thumbUrl || (h.track as any).album?.thumbUrl || '';
 
       if (metric === 'artist') {
@@ -192,7 +202,9 @@ export default function HistoryCharts({
         }
       } else if (metric === 'albums') {
         const albumTitle = h.track.album || 'Unknown album';
-        const albumId = h.track.albumId || albumTitle;
+        const albumArtist = h.track.artists?.[0] || 'Unknown';
+        // Группируем по альбому + артист, чтобы не смешивать разных исполнителей
+        const albumId = h.track.albumId || `${albumTitle} - ${albumArtist}`;
         const key = `album:${albumId}`;
         const title = albumTitle;
         const subtitle = h.track.artists?.join(', ') || '';
@@ -234,14 +246,18 @@ export default function HistoryCharts({
     });
 
     const arr = Array.from(map.values());
-    arr.sort((a, b) => b.value - a.value);
-    const totalValue = arr.reduce((sum, item) => sum + item.value, 0) || 1;
+    // Фильтруем "Unknown album" для графиков альбомов
+    const filteredArr = metric === 'albums' 
+      ? arr.filter(item => item.title !== 'Unknown album' && item.title !== 'Unknown')
+      : arr;
+    filteredArr.sort((a, b) => b.value - a.value);
+    const totalValue = filteredArr.reduce((sum, item) => sum + item.value, 0) || 1;
     const maxSlices = 12;
     const minPct = 0.05;
     const top: ChartDataItem[] = [];
     let usedValue = 0;
 
-    for (const item of arr) {
+    for (const item of filteredArr) {
       const pct = item.value / totalValue;
       if (top.length < maxSlices && (top.length < 8 || pct >= minPct)) {
         top.push(item);

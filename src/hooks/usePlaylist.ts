@@ -244,7 +244,11 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
           if (e.likedAt) timed.push({ track: e.track, t: e.likedAt });
           else untimed.push({ track: e.track, o: e.originalIndex });
         }
-        for (const e of scEntries) timed.push({ track: e.track, t: e.likedAt });
+        for (const e of scEntries) {
+          // SC-лайки всегда помечаем как LIKE (они точно лайкнуты, раз в списке)
+          const track = { ...e.track, likeStatus: 'LIKE' as const };
+          timed.push({ track, t: e.likedAt });
+        }
         timed.sort((a, b) => b.t - a.t);
         untimed.sort((a, b) => a.o - b.o);
         tracks = [...timed.map(x => x.track), ...untimed.map(x => x.track)];
