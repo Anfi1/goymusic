@@ -209,6 +209,9 @@ function App() {
           if (resolved) track = resolved;
         }
         player.startRadio(track);
+        if (link.startTime && link.startTime > 0) {
+          player.seek(link.startTime);
+        }
       } else if (link.type === 'album') {
         navigate({ type: 'album', albumId: link.id });
       }

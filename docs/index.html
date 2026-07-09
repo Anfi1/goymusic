@@ -65,6 +65,7 @@
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #cba6f7; color: #1e1e2e; }
     .btn-secondary { background: #45475a; color: #cdd6f4; }
+    .btn-download { background: #a6e3a1; color: #1e1e2e; font-size: 0.82rem; padding: 8px 16px; }
     .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
     .sub { font-size: 0.78rem; color: #6c7086; }
   </style>
@@ -83,6 +84,7 @@
     <div class="buttons" id="buttons" style="display:none">
       <a class="btn btn-primary" id="openApp" href="#">Open in GoyMusic</a>
       <a class="btn btn-secondary" id="openYT" href="#" target="_blank" rel="noopener">Open in YouTube Music</a>
+      <a class="btn btn-download" id="downloadBtn" href="https://github.com/Anfi1/goymusic/releases/latest/download/GoyMusic-Setup.exe" target="_blank" rel="noopener" style="display:none">Download GoyMusic</a>
     </div>
     <div class="sub" id="sub"></div>
   </div>
@@ -90,8 +92,10 @@
   <script>
     function decodeMeta(str) {
       try {
+        // URL-safe base64: replace - with + and _ with /
         const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-        return JSON.parse(decodeURIComponent(atob(base64)));
+        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        return JSON.parse(new TextDecoder().decode(bytes));
       } catch { return null; }
     }
 
@@ -109,6 +113,7 @@
     const thumbEl    = document.getElementById('thumb');
     const titleEl    = document.getElementById('trackTitle');
     const artistsEl  = document.getElementById('trackArtists');
+    const downloadBtn = document.getElementById('downloadBtn');
 
     let protocolUrl = '';
     let fallbackUrl = '';
@@ -153,6 +158,8 @@
         } else {
           statusEl.textContent = 'GoyMusic not installed?';
           buttonsEl.style.display = 'flex';
+          downloadBtn.style.display = 'inline-block';
+          subEl.textContent = 'Download GoyMusic to open links directly.';
         }
       }, 1500);
     }

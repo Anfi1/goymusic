@@ -23,7 +23,9 @@ function decodeMeta(search) {
     const params = new URLSearchParams(search);
     const m = params.get('m');
     if (!m) return null;
-    return JSON.parse(decodeURIComponent(escape(Buffer.from(m, 'base64').toString('binary'))));
+    // URL-safe base64: replace - with + and _ with /
+    const base64 = m.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(escape(Buffer.from(base64, 'base64').toString('binary'))));
   } catch { return null; }
 }
 
@@ -37,6 +39,8 @@ module.exports = async function handler(req, res) {
   const id      = parts[1];
 
   const urlMeta = decodeMeta(search);
+  const urlParams = new URLSearchParams(search);
+  const timecode = urlParams.get('t') || '';
 
   let ogTitle       = 'GoyMusic';
   let ogDescription = 'Listen on GoyMusic desktop app or YouTube Music';
@@ -74,7 +78,10 @@ module.exports = async function handler(req, res) {
     }
     const meta = { t: urlMeta?.t || ogTitle.replace(/ — GoyMusic$/, ''), a: urlMeta?.a || [ogDescription], i: ogImage };
     const b64 = Buffer.from(unescape(encodeURIComponent(JSON.stringify(meta)))).toString('base64');
-    protocolUrl   = `goymusic://track/${id}?m=${b64}`;
+    // URL-safe base64: replace + with - and / with _
+    const safeB64 = b64.replace(/\+/g, '-').replace(/\//g, '_');
+    const timeParam = timecode ? `&t=${timecode}` : '';
+    protocolUrl   = `goymusic://track/${id}?m=${safeB64}${timeParam}`;
   } else if (type === 'album' && id) {
     ogTitle       = 'Album on GoyMusic';
     ogDescription = 'Open album in GoyMusic desktop app';
@@ -133,6 +140,7 @@ module.exports = async function handler(req, res) {
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #cba6f7; color: #1e1e2e; }
     .btn-secondary { background: #45475a; color: #cdd6f4; }
+    .btn-download { background: #a6e3a1; color: #1e1e2e; font-size: 0.82rem; padding: 8px 16px; }
     .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
     .sub { font-size: 0.78rem; color: #6c7086; }
   </style>
@@ -149,14 +157,16 @@ module.exports = async function handler(req, res) {
     <div class="buttons" id="buttons" style="display:none">
       <a class="btn btn-primary" href="${escapeHtml(protocolUrl)}">Open in GoyMusic</a>
       <a class="btn btn-secondary" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">${fallbackLabel}</a>
+      <a class="btn btn-download" id="downloadBtn" href="https://github.com/Anfi1/goymusic/releases/latest/download/GoyMusic-Setup.exe" target="_blank" rel="noopener" style="display:none">Download GoyMusic</a>
     </div>
     <div class="sub" id="sub"></div>
   </div>
   <script>
     var protocolUrl = ${JSON.stringify(protocolUrl)};
-    var statusEl  = document.getElementById('status');
-    var buttonsEl = document.getElementById('buttons');
-    var subEl     = document.getElementById('sub');
+    var statusEl    = document.getElementById('status');
+    var buttonsEl   = document.getElementById('buttons');
+    var subEl       = document.getElementById('sub');
+    var downloadBtn = document.getElementById('downloadBtn');
 
     if (!protocolUrl) {
       statusEl.textContent = 'Invalid link.';
@@ -174,6 +184,8 @@ module.exports = async function handler(req, res) {
           subEl.textContent = 'Nothing happened? Try the buttons above.';
         } else {
           statusEl.textContent = 'GoyMusic not installed?';
+          downloadBtn.style.display = 'inline-block';
+          subEl.textContent = 'Download GoyMusic to open links directly.';
         }
       }, 1500);
     }
