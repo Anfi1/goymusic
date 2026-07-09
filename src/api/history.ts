@@ -89,7 +89,7 @@ class HistoryStore {
     });
   }
 
-  async getHistory(limit = 1000): Promise<HistoryEntry[]> {
+  async getHistory(limit = Infinity): Promise<HistoryEntry[]> {
     await this.init();
     if (!this.db) return [];
 
