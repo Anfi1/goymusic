@@ -443,7 +443,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
     const fetchHistory = useCallback(async () => {
       setIsLoading(true);
       try {
-        const data = await historyStore.getHistory(3000);
+        const data = await historyStore.getHistory();
         const allLikedTracks = await likedStore.getAllTracks();
         const likedIds = new Set(allLikedTracks.map((t) => t.videoId));
         const allScLikedTracks = await likedStore.getAllScTracks();
