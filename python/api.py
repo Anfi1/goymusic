@@ -2118,12 +2118,15 @@ def handle_request(request):
                         for a in ((alb_data or {}).get('collection') or []):
                             if not a or not a.get('permalink_url'):
                                 continue
+                            created = a.get('created_at', '')
+                            year = created[:4] if created and len(created) >= 4 else ''
                             album_list.append({
                                 'url': a.get('permalink_url', ''),
                                 'title': a.get('title', ''),
                                 'artist': username,
                                 'thumbUrl': _sc_pick_thumb(a.get('artwork_url') or ''),
                                 'trackCount': a.get('track_count', 0),
+                                'year': year,
                             })
                         return album_list
 

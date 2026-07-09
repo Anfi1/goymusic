@@ -316,6 +316,7 @@ export async function getSoundCloudArtist(url: string): Promise<ScArtistDetail |
       const albums = (res.albums || []).map((a: any) => ({
         id: a.url, title: a.title || 'Unknown', thumbUrl: a.thumbUrl || '',
         artists: [a.artist || ''], source: 'soundcloud' as const,
+        year: a.year || undefined,
       }));
       const playlists = (res.playlists || []).map((p: any) => ({
         url: p.url, title: p.title || 'Unknown', thumbUrl: p.thumbUrl || '', trackCount: p.trackCount || 0,
@@ -345,7 +346,7 @@ export async function getSoundCloudArtist(url: string): Promise<ScArtistDetail |
 }
 
 export interface ScArtistResult { id: string; name: string; thumbUrl: string; source: 'soundcloud'; artistPro?: boolean; verified?: boolean; }
-export interface ScAlbumResult { id: string; title: string; thumbUrl: string; artists: string[]; artistIds?: string[]; source: 'soundcloud'; }
+export interface ScAlbumResult { id: string; title: string; thumbUrl: string; artists: string[]; artistIds?: string[]; source: 'soundcloud'; year?: string; }
 export interface ScAlbumDetail { title: string; thumbUrl: string; artists: string[]; artistIds?: string[]; tracks: YTMTrack[]; }
 
 // Поиск SC-артистов и альбомов (через внутренний api-v2 на бэкенде).
@@ -360,7 +361,7 @@ export async function searchSoundCloudExtra(query: string): Promise<{ artists: S
       const albums: ScAlbumResult[] = (res.albums || []).map((a: any) => ({
         id: a.url, title: a.title || 'Unknown', thumbUrl: a.thumbUrl || '',
         artists: a.artist ? [a.artist] : [], artistIds: a.uploaderUrl ? [a.uploaderUrl] : undefined,
-        source: 'soundcloud',
+        source: 'soundcloud', year: a.year || undefined,
       }));
       return { artists, albums };
     }

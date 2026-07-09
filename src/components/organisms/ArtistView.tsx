@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { TableVirtuoso } from 'react-virtuoso';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo, Fragment } from 'react';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { TableVirtuoso } from 'react-virtuoso';
 import { 
   getArtistDetail, 
   getArtistSongs, 
@@ -20,11 +20,40 @@ import { player } from '../../api/player';
 import { 
   ChevronRight, ArrowLeft,
   Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle,
-  Music, Clock, Volume2
+  Music, Clock
 } from 'lucide-react';
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
+
+const AllSongsColumnGroup = memo(() => (
+  <colgroup>
+    <col style={{ width: 48 }} />
+    <col />
+    <col style={{ width: '30%', maxWidth: 250 }} />
+    <col style={{ width: 110 }} />
+  </colgroup>
+));
+
+const AllSongsTable = React.forwardRef<HTMLTableElement, any>((props, ref) => (
+  <table 
+    {...props} 
+    ref={ref} 
+    className={styles.trackList} 
+    style={{ ...props.style, tableLayout: 'fixed', borderCollapse: 'collapse', width: '100%' }}
+  >
+    <AllSongsColumnGroup />
+    {props.children}
+  </table>
+));
+
+const AllSongsTableRow = React.forwardRef<HTMLTableRowElement, any>((props, ref) => {
+  const { item, ...rest } = props;
+  return <tr {...rest} ref={ref} className={trackStyles.row} />;
+});
+AllSongsTableRow.displayName = 'AllSongsTableRow';
+
+
 import { isSoundCloudId, getSoundCloudArtist } from '../../api/soundcloud';
 
 interface ArtistViewProps {
@@ -48,6 +77,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const [viewMode, setViewMode] = useState<ViewMode>('main');
   const [discoCategory, setDiscoCategory] = useState<'Album' | 'Single'>('Album');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const trackMenuRef = useRef<TrackContextMenuHandle>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, track: YTMTrack) => {
@@ -56,6 +86,40 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   }, []);
 
   const isSoundCloudArtist = isSoundCloudId(artistId);
+
+  // Wrapped setViewMode that also notifies parent about view mode changes
+  const setViewModeWithNotification = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    onViewModeChange?.(mode);
+  }, [onViewModeChange]);
+
+  // Close modal with exit animation
+  const closeModal = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setViewModeWithNotification('main');
+      setIsClosing(false);
+    }, 200);
+  }, [setViewModeWithNotification]);
+
+  // Notify parent on mount that we're in main mode (restores global back button)
+  useEffect(() => {
+    onViewModeChange?.('main');
+  }, []);
+
+  const isModalOpen = viewMode === 'all-songs' || viewMode === 'discography';
+
+  // Lock parent scroll when modal is open
+  useEffect(() => {
+    if (isModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isModalOpen]);
+
+
 
   // 1. Fetch Basic Artist Details (Fast). Для SC-артиста — минимальный detail (имя, аватар, треки).
   const { data: detail, isLoading } = useQuery({
@@ -127,6 +191,22 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     });
   }, [detail, fullAlbums, fullSingles]);
 
+  // Auto-switch to Singles/EPs on first open if no albums
+  const hasCheckedDiscoRef = useRef(false);
+  useEffect(() => {
+    if (viewMode === 'discography' && !hasCheckedDiscoRef.current && discography.length > 0) {
+      hasCheckedDiscoRef.current = true;
+      const hasAlbums = discography.some(item => item.category === 'Album');
+      const hasSingles = discography.some(item => item.category === 'Single');
+      if (!hasAlbums && hasSingles) {
+        setDiscoCategory('Single');
+      }
+    }
+    if (viewMode !== 'discography') {
+      hasCheckedDiscoRef.current = false;
+    }
+  }, [viewMode, discography]);
+
   const videos = useMemo(() => {
     if (!detail) return [];
     return fullVideos.length > 0 ? fullVideos : (detail.videosPreview || []);
@@ -144,8 +224,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
 
   // Handlers
   const handleSeeAllSongs = useCallback(() => {
-    if (detail?.seeAllSongsId) setViewMode('all-songs');
-  }, [detail?.seeAllSongsId]);
+    setViewModeWithNotification('all-songs');
+  }, []);
 
   const handleToggleSubscribe = useCallback(async () => {
     if (!detail || !detail.channelId) return;
@@ -220,37 +300,9 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   }, [viewMode, discoCategory]);
 
   useEffect(() => {
-    setViewMode('main');
+    setViewModeWithNotification('main');
     setIsBioExpanded(false);
   }, [artistId]);
-
-  const renderTableHead = useCallback(() => (
-    <tr className={styles.tableHeader}>
-      <th>#</th><th>Title</th><th>Album</th><th>Time</th>
-    </tr>
-  ), []);
-
-  // Virtuoso Components for Table structure
-  const TableComponents = useMemo(() => ({
-    Table: (props: any) => <table {...props} className={styles.trackList} />,
-    TableHead: React.forwardRef<HTMLTableSectionElement>((props, ref) => (
-      <thead {...props} ref={ref} className={styles.tableHeader} />
-    )),
-    TableRow: (props: any) => {
-      const index = props['data-index'];
-      const song = allSongs[index];
-      const isActive = activeTrackId === song?.id;
-      return (
-        <tr 
-          {...props} 
-          className={`${trackStyles.row} ${isActive ? trackStyles.active : ''} ${song?.isAvailable === false ? trackStyles.unavailable : ''}`}
-          onClick={() => song?.isAvailable !== false && player.playTrackList(allSongs, index, `artist-songs-${artistId}`)}
-          onContextMenu={(e) => song && handleContextMenu(e, song)}
-        />
-      );
-    },
-    TableBody: React.forwardRef<HTMLTableSectionElement>((props, ref) => <tbody {...props} ref={ref} />),
-  }), [allSongs, activeTrackId, artistId, handleContextMenu]);
 
   if (isLoading) {
     return (
@@ -268,149 +320,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
 
   if (!detail) return <div className={styles.container}>Artist not found.</div>;
 
-  if (viewMode === 'all-songs') {
-    return (
-      <div className={styles.allSongsView}>
-        <header className={styles.allSongsHeader}>
-          <button className={styles.allSongsBackBtn} onClick={() => setViewMode('main')}>
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className={styles.allSongsTitle}>All Songs</h1>
-          <div className={styles.allSongsArtistInfo}>
-            {detail.thumbUrl && (
-              <img src={detail.thumbUrl} alt={detail.name} className={styles.allSongsArtistAvatar} />
-            )}
-            <span className={styles.allSongsArtistName}>{detail.name}</span>
-            <span className={styles.allSongsTrackCount}>{allSongs.length} tracks</span>
-          </div>
-        </header>
-        
-        <div className={styles.allSongsContent}>
-          {isSongsInitialLoading ? (
-            <div className={styles.allSongsTrackList}>
-              {Array.from({ length: 15 }).map((_, i) => (
-                <div key={i} className={styles.skeletonTrackRow}>
-                  <div className={styles.skeletonIndex} />
-                  <div className={styles.skeletonTrackInfo}>
-                    <div className={styles.skeletonArt} />
-                    <div className={styles.skeletonText}>
-                      <div className={styles.skeletonTitle} />
-                      <div className={styles.skeletonAlbum} />
-                    </div>
-                  </div>
-                  <div className={styles.skeletonDuration} />
-                </div>
-              ))}
-            </div>
-          ) : allSongs.length === 0 ? (
-            <div className={styles.allSongsEmpty}>
-              <Music size={64} className={styles.allSongsEmptyIcon} />
-              <div className={styles.allSongsEmptyText}>No songs found</div>
-              <div className={styles.allSongsEmptyHint}>This artist doesn't have any tracks yet</div>
-            </div>
-          ) : (
-            <TableVirtuoso
-              style={{ height: '100%' }}
-              data={allSongs}
-              fixedHeaderContent={() => (
-                <tr className={styles.tableHeaderRow}>
-                  <th style={{ width: 48, textAlign: 'center' }}>#</th>
-                  <th style={{ width: '45%' }}>Title</th>
-                  <th style={{ width: '35%' }}>Album</th>
-                  <th style={{ width: 110, textAlign: 'right', paddingRight: 24 }}>
-                    <Clock size={14} style={{ opacity: 0.5 }} />
-                  </th>
-                </tr>
-              )}
-              increaseViewportBy={400}
-              endReached={() => {
-                if (hasNextPage && !isFetchingNextPage) {
-                  fetchNextPage();
-                }
-              }}
-              itemContent={(index, song) => (
-                <td colSpan={3}>
-                  <div 
-                    className={`${styles.allSongsTrackRow} ${activeTrackId === song.id ? styles.active : ''}`}
-                    onClick={() => player.playTrackList(allSongs, index)}
-                    onContextMenu={(e) => handleContextMenu(e, song)}
-                  >
-                    <div className={styles.allSongsTrackIndex}>
-                      {activeTrackId === song.id ? (
-                        <Volume2 size={14} className={styles.playingIcon} />
-                      ) : (
-                        index + 1
-                      )}
-                    </div>
-                    <div className={styles.allSongsTrackInfo}>
-                      {song.thumbUrl && (
-                        <img src={song.thumbUrl} alt="" className={styles.allSongsTrackArt} />
-                      )}
-                      <div className={styles.allSongsTrackDetails}>
-                        <div className={styles.allSongsTrackTitle}>{song.title}</div>
-                        <div className={styles.allSongsTrackAlbum}>
-                          {song.artists?.join(', ') || 'Unknown artist'}
-                        </div>
-                      </div>
-                    </div>
-                    <div className={styles.allSongsTrackDuration}>
-                      {song.duration || '0:00'}
-                    </div>
-                  </div>
-                </td>
-              )}
-              components={{
-                Table: (props) => (
-                  <table {...props} className={styles.allSongsTrackList} />
-                ),
-                TableHead: (props) => <thead {...props} />,
-                TableBody: (props) => <tbody {...props} />,
-                TableRow: (props) => <tr {...props} />,
-                TableFoot: () => isFetchingNextPage ? (
-                  <tr>
-                    <td colSpan={4}>
-                      <div className={styles.allSongsLoading}>
-                        <Loader2 className="animate-spin" size={24} />
-                        <span>Loading more tracks...</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : null
-              }}
-            />
-          )}
-        </div>
-        
-        <TrackContextMenu ref={trackMenuRef} />
-      </div>
-    );
-  }
-
-  if (viewMode === 'discography') {
-    const items = discography.filter(item => item.category === discoCategory);
-    return (
-      <div className={styles.container} ref={containerRef}>
-        <header className={styles.viewHeader}>
-          <button className={styles.backBtn} onClick={() => setViewMode('main')}><ArrowLeft size={24} /></button>
-          <div className={styles.viewSwitcher}>
-            <button className={`${styles.viewTab} ${discoCategory === 'Album' ? styles.active : ''}`} onClick={() => setDiscoCategory('Album')}>Albums</button>
-            <button className={`${styles.viewTab} ${discoCategory === 'Single' ? styles.active : ''}`} onClick={() => setDiscoCategory('Single')}>Singles & EPs</button>
-          </div>
-        </header>
-        <div className={styles.grid}>
-          {items.map(item => (
-            <MediaCard key={item.id} {...item} onClick={() => onSelectAlbum(item.id)} onPlayClick={async () => {
-              const albumData = await getAlbum(item.id);
-              if (albumData?.tracks?.length) player.playTrackList(albumData.tracks, 0, item.id);
-            }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.container} ref={containerRef}>
+    <div className={`${styles.container} ${isModalOpen ? styles.scrollLocked : ''}`} ref={containerRef} data-artist-view>
       <header className={styles.header}>
         <div className={styles.bannerWrapper}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
@@ -445,7 +356,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Top Songs</h2>
             {detail.isSoundCloud && detail.allTracks?.length > detail.topSongs?.length && (
-              <button className={styles.seeAllBtn} onClick={() => { setViewMode('all-songs'); }}>See all <ChevronRight size={16} /></button>
+              <button className={styles.seeAllBtn} onClick={() => setViewModeWithNotification('all-songs')}>See all <ChevronRight size={16} /></button>
             )}
             {detail.seeAllSongsId && <button className={styles.seeAllBtn} onClick={handleSeeAllSongs}>See all <ChevronRight size={16} /></button>}
           </div>
@@ -511,7 +422,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Discography</h2>
-            <button className={styles.seeAllBtn} onClick={() => { setViewMode('discography'); setDiscoCategory('Album'); }}>See All <ChevronRight size={16} /></button>
+            <button className={styles.seeAllBtn} onClick={() => { setViewModeWithNotification('discography'); setDiscoCategory('Album'); }}>See All <ChevronRight size={16} /></button>
           </div>
           <Carousel 
             items={discography}
@@ -609,6 +520,145 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         </section>
       )}
       <TrackContextMenu ref={trackMenuRef} />
+
+      {/* All Songs Modal */}
+      {viewMode === 'all-songs' && (
+        <div className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}>
+          <button className={styles.allSongsBackBtn} onClick={closeModal}>
+            <ArrowLeft size={22} />
+          </button>
+          <header className={styles.allSongsHeader}>
+            <h1 className={styles.allSongsTitle}>All Songs</h1>
+            <div className={styles.allSongsArtistInfo}>
+              {detail.thumbUrl && (
+                <img src={detail.thumbUrl} alt={detail.name} className={styles.allSongsArtistAvatar} />
+              )}
+              <span className={styles.allSongsArtistName}>{detail.name}</span>
+              <span className={styles.allSongsTrackCount}>
+                {isSongsInitialLoading ? (
+                  <Loader2 size={12} className={styles.trackCountSpinner} />
+                ) : null}
+                {isSongsInitialLoading ? 'Loading...' : `${allSongs.length} tracks`}
+              </span>
+            </div>
+          </header>
+          <div className={styles.allSongsContent}>
+            {isSongsInitialLoading ? (
+              <div className={styles.allSongsTrackList}>
+                <table className={styles.trackList} style={{ tableLayout: 'fixed' }}>
+                  <AllSongsColumnGroup />
+                  <thead>
+                    <tr className={styles.tableHeaderRow}>
+                      <th style={{ textAlign: 'center' }}>#</th>
+                      <th>Title</th>
+                      <th>Album</th>
+                      <th style={{ textAlign: 'right', paddingRight: 24 }}>
+                        <Clock size={14} style={{ opacity: 0.5 }} />
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 15 }).map((_, i) => (
+                      <TrackRowSkeleton key={`skeleton-${i}`} index={i} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : allSongs.length === 0 ? (
+              <div className={styles.allSongsEmpty}>
+                <Music size={64} className={styles.allSongsEmptyIcon} />
+                <div className={styles.allSongsEmptyText}>No songs found</div>
+                <div className={styles.allSongsEmptyHint}>This artist doesn't have any tracks yet</div>
+              </div>
+            ) : (
+              <div className={styles.virtuosoWrapper}>
+                <TableVirtuoso
+                  style={{ height: '100%' }}
+                  data={allSongs}
+                  overscan={400}
+                  increaseViewportBy={500}
+                  fixedItemHeight={56}
+                  endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+                  computeItemKey={(index, track) => track.id || index}
+                  fixedHeaderContent={() => (
+                    <tr className={styles.tableHeaderRow}>
+                      <th style={{ textAlign: 'center' }}>#</th>
+                      <th>Title</th>
+                      <th>Album</th>
+                      <th style={{ textAlign: 'right', paddingRight: 24 }}>
+                        <Clock size={14} style={{ opacity: 0.5 }} />
+                      </th>
+                    </tr>
+                  )}
+                  components={{
+                    Table: AllSongsTable,
+                    TableRow: AllSongsTableRow,
+                  }}
+                  itemContent={(index, song) => (
+                    <TrackRow
+                      index={index + 1}
+                      {...song}
+                      isActive={activeTrackId === song.id}
+                      isPlaying={isPlaying}
+                      onSelectArtist={onSelectArtist}
+                      onSelectAlbum={onSelectAlbum}
+                      onClick={() => player.playTrackList(allSongs, index)}
+                      onContextMenu={(e) => handleContextMenu(e, song)}
+                      renderOnlyCells
+                    />
+                  )}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Discography Modal */}
+      {viewMode === 'discography' && (() => {
+        const items = discography.filter(item => item.category === discoCategory);
+        const isLoading = fullAlbums.length === 0 && fullSingles.length === 0 && (!!detail?.albumsId || !!detail?.singlesId);
+        return (
+          <div className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}>
+            <button className={styles.allSongsBackBtn} onClick={closeModal}>
+              <ArrowLeft size={22} />
+            </button>
+            <header className={styles.discoHeader}>
+              <div className={styles.viewSwitcher}>
+                <button className={`${styles.viewTab} ${discoCategory === 'Album' ? styles.active : ''}`} onClick={() => setDiscoCategory('Album')}>Albums</button>
+                <button className={`${styles.viewTab} ${discoCategory === 'Single' ? styles.active : ''}`} onClick={() => setDiscoCategory('Single')}>Singles & EPs</button>
+              </div>
+            </header>
+            <div className={styles.allSongsContent}>
+              {isLoading ? (
+                <div className={styles.discoLoadingGrid}>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className={styles.discoSkeletonCard}>
+                      <div className={styles.discoSkeletonArt} />
+                      <div className={styles.discoSkeletonText} />
+                      <div className={styles.discoSkeletonTextShort} />
+                    </div>
+                  ))}
+                </div>
+              ) : items.length === 0 ? (
+                <div className={styles.allSongsEmpty}>
+                  <Music size={64} className={styles.allSongsEmptyIcon} />
+                  <div className={styles.allSongsEmptyText}>No releases found</div>
+                </div>
+              ) : (
+                <div className={styles.discoGrid}>
+                  {items.map(item => (
+                    <MediaCard key={item.id} {...item} onClick={() => onSelectAlbum(item.id)} onPlayClick={async () => {
+                      const albumData = await getAlbum(item.id);
+                      if (albumData?.tracks?.length) player.playTrackList(albumData.tracks, 0, item.id);
+                    }} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 });

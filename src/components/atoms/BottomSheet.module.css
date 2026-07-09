@@ -1,0 +1,46 @@
+.sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  top: 60px;
+  z-index: 1000;
+  background: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  touch-action: none;
+}
+
+.sheet.dragging {
+  transition: none;
+}
+
+@keyframes slideUp {
+  from { 
+    transform: translateY(100%);
+  }
+  to { 
+    transform: translateY(0);
+  }
+}
+
+.handle {
+  width: 40px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  margin: 12px auto;
+  flex-shrink: 0;
+  cursor: grab;
+}
+
+.handle:active {
+  cursor: grabbing;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

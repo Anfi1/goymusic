@@ -5,6 +5,11 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    position: relative;
+}
+
+.container.scrollLocked {
+    overflow: hidden;
 }
 
 .header {
@@ -37,7 +42,7 @@
 .bannerOverlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(9, 9, 15, 0.3) 0%, transparent 60%);
+    background: linear-gradient(45deg, rgba(9, 9, 15, 0.7) 0%, rgba(9, 9, 15, 0.3) 35%, transparent 65%);
     display: flex;
     align-items: flex-end;
     padding: 2.5rem;
@@ -198,20 +203,47 @@
     display: flex;
     flex-direction: column;
     background: var(--bg-base);
+    gap: 0;
+    animation: slideUpFromBottom 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+    z-index: 5;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
 }
 
-.allSongsHeader {
-    position: relative;
-    padding: 1.5rem 2rem;
-    display: flex;
-    align-items: center;
-    gap: 1.5rem;
-    background: linear-gradient(180deg, rgba(137, 180, 250, 0.08) 0%, transparent 100%);
-    border-bottom: 1px solid var(--border-subtle);
-    flex-shrink: 0;
+@keyframes slideUpFromBottom {
+    from {
+        transform: translateY(100%);
+        opacity: 0.5;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.closing {
+    animation: slideDownToBottom 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes slideDownToBottom {
+    from {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(100%);
+        opacity: 0;
+    }
 }
 
 .allSongsBackBtn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1000;
     width: 44px;
     height: 44px;
     border-radius: 50%;
@@ -224,22 +256,35 @@
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
-    flex-shrink: 0;
+    opacity: 0.7;
 }
 
 .allSongsBackBtn:hover {
     background: var(--accent-soft);
     color: var(--accent);
     transform: scale(1.05);
+    opacity: 1;
 }
 
 .allSongsBackBtn:active {
     transform: scale(0.95);
 }
 
+.allSongsHeader {
+    position: relative;
+    padding: 1rem 1.5rem;
+    padding-right: 4rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: linear-gradient(180deg, rgba(137, 180, 250, 0.08) 0%, transparent 100%);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
 .allSongsTitle {
-    font-size: 1.75rem;
-    font-weight: 800;
+    font-size: 1.25rem;
+    font-weight: 700;
     color: var(--text-main);
     margin: 0;
     background: linear-gradient(135deg, var(--text-main) 0%, var(--accent) 100%);
@@ -252,7 +297,6 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin-left: auto;
 }
 
 .allSongsArtistAvatar {
@@ -280,94 +324,85 @@
 
 .allSongsContent {
     flex: 1;
+    min-height: 0;
     position: relative;
     overflow: hidden;
+    padding: 0;
+}
+
+.virtuosoWrapper {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    position: relative;
+    contain: strict;
+    content-visibility: auto;
+}
+
+.discoHeader {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 2rem;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.discoGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+}
+
+.discoLoadingGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
+}
+
+.discoSkeletonCard {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.discoSkeletonArt {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    background: var(--glass-surface);
+    animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+.discoSkeletonText {
+    width: 80%;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--glass-surface);
+    animation: skeletonPulse 1.5s ease-in-out infinite;
+    animation-delay: 0.1s;
+}
+
+.discoSkeletonTextShort {
+    width: 50%;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--glass-surface);
+    animation: skeletonPulse 1.5s ease-in-out infinite;
+    animation-delay: 0.2s;
+}
+
+@keyframes skeletonPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
 }
 
 .allSongsTrackList {
-    padding: 0.5rem 0;
-}
-
-.allSongsTrackRow {
-    display: grid;
-    grid-template-columns: 48px 1fr auto;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.5rem 2rem;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    border-radius: 8px;
-    margin: 0 0.5rem;
-}
-
-.allSongsTrackRow:hover {
-    background: var(--glass-surface);
-}
-
-.allSongsTrackRow.active {
-    background: var(--accent-soft);
-}
-
-.allSongsTrackIndex {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text-dim);
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-}
-
-.allSongsTrackRow:hover .allSongsTrackIndex,
-.allSongsTrackRow.active .allSongsTrackIndex {
-    color: var(--accent);
-}
-
-.allSongsTrackInfo {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    min-width: 0;
-}
-
-.allSongsTrackArt {
-    width: 40px;
-    height: 40px;
-    border-radius: 6px;
-    object-fit: cover;
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.allSongsTrackDetails {
-    min-width: 0;
-}
-
-.allSongsTrackTitle {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text-main);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin-bottom: 0.15rem;
-}
-
-.allSongsTrackRow.active .allSongsTrackTitle {
-    color: var(--accent);
-}
-
-.allSongsTrackAlbum {
-    font-size: 0.8rem;
-    color: var(--text-dim);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.allSongsTrackDuration {
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    font-variant-numeric: tabular-nums;
-    padding-right: 1rem;
+    padding: 0;
+    overflow-y: auto;
+    height: 100%;
 }
 
 .allSongsLoading {
@@ -408,73 +443,14 @@
     color: var(--text-dim);
 }
 
-/* Skeleton for loading */
-.skeletonTrackRow {
-    display: grid;
-    grid-template-columns: 48px 1fr auto;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.75rem 2rem;
-    margin: 0 0.5rem;
+.trackCountSpinner {
+    animation: spin 1s linear infinite;
+    margin-right: 0.35rem;
 }
 
-.skeletonIndex {
-    width: 24px;
-    height: 16px;
-    background: var(--glass-surface);
-    border-radius: 4px;
-    margin: 0 auto;
-}
-
-.skeletonTrackInfo {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-.skeletonArt {
-    width: 40px;
-    height: 40px;
-    border-radius: 6px;
-    background: var(--glass-surface);
-}
-
-.skeletonText {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.skeletonTitle {
-    width: 180px;
-    height: 14px;
-    background: var(--glass-surface);
-    border-radius: 4px;
-}
-
-.skeletonAlbum {
-    width: 120px;
-    height: 12px;
-    background: var(--glass-surface);
-    border-radius: 4px;
-}
-
-.skeletonDuration {
-    width: 40px;
-    height: 14px;
-    background: var(--glass-surface);
-    border-radius: 4px;
-}
-
-/* Playing icon animation */
-.playingIcon {
-    color: var(--accent);
-    animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 /* Table header */
@@ -519,24 +495,25 @@
 
 .viewSwitcher {
     display: flex;
-    gap: 0.5rem;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 0.4rem;
-    border-radius: 18px;
+    gap: 0.25rem;
+    background: var(--glass-surface);
+    padding: 0.25rem;
+    border-radius: 10px;
     width: fit-content;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-subtle);
 }
 
 .viewTab {
-    padding: 0.6rem 1.2rem;
-    border-radius: 14px;
-    border: 1px solid transparent;
+    padding: 0.4rem 0.9rem;
+    border-radius: 8px;
+    border: none;
     background: transparent;
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-    font-weight: 700;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.15s ease;
+    white-space: nowrap;
 }
 
 .viewTab:hover {
@@ -547,9 +524,14 @@
 .viewTab.active {
     background: var(--bg-layer-3);
     color: var(--accent);
-    border-color: rgba(137, 180, 250, 0.4);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-    transform: scale(1.05);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(137, 180, 250, 0.25);
+    animation: tabSlide 0.2s ease;
+}
+
+@keyframes tabSlide {
+    from { transform: scaleX(0.95); opacity: 0.7; }
+    to { transform: scaleX(1); opacity: 1; }
 }
 
 .backBtn {
