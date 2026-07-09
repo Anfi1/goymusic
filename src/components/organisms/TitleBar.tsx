@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Sun, Moon, Minus, Square, Copy, X, ChevronLeft, RefreshCw, Search, Loader2 } from 'lucide-react';
+import { Sun, Moon, Minus, Square, Copy, X, ChevronLeft, RefreshCw, Search, Loader2, Clock } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
 import { EqualizerMenu } from '../molecules/EqualizerMenu';
 import { getSearchSuggestions } from '../../api/yt';
+import { getSearchHistory, addToSearchHistory, removeFromSearchHistory } from '../../utils/searchHistory';
 import styles from './TitleBar.module.css';
 
 interface TitleBarProps {
@@ -54,11 +55,21 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [history, setHistory] = useState<string[]>([]);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSearchQuery(activeSearchQuery);
   }, [activeSearchQuery]);
+
+  // Загружаем историю при маунте и при открытии дропдауна
+  const refreshHistory = () => setHistory(getSearchHistory());
+
+  // При фокусе на пустом поле — показать историю
+  const handleFocus = () => {
+    refreshHistory();
+    setShowSuggestions(true);
+  };
 
   useEffect(() => {
     if (isInitializing || searchQuery.trim().length <= 1) {
@@ -95,11 +106,12 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
   const handleSearchSubmit = (e?: React.FormEvent, forcedQuery?: string) => {
     e?.preventDefault();
     if (isInitializing) return;
-    const query = forcedQuery ?? (selectedIndex >= 0 ? suggestions[selectedIndex] : searchQuery);
+    const query = forcedQuery ?? (selectedIndex >= 0 ? displayItems[selectedIndex] : searchQuery);
     if (query.trim() && onSearch) {
       setShowSuggestions(false);
       setSelectedIndex(-1);
-      if (selectedIndex >= 0) setSearchQuery(suggestions[selectedIndex]);
+      addToSearchHistory(query.trim());
+      if (selectedIndex >= 0) setSearchQuery(displayItems[selectedIndex]);
       onSearch(query.trim());
     }
   };
@@ -108,7 +120,7 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
     if (!showSuggestions) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(prev => Math.min(prev + 1, suggestions.length - 1));
+      setSelectedIndex(prev => Math.min(prev + 1, displayItems.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSelectedIndex(prev => Math.max(prev - 1, -1));
@@ -124,6 +136,29 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
     setSelectedIndex(-1);
     if (suggestion.trim() && onSearch) onSearch(suggestion.trim());
   };
+
+  const handleDeleteHistory = (query: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    removeFromSearchHistory(query);
+    setHistory(prev => prev.filter(h => h !== query));
+  };
+
+  // Объединённый список: история (фильтрованная по запросу) + YT-предложения, без дубликатов
+  const displayItems = (() => {
+    const q = searchQuery.trim().toLowerCase();
+    const filteredHistory = q.length > 0
+      ? history.filter(h => h.toLowerCase().includes(q))
+      : history;
+    const seen = new Set(filteredHistory.map(h => h.toLowerCase()));
+    const merged = [...filteredHistory];
+    for (const s of suggestions) {
+      if (!seen.has(s.toLowerCase())) {
+        merged.push(s);
+        seen.add(s.toLowerCase());
+      }
+    }
+    return merged;
+  })();
 
   return (
     <header className={styles.titleBar}>
@@ -163,7 +198,7 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
                 <input
                   type="text"
                   value={searchQuery}
-                  onFocus={() => { if (searchQuery.trim().length > 1) setShowSuggestions(true); }}
+                  onFocus={handleFocus}
                   onChange={(e) => { setSearchQuery(e.target.value); setShowSuggestions(true); }}
                   onKeyDown={handleKeyDown}
                   placeholder="Search songs, artists..."
@@ -172,24 +207,40 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
               </div>
             </form>
 
-            {showSuggestions && searchQuery.trim().length > 1 && (isLoadingSuggestions || suggestions.length > 0) && (
+            {showSuggestions && (isLoadingSuggestions || displayItems.length > 0) && (
               <div className={styles.suggestionsDropdown}>
-                {isLoadingSuggestions && suggestions.length === 0 ? (
+                {isLoadingSuggestions && displayItems.length === 0 ? (
                   <div className={styles.suggestionLoading}>
                     <Loader2 size={12} className={styles.searchIconSpinner} />
                     <span>Searching...</span>
                   </div>
-                ) : suggestions.map((s, i) => (
-                  <div
-                    key={i}
-                    className={`${styles.suggestionItem} ${i === selectedIndex ? styles.suggestionSelected : ''}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleSuggestionClick(s)}
-                  >
-                    <Search size={12} className={styles.suggestionIcon} />
-                    <span>{s}</span>
-                  </div>
-                ))}
+                ) : displayItems.map((s, i) => {
+                  const isHistory = history.includes(s);
+                  return (
+                    <div
+                      key={`${isHistory ? 'h' : 'y'}-${i}`}
+                      className={`${styles.suggestionItem} ${i === selectedIndex ? styles.suggestionSelected : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSuggestionClick(s)}
+                    >
+                      {isHistory
+                        ? <Clock size={12} className={styles.suggestionIconHistory} />
+                        : <Search size={12} className={styles.suggestionIcon} />}
+                      <span className={styles.suggestionText}>{s}</span>
+                      {isHistory && (
+                        <button
+                          className={styles.suggestionDelete}
+                          onClick={(e) => handleDeleteHistory(s, e)}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          aria-label="Удалить из истории"
+                          type="button"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
