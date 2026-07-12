@@ -10,6 +10,9 @@ import { autoUpdater } from 'electron-updater'
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
 
+app.name = 'GoyMusic'
+app.setAppUserModelId('com.goymusic.app')
+
 let win: BrowserWindow | null
 let pyProc: ChildProcess | null
 let logPath: string = '';

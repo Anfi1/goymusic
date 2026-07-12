@@ -2,6 +2,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
+import { initMediaSession } from './api/mediaSession'
+
+initMediaSession()
 
 // Initialize react-scan ONLY in development and ONLY if requested
 // Using dynamic import to ensure it's completely excluded from production build
