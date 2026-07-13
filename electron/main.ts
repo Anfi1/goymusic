@@ -440,7 +440,7 @@ function createWindow() {
       webSecurity: false, 
       spellcheck: false, 
       backgroundThrottling: true,
-      devTools: !app.isPackaged
+      devTools: !app.isPackaged || process.argv.includes('--devtools')
     },
   })
 
