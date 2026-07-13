@@ -2,3 +2,4 @@ requests==2.32.5
 yt-dlp==2026.7.4
 pytubefix==10.3.8
 nodriver
+syncedlyrics>=1.0.1

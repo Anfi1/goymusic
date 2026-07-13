@@ -1883,44 +1883,80 @@ def handle_request(request):
             title = _normalize_lyric_title(request.get('title'))
             duration = request.get('duration')
 
-            # 1. LRCLIB точный матч (нужны artist+title) — приоритет synced.
-            if artist and title:
+            def _lrclib_exact():
+                if not (artist and title):
+                    return None
                 try:
                     params = {'artist_name': artist, 'track_name': title}
                     if duration: params['duration'] = int(duration)
-                    response = requests.get('https://lrclib.net/api/get', params=params, timeout=5)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get('plainLyrics') or data.get('syncedLyrics'):
-                            safe_print({
-                                'status': 'ok',
-                                'plainLyrics': data.get('plainLyrics'),
-                                'syncedLyrics': data.get('syncedLyrics'),
-                                'source': 'lrclib',
-                                'callId': call_id
-                            })
-                            return
+                    r = requests.get('https://lrclib.net/api/get', params=params, timeout=5)
+                    if r.status_code == 200:
+                        d = r.json()
+                        if d.get('plainLyrics') or d.get('syncedLyrics'):
+                            return {'plainLyrics': d.get('plainLyrics'), 'syncedLyrics': d.get('syncedLyrics'), 'source': 'lrclib'}
                 except: pass
+                return None
 
-            # 2. LRCLIB поиск — терпим к отсутствию/неточному artist, тоже может дать synced.
-            if title:
+            def _lrclib_search():
+                if not title:
+                    return None
                 try:
                     q = f"{artist} {title}".strip() if artist else title
                     sr = requests.get('https://lrclib.net/api/search', params={'q': q}, timeout=5)
                     if sr.status_code == 200:
                         best = _pick_lrclib(sr.json() or [], title, artist, duration)
                         if best and (best.get('plainLyrics') or best.get('syncedLyrics')):
-                            safe_print({
-                                'status': 'ok',
-                                'plainLyrics': best.get('plainLyrics'),
-                                'syncedLyrics': best.get('syncedLyrics'),
-                                'source': 'lrclib',
-                                'callId': call_id
-                            })
-                            return
+                            return {'plainLyrics': best.get('plainLyrics'), 'syncedLyrics': best.get('syncedLyrics'), 'source': 'lrclib'}
                 except: pass
+                return None
 
-            # 3. Genius (нечёткий; artist не обязателен — сам находит исполнителя).
+            def _netease():
+                if not title:
+                    return None
+                try:
+                    import syncedlyrics
+                    q = f"{artist} {title}".strip() if artist else title
+                    lrc = syncedlyrics.search(q, providers=["NetEase"], synced_only=False)
+                    if lrc:
+                        lines = lrc.strip().split('\n')
+                        synced_lines = [l for l in lines if l.startswith('[') and ':' in l and ']' in l]
+                        plain_lines = [l.split(']', 1)[1].strip() for l in lines if l.startswith('[') and ']' in l and l.split(']', 1)[1].strip()]
+                        has_synced = len(synced_lines) > 2
+                        return {
+                            'plainLyrics': '\n'.join(plain_lines) if plain_lines else None,
+                            'syncedLyrics': lrc if has_synced else None,
+                            'source': 'netease'
+                        }
+                except: pass
+                return None
+
+            # ПулLRCLIB exact + LRCLIB search + NetEase — параллельно.
+            # Как только один вернул synced — берём его и отменяем остальные.
+            result = None
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {
+                    pool.submit(_lrclib_exact): 'lrclib_exact',
+                    pool.submit(_lrclib_search): 'lrclib_search',
+                    pool.submit(_netease): 'netease',
+                }
+                for future in concurrent.futures.as_completed(futures, timeout=12):
+                    try:
+                        r = future.result(timeout=0)
+                    except: continue
+                    if not r: continue
+                    # Приоритет: synced > plain
+                    if r.get('syncedLyrics'):
+                        result = r
+                        for f in futures: f.cancel()
+                        break
+                    if not result:
+                        result = r
+
+            if result:
+                safe_print({'status': 'ok', **result, 'callId': call_id})
+                return
+
+            # Фолбэк: Genius (plain only).
             genius = fetch_genius_lyrics(artist, title)
             if genius:
                 safe_print({
@@ -1932,7 +1968,7 @@ def handle_request(request):
                 })
                 return
 
-            # 4. lyrics.ovh (требует artist).
+            # Фолбэк: lyrics.ovh (plain only).
             if artist:
                 ovh = fetch_lyrics_ovh(artist, title)
                 if ovh:

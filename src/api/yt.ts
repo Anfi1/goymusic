@@ -158,48 +158,27 @@ export interface YTMHomeSection {
 
 async function pyCall(command: string, args: any = {}, signal?: AbortSignal) {
     const callId = createCallId();
-    const label = `[Bridge] ${command} (${callId})`;
     
     if (signal) {
         if (signal.aborted) return { status: 'error', message: 'Aborted' };
         signal.addEventListener('abort', () => {
-            console.log(`%c[Bridge] CANCELLING ${command} (${callId})`, 'color: #f38ba8; font-weight: bold;');
             (window as any).bridge.pyCancel(callId);
         }, { once: true });
     }
 
-    console.groupCollapsed(`%c${label}`, 'color: #89b4fa; font-weight: bold; font-size: 11px;');
-    console.log('Arguments:', { ...args, callId });
-    
     try {
         const res = await (window as any).bridge.pyCall(command, { ...args, callId });
         
         if (!res) {
-            console.error('%cBRIDGE ERROR:', 'font-weight: bold; color: #f38ba8;', 'No response from bridge');
-            console.groupEnd();
             return { status: 'error', message: 'No response from bridge' };
         }
 
         if (res.status === 'error') {
-            if (res.message === 'Cancelled by client') {
-                console.warn('%cBRIDGE CANCELLED', 'font-weight: bold; color: #fab387;');
-            } else {
-                console.error('%cPYTHON:', 'font-weight: bold; color: #f38ba8;', res.message);
-            }
-            console.groupEnd();
             return res;
         }
         
-        console.log('Response:', res);
-        console.groupEnd();
         return res;
     } catch (e) {
-        if (signal?.aborted) {
-            console.warn('%cBRIDGE ABORTED (Exception)', 'font-weight: bold; color: #fab387;');
-        } else {
-            console.error('%cBRIDGE EXCEPTION:', 'font-weight: bold; color: #f38ba8;', e);
-        }
-        console.groupEnd();
         return { status: 'error', message: String(e) };
     }
 }
