@@ -1,5 +1,6 @@
 import { YTMTrack } from './yt';
 import { likedStore, ScLikedEntry } from './likedStore';
+import { tracksStore } from './tracks';
 import { isScAuthed, getScLikedMeta, getScLikedEntries, addScLocalOnlyId, removeScLocalOnlyId, loadScLocalOnlyIds } from './soundcloud';
 
 // Менеджер локального зеркала SoundCloud-лайков. Аналог likedManager, но для SC:
@@ -83,7 +84,8 @@ class ScLikedManager {
   // Оптимистичное обновление при успешном лайке/анлайке в приложении.
   async addLocal(track: YTMTrack, localOnly = false) {
     if (!track.scId) return;
-    await likedStore.putScTrack({ scId: track.scId, track, likedAt: Date.now(), localOnly });
+    await tracksStore.upsertTrack(track);
+    await likedStore.putScTrack({ scId: track.scId, trackId: track.id, likedAt: Date.now(), localOnly });
     const c = await likedStore.getScVirtualCount();
     if (localOnly) {
       addScLocalOnlyId(track.scId);

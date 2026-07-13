@@ -1,6 +1,7 @@
 import type { YTMTrack } from './yt';
 import type { ScLikedEntry } from './likedStore';
 import { likedStore } from './likedStore';
+import { tracksStore } from './tracks';
 import { registerSoundCloudTrack } from './stream';
 
 export interface ScSearchEntry {
@@ -445,13 +446,15 @@ export async function getScLikedEntries(): Promise<ScLikedEntry[]> {
   try {
     const res = await (window as any).bridge.pyCall('sc_liked_tracks', { token });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
-      return res.results
+      const entries = res.results
         .filter((e: any) => e.scId)
         .map((e: any) => {
           const track = scEntryToTrack(e as ScSearchEntry);
           if (track.scUrl) registerSoundCloudTrack(track.id, track.scUrl);
-          return { scId: e.scId as string, track, likedAt: Number(e.likedAt) || 0 };
+          tracksStore.upsertTrack(track);
+          return { scId: e.scId as string, trackId: track.id, likedAt: Number(e.likedAt) || 0 };
         });
+      return entries;
     }
   } catch (e) {
     console.warn('[soundcloud] getScLikedEntries failed', e);

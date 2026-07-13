@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import styles from './HistoryView.module.css';
-import type { HistoryEntry } from '../../api/history';
+import type { HydratedHistoryEntry } from '../../api/history';
 import type { YTMTrack } from '../../api/yt';
 import { getArtistDetail } from '../../api/yt';
 import { player } from '../../api/player';
@@ -146,7 +146,7 @@ export default function HistoryCharts({
   onSelectAlbum,
   onPlayTrack,
 }: {
-  rawHistory: HistoryEntry[];
+  rawHistory: HydratedHistoryEntry[];
   onClose: () => void;
   onSelectArtist?: (id: string) => void;
   onSelectAlbum?: (id: string) => void;

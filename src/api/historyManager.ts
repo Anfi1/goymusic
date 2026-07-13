@@ -1,5 +1,6 @@
 import { player } from "./player";
 import { historyStore } from "./history";
+import { tracksStore } from "./tracks";
 import { addToHistory } from "./yt";
 import { PlaybackAccumulator, PlaybackFlush } from "./playbackAccumulator";
 
@@ -108,7 +109,8 @@ class HistoryManager {
     }
 
     try {
-      const ts = await historyStore.addEntry(player.currentTrack);
+      await tracksStore.upsertTrack(player.currentTrack);
+      const ts = await historyStore.addEntry(player.currentTrack.id);
       if (ts != null) this.loggedTimestamp = ts;
     } catch (e) {
       console.error("[history] Failed to add entry", e);

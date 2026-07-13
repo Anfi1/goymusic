@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, YTMTrack } from '../api/yt';
 import { isSoundCloudId, getSoundCloudAlbum, getSoundCloudPlaylist } from '../api/soundcloud';
 import { player } from '../api/player';
-import { likedStore, LikedEntry, ScLikedEntry } from '../api/likedStore';
+import { likedStore, LikedEntry, ScLikedEntry, HydratedLikedEntry, HydratedScLikedEntry } from '../api/likedStore';
 import { likedManager } from '../api/likedManager';
 import { scLikedManager } from '../api/scLikedManager';
 
@@ -43,8 +43,8 @@ const triggerGC = () => {
 
 export const usePlaylist = (type: PlaylistType, id?: string) => {
   const queryClient = useQueryClient();
-  const [localTracks, setLocalTracks] = useState<LikedEntry[]>([]);
-  const [scEntries, setScEntries] = useState<ScLikedEntry[]>([]);
+  const [localTracks, setLocalTracks] = useState<HydratedLikedEntry[]>([]);
+  const [scEntries, setScEntries] = useState<HydratedScLikedEntry[]>([]);
   const [managerSyncing, setManagerSyncing] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(true);
   const [sortMode, setSortModeState] = useState<SortMode>(() => {
@@ -67,28 +67,36 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
 
   useEffect(() => {
     if (isLiked) {
-      likedStore.getAllTracks().then(tracks => {
-        setLocalTracks(tracks);
+      likedStore.getAllTracks().then(async tracks => {
+        const hydrated = await likedStore.hydrateTracks(tracks);
+        setLocalTracks(hydrated);
         setIsLocalLoading(false);
       });
       likedManager.sync();
-      const unsub = likedManager.subscribe((tracks, syncing) => {
-        setLocalTracks(tracks);
+      const unsub = likedManager.subscribe(async (tracks, syncing) => {
+        const hydrated = await likedStore.hydrateTracks(tracks);
+        setLocalTracks(hydrated);
         setManagerSyncing(syncing);
         setIsLocalLoading(false);
       });
       // SC-лайки: мгновенно из локального стора + подписка + фоновая сверка (как у YT).
-      likedStore.getAllScTracks().then(setScEntries).catch(() => {});
-      const unsubSc = scLikedManager.subscribe((entries) => setScEntries(entries));
+      likedStore.getAllScTracks().then(async entries => {
+        const hydrated = await likedStore.hydrateScTracks(entries);
+        setScEntries(hydrated);
+      }).catch(() => {});
+      const unsubSc = scLikedManager.subscribe(async (entries) => {
+        const hydrated = await likedStore.hydrateScTracks(entries);
+        setScEntries(hydrated);
+      });
       scLikedManager.sync();
       return () => {
         unsub();
         unsubSc();
-        triggerGC(); // Clean up memory when leaving Liked Songs
+        triggerGC();
       };
     } else {
       setIsLocalLoading(false);
-      return () => triggerGC(); // Clean up memory when leaving any playlist
+      return () => triggerGC();
     }
   }, [isLiked]);
 

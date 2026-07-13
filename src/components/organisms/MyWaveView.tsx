@@ -521,12 +521,15 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const buildPersonalizedSeeds = useCallback(async (): Promise<YTMTrack[]> => {
     const scOn = isSoundCloudEnabled();
     const likes = await likedStore.getAllTracks();
-    let ytPool = likes.map(e => e.track).filter(t => t && t.isAvailable !== false);
+    const hydratedLikes = await likedStore.hydrateTracks(likes);
+    let ytPool = hydratedLikes.map(e => e.track).filter(t => t && t.isAvailable !== false);
     if (ytPool.length === 0) {
       const hist = await historyStore.getHistory(200);
-      ytPool = hist.map(h => h.track).filter(Boolean);
+      const hydratedHist = await historyStore.hydrateTracks(hist);
+      ytPool = hydratedHist.map(h => h.track).filter(Boolean);
     }
-    const scPool = scOn ? (await likedStore.getAllScTracks()).map(e => e.track) : [];
+    const scEntries = scOn ? await likedStore.getAllScTracks() : [];
+    const scPool = scOn ? (await likedStore.hydrateScTracks(scEntries)).map(e => e.track) : [];
     const ytSeeds = shuffle(ytPool).slice(0, 30);
     const scSeeds = shuffle(scPool).slice(0, 15);
     return scSeeds.length ? interleaveTracks(ytSeeds, scSeeds).slice(0, 40) : ytSeeds.slice(0, 40);

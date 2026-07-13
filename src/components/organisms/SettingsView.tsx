@@ -154,8 +154,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         try {
             const all = await likedStore.getAllScTracks();
             const localOnly = all.filter(e => e.localOnly);
+            const hydrated = await likedStore.hydrateScTracks(localOnly);
             let done = 0;
-            for (const entry of localOnly) {
+            for (const entry of hydrated) {
                 const ok = await scSetLiked(entry.scId, entry.track.scUrl || entry.track.id, true);
                 if (ok) {
                     await likedStore.putScTrack({ ...entry, localOnly: false });

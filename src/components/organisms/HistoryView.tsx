@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import { TableVirtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { player } from '../../api/player';
-import { historyStore, HistoryEntry } from '../../api/history';
+import { historyStore, HistoryEntry, HydratedHistoryEntry } from '../../api/history';
 import { likedStore } from '../../api/likedStore';
 import { TrackRow } from '../molecules/TrackRow';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
@@ -28,7 +28,7 @@ import trackStyles from '../molecules/TrackRow.module.css';
 
 type HistoryItem =
   | { type: 'header'; date: string }
-  | { type: 'track'; entry: HistoryEntry; index: number };
+  | { type: 'track'; entry: HydratedHistoryEntry; index: number };
 
 interface DateRange {
   start: Date | null;
@@ -426,7 +426,7 @@ interface HistoryViewProps {
 
 export const HistoryView: React.FC<HistoryViewProps> = memo(
   ({ onSelectArtist, onSelectAlbum }) => {
-    const [rawHistory, setHistory] = useState<HistoryEntry[]>([]);
+    const [rawHistory, setHistory] = useState<HydratedHistoryEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showCharts, setShowCharts] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -444,12 +444,13 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
       setIsLoading(true);
       try {
         const data = await historyStore.getHistory();
+        const hydratedData = await historyStore.hydrateTracks(data);
         const allLikedTracks = await likedStore.getAllTracks();
-        const likedIds = new Set(allLikedTracks.map((t) => t.videoId));
+        const likedIds = new Set(allLikedTracks.map((t) => t.trackId));
         const allScLikedTracks = await likedStore.getAllScTracks();
         const scLikedIds = new Set(allScLikedTracks.map((e) => e.scId));
 
-        const hydratedData = data.map((entry) => {
+        const withLikeStatus = hydratedData.map((entry) => {
           const isSCTrack = entry.track.source === 'soundcloud';
           if (isSCTrack && entry.track.scId && scLikedIds.has(entry.track.scId)) {
             return {
@@ -470,7 +471,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
           return entry;
         });
 
-        setHistory(hydratedData || []);
+        setHistory(withLikeStatus || []);
       } catch (e) {
         console.error(e);
       } finally {

@@ -1,6 +1,7 @@
 import { getContinuation, rateSong, YTMTrack, getPlaylistTracks } from './yt';
 import { isScAuthed, scSetLiked } from './soundcloud';
 import { likedStore, LikedEntry, YtImportState } from './likedStore';
+import { tracksStore } from './tracks';
 import { scLikedManager } from './scLikedManager';
 
 class LikedManager {
@@ -55,11 +56,12 @@ class LikedManager {
       const headCount = Math.min(10, firstPage.tracks.length, currentLocal.length);
       let headMismatch = currentLocal.length === 0;
       for (let i = 0; i < headCount; i++) {
-        if (currentLocal[i].videoId !== firstPage.tracks[i].id) {
+        if (currentLocal[i].trackId !== firstPage.tracks[i].id) {
           headMismatch = true;
           break;
         }
       }
+
 
       const savedImport = await likedStore.getYtImportState();
       const headIds = firstPage.tracks.slice(0, 10).map(track => track.id);
@@ -90,7 +92,8 @@ class LikedManager {
         const initialEntries = firstPage.tracks.flatMap((track) => {
           if (!track.id || seen.has(track.id)) return [];
           seen.add(track.id);
-          return [{ videoId: track.id, track, originalIndex: seen.size - 1, syncedAt: 0 }];
+          tracksStore.upsertTrack(track);
+          return [{ trackId: track.id, originalIndex: seen.size - 1, syncedAt: 0 }];
         });
         const initialContinuation = firstPage.continuation || null;
         const now = Date.now();
@@ -120,12 +123,13 @@ class LikedManager {
           throw new Error('Liked Songs continuation returned no tracks');
         }
 
-        const knownIds = new Set(entries.map(entry => entry.videoId));
+        const knownIds = new Set(entries.map(entry => entry.trackId));
         const pageEntries: LikedEntry[] = [];
         for (const track of next.tracks) {
           if (!track.id || knownIds.has(track.id)) continue;
           knownIds.add(track.id);
-          pageEntries.push({ videoId: track.id, track, originalIndex: entries.length + pageEntries.length, syncedAt: 0 });
+          tracksStore.upsertTrack(track);
+          pageEntries.push({ trackId: track.id, originalIndex: entries.length + pageEntries.length, syncedAt: 0 });
         }
         const nextContinuation = next.continuation || null;
         const nextCount = entries.length + pageEntries.length;
@@ -152,7 +156,7 @@ class LikedManager {
         ...entry,
         originalIndex: index,
         syncedAt: now,
-        likedAt: likedAtMap.get(entry.videoId),
+        likedAt: likedAtMap.get(entry.trackId),
       }));
       await likedStore.commitYtImport(finalEntries, ytTotal);
     } catch (error) {
@@ -191,7 +195,7 @@ class LikedManager {
       const headCount = Math.min(10, firstPage.tracks.length, currentLocal.length);
       let headMismatch = currentLocal.length === 0;
       for (let i = 0; i < headCount; i++) {
-        if (currentLocal[i].videoId !== firstPage.tracks[i].id) {
+        if (currentLocal[i].trackId !== firstPage.tracks[i].id) {
           headMismatch = true;
           break;
         }
@@ -222,7 +226,8 @@ class LikedManager {
 
           // Живое обновление: отдаём накопленный список после каждой страницы (~100),
           // чтобы лайки появлялись по мере загрузки, а не только в самом конце.
-          const entries = allTracks.map((t, i) => ({ videoId: t.id, track: t, originalIndex: i, syncedAt: 0 }));
+          const entries = allTracks.map((t, i) => ({ trackId: t.id, originalIndex: i, syncedAt: 0 }));
+          tracksStore.upsertTracksBatch(allTracks);
           this.listeners.forEach(l => l(entries as any, true));
           if (allTracks.length % 500 === 0) console.log(`[liked] Получено ${allTracks.length}...`);
         } catch (e) {
@@ -236,8 +241,7 @@ class LikedManager {
       const likedAtMap = await likedStore.getLikedAtMap();
       const now = Date.now();
       const finalEntries: LikedEntry[] = allTracks.map((t, i) => ({
-        videoId: t.id,
-        track: t,
+        trackId: t.id,
         originalIndex: i,
         syncedAt: now,
         likedAt: likedAtMap.get(t.id)
@@ -336,9 +340,9 @@ class LikedManager {
         const virtualCount = await likedStore.getVirtualCount();
         if (newStatus === 'LIKE') {
           const minIdx = await likedStore.getMinIndex();
+          await tracksStore.upsertTrack({ ...track, likeStatus: 'LIKE' });
           await likedStore.putTrack({
-            videoId: id,
-            track: { ...track, likeStatus: 'LIKE' },
+            trackId: id,
             originalIndex: minIdx - 1,
             syncedAt: Date.now(),
             likedAt: Date.now()

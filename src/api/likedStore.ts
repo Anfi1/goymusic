@@ -1,21 +1,26 @@
 import { YTMTrack } from './yt';
+import { tracksStore } from './tracks';
 
 export interface LikedEntry {
-  videoId: string;
-  track: YTMTrack;
+  trackId: string;
   originalIndex: number;
   syncedAt: number;
-  // Реальное время лайка (ms). Для YouTube известно только для лайков, поставленных
-  // в этом приложении (API YТ не отдаёт дату лайка). Сохраняется между полными синками.
   likedAt?: number;
 }
 
-// SoundCloud-лайки храним в отдельной таблице, чтобы не конфликтовать с YouTube.
+export interface HydratedLikedEntry extends LikedEntry {
+  track: YTMTrack;
+}
+
 export interface ScLikedEntry {
   scId: string;
+  trackId: string;
+  likedAt: number;
+  localOnly?: boolean;
+}
+
+export interface HydratedScLikedEntry extends ScLikedEntry {
   track: YTMTrack;
-  likedAt: number; // created_at лайка из api-v2 (ms) — всегда известно
-  localOnly?: boolean; // true = лайкнут без авторизации SC
 }
 
 export interface YtImportState {
@@ -33,7 +38,7 @@ export interface YtImportState {
 class LikedStore {
   private db: IDBDatabase | null = null;
   private readonly DB_NAME = 'goymusic-liked';
-  private readonly VERSION = 3;
+  private readonly VERSION = 5;
   private initPromise: Promise<void> | null = null;
 
   async init() {
@@ -42,20 +47,130 @@ class LikedStore {
       const request = indexedDB.open(this.DB_NAME, this.VERSION);
       request.onupgradeneeded = (e: any) => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains('tracks')) {
-          const store = db.createObjectStore('tracks', { keyPath: 'videoId' });
+        const oldVersion = e.oldVersion;
+
+        // ─── v3 → v5: old stores ('tracks', 'sc_tracks', 'yt_import_tracks') with full `track` ───
+        if (oldVersion < 4) {
+          // YT liked
+          if (db.objectStoreNames.contains('tracks')) {
+            const oldStore = e.target.transaction.objectStore('tracks');
+            const entries: any[] = [];
+            const cursorReq = oldStore.openCursor();
+            cursorReq.onsuccess = (ev: any) => {
+              const cursor = ev.target.result;
+              if (cursor) {
+                const old = cursor.value;
+                entries.push({
+                  trackId: old.track?.id || old.videoId,
+                  originalIndex: old.originalIndex,
+                  syncedAt: old.syncedAt,
+                  likedAt: old.likedAt,
+                });
+                if (old.track) tracksStore.upsertTrack(old.track);
+                cursor.continue();
+              } else {
+                db.deleteObjectStore('tracks');
+                const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
+                store.createIndex('originalIndex', 'originalIndex', { unique: false });
+                for (const entry of entries) store.put(entry);
+              }
+            };
+          }
+
+          // SC liked
+          if (db.objectStoreNames.contains('sc_tracks')) {
+            const oldStore = e.target.transaction.objectStore('sc_tracks');
+            const entries: any[] = [];
+            const cursorReq = oldStore.openCursor();
+            cursorReq.onsuccess = (ev: any) => {
+              const cursor = ev.target.result;
+              if (cursor) {
+                const old = cursor.value;
+                entries.push({
+                  scId: old.scId,
+                  trackId: old.track?.id || old.scId,
+                  likedAt: old.likedAt,
+                  localOnly: old.localOnly,
+                });
+                if (old.track) tracksStore.upsertTrack(old.track);
+                cursor.continue();
+              } else {
+                db.deleteObjectStore('sc_tracks');
+                const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
+                sc.createIndex('likedAt', 'likedAt', { unique: false });
+                sc.createIndex('trackId', 'trackId', { unique: false });
+                for (const entry of entries) sc.put(entry);
+              }
+            };
+          }
+
+          // YT import
+          if (db.objectStoreNames.contains('yt_import_tracks')) {
+            const oldStore = e.target.transaction.objectStore('yt_import_tracks');
+            const entries: any[] = [];
+            const cursorReq = oldStore.openCursor();
+            cursorReq.onsuccess = (ev: any) => {
+              const cursor = ev.target.result;
+              if (cursor) {
+                const old = cursor.value;
+                entries.push({
+                  trackId: old.track?.id || old.videoId,
+                  originalIndex: old.originalIndex,
+                  syncedAt: old.syncedAt,
+                  likedAt: old.likedAt,
+                });
+                if (old.track) tracksStore.upsertTrack(old.track);
+                cursor.continue();
+              } else {
+                db.deleteObjectStore('yt_import_tracks');
+                const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
+                pending.createIndex('originalIndex', 'originalIndex', { unique: false });
+                for (const entry of entries) pending.put(entry);
+              }
+            };
+          }
+        }
+
+        // ─── v4 → v5: recreate 'yt_liked' with keyPath trackId instead of videoId ───
+        if (oldVersion >= 4 && oldVersion < 5 && db.objectStoreNames.contains('yt_liked')) {
+          const oldStore = e.target.transaction.objectStore('yt_liked');
+          const entries: any[] = [];
+          const cursorReq = oldStore.openCursor();
+          cursorReq.onsuccess = (ev: any) => {
+            const cursor = ev.target.result;
+            if (cursor) {
+              const old = cursor.value;
+              entries.push({
+                trackId: old.trackId || old.videoId,
+                originalIndex: old.originalIndex,
+                syncedAt: old.syncedAt,
+                likedAt: old.likedAt,
+              });
+              cursor.continue();
+            } else {
+              db.deleteObjectStore('yt_liked');
+              const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
+              store.createIndex('originalIndex', 'originalIndex', { unique: false });
+              for (const entry of entries) store.put(entry);
+            }
+          };
+        }
+
+        // ─── Fresh install / final: ensure stores exist ───
+        if (!db.objectStoreNames.contains('yt_liked')) {
+          const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
           store.createIndex('originalIndex', 'originalIndex', { unique: false });
         }
-        if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
-        // v2: отдельная таблица SoundCloud-лайков, сортировка по времени лайка.
-        if (!db.objectStoreNames.contains('sc_tracks')) {
-          const sc = db.createObjectStore('sc_tracks', { keyPath: 'scId' });
+        if (!db.objectStoreNames.contains('sc_liked')) {
+          const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
           sc.createIndex('likedAt', 'likedAt', { unique: false });
+          sc.createIndex('trackId', 'trackId', { unique: false });
         }
-        if (!db.objectStoreNames.contains('yt_import_tracks')) {
-          const pending = db.createObjectStore('yt_import_tracks', { keyPath: 'videoId' });
+        if (!db.objectStoreNames.contains('yt_import_liked')) {
+          const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
           pending.createIndex('originalIndex', 'originalIndex', { unique: false });
         }
+        if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
       };
       request.onsuccess = (e: any) => { this.db = e.target.result; resolve(); };
       request.onerror = (e) => { this.initPromise = null; reject(e); };
@@ -97,15 +212,15 @@ class LikedStore {
   setYtImportState(state: YtImportState) { return this.setState('ytImport', state); }
 
   async getYtImportTracks(): Promise<LikedEntry[]> {
-    return this.getTracksFromStore('yt_import_tracks');
+    return this.getTracksFromStore('yt_import_liked');
   }
 
   async saveYtImportPage(entries: LikedEntry[], state: YtImportState) {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction(['yt_import_tracks', 'state'], 'readwrite');
-      const store = tx.objectStore('yt_import_tracks');
+      const tx = this.db!.transaction(['yt_import_liked', 'state'], 'readwrite');
+      const store = tx.objectStore('yt_import_liked');
       entries.forEach(entry => store.put(entry));
       tx.objectStore('state').put(state, 'ytImport');
       tx.oncomplete = () => resolve();
@@ -118,8 +233,8 @@ class LikedStore {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction(['yt_import_tracks', 'state'], 'readwrite');
-      tx.objectStore('yt_import_tracks').clear();
+      const tx = this.db!.transaction(['yt_import_liked', 'state'], 'readwrite');
+      tx.objectStore('yt_import_liked').clear();
       tx.objectStore('state').delete('ytImport');
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -131,11 +246,11 @@ class LikedStore {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction(['tracks', 'yt_import_tracks', 'state'], 'readwrite');
-      const tracks = tx.objectStore('tracks');
+      const tx = this.db!.transaction(['yt_liked', 'yt_import_liked', 'state'], 'readwrite');
+      const tracks = tx.objectStore('yt_liked');
       tracks.clear();
       entries.forEach(entry => tracks.put(entry));
-      tx.objectStore('yt_import_tracks').clear();
+      tx.objectStore('yt_import_liked').clear();
       const state = tx.objectStore('state');
       state.put(virtualCount, 'virtualCount');
       state.put(1, 'ytImportCompletedVersion');
@@ -150,10 +265,10 @@ class LikedStore {
   async getMinIndex(): Promise<number> {
     await this.init();
     return new Promise((resolve) => {
-      const tx = this.db!.transaction('tracks', 'readonly');
-      const store = tx.objectStore('tracks');
+      const tx = this.db!.transaction('yt_liked', 'readonly');
+      const store = tx.objectStore('yt_liked');
       const index = store.index('originalIndex');
-      const request = index.openCursor(null, 'next'); // Lowest index
+      const request = index.openCursor(null, 'next');
       request.onsuccess = (e: any) => {
         const cursor = e.target.result;
         resolve(cursor ? cursor.value.originalIndex : 0);
@@ -163,10 +278,10 @@ class LikedStore {
   }
 
   async getAllTracks(): Promise<LikedEntry[]> {
-    return this.getTracksFromStore('tracks');
+    return this.getTracksFromStore('yt_liked');
   }
 
-  private async getTracksFromStore(storeName: 'tracks' | 'yt_import_tracks'): Promise<LikedEntry[]> {
+  private async getTracksFromStore(storeName: 'yt_liked' | 'yt_import_liked'): Promise<LikedEntry[]> {
     await this.init();
     if (!this.db) return [];
     return new Promise((resolve, reject) => {
@@ -184,11 +299,30 @@ class LikedStore {
     });
   }
 
-  // Карта videoId → likedAt существующих записей (чтобы сохранить время лайка при полном синке).
+  async hydrateTracks(entries: LikedEntry[]): Promise<HydratedLikedEntry[]> {
+    if (entries.length === 0) return [];
+    const ids = [...new Set(entries.map(e => e.trackId))];
+    const trackMap = await tracksStore.getTracks(ids);
+    return entries.map(e => ({
+      ...e,
+      track: trackMap.get(e.trackId)!,
+    })).filter(e => e.track);
+  }
+
+  async hydrateScTracks(entries: ScLikedEntry[]): Promise<HydratedScLikedEntry[]> {
+    if (entries.length === 0) return [];
+    const ids = [...new Set(entries.map(e => e.trackId))];
+    const trackMap = await tracksStore.getTracks(ids);
+    return entries.map(e => ({
+      ...e,
+      track: trackMap.get(e.trackId)!,
+    })).filter(e => e.track);
+  }
+
   async getLikedAtMap(): Promise<Map<string, number>> {
     const entries = await this.getAllTracks();
     const map = new Map<string, number>();
-    for (const e of entries) if (e.likedAt) map.set(e.videoId, e.likedAt);
+    for (const e of entries) if (e.likedAt) map.set(e.trackId, e.likedAt);
     return map;
   }
 
@@ -196,8 +330,8 @@ class LikedStore {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('tracks', 'readwrite');
-      tx.objectStore('tracks').put(entry);
+      const tx = this.db!.transaction('yt_liked', 'readwrite');
+      tx.objectStore('yt_liked').put(entry);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -207,34 +341,34 @@ class LikedStore {
     await this.init();
     if (!this.db || entries.length === 0) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('tracks', 'readwrite');
-      const store = tx.objectStore('tracks');
+      const tx = this.db!.transaction('yt_liked', 'readwrite');
+      const store = tx.objectStore('yt_liked');
       entries.forEach(entry => store.put(entry));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
   }
 
-  async deleteTrack(videoId: string) {
+  async deleteTrack(trackId: string) {
     await this.init();
     if (!this.db) return;
-    const tx = this.db!.transaction('tracks', 'readwrite');
-    tx.objectStore('tracks').delete(videoId);
+    const tx = this.db!.transaction('yt_liked', 'readwrite');
+    tx.objectStore('yt_liked').delete(trackId);
   }
 
   async clearAllTracks() {
     await this.init();
     if (!this.db) return;
-    const tx = this.db!.transaction('tracks', 'readwrite');
-    tx.objectStore('tracks').clear();
+    const tx = this.db!.transaction('yt_liked', 'readwrite');
+    tx.objectStore('yt_liked').clear();
   }
 
   async replaceAllTracks(entries: LikedEntry[]) {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('tracks', 'readwrite');
-      const store = tx.objectStore('tracks');
+      const tx = this.db!.transaction('yt_liked', 'readwrite');
+      const store = tx.objectStore('yt_liked');
       try {
         store.clear();
         entries.forEach(entry => store.put(entry));
@@ -249,14 +383,14 @@ class LikedStore {
     });
   }
 
-  // ─── SoundCloud tracks (отдельная таблица) ───────────────────────────────
+  // ─── SoundCloud tracks ───────────────────────────────────────────────────
   async getAllScTracks(): Promise<ScLikedEntry[]> {
     await this.init();
     if (!this.db) return [];
     return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction('sc_tracks', 'readonly');
-      const index = tx.objectStore('sc_tracks').index('likedAt');
-      const request = index.openCursor(null, 'prev'); // newest-liked first
+      const tx = this.db!.transaction('sc_liked', 'readonly');
+      const index = tx.objectStore('sc_liked').index('likedAt');
+      const request = index.openCursor(null, 'prev');
       const results: ScLikedEntry[] = [];
       request.onsuccess = (e: any) => {
         const cursor = e.target.result;
@@ -271,8 +405,8 @@ class LikedStore {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('sc_tracks', 'readwrite');
-      tx.objectStore('sc_tracks').put(entry);
+      const tx = this.db!.transaction('sc_liked', 'readwrite');
+      tx.objectStore('sc_liked').put(entry);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -282,8 +416,8 @@ class LikedStore {
     await this.init();
     if (!this.db || entries.length === 0) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('sc_tracks', 'readwrite');
-      const store = tx.objectStore('sc_tracks');
+      const tx = this.db!.transaction('sc_liked', 'readwrite');
+      const store = tx.objectStore('sc_liked');
       entries.forEach(entry => store.put(entry));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -293,23 +427,23 @@ class LikedStore {
   async deleteScTrack(scId: string) {
     await this.init();
     if (!this.db) return;
-    const tx = this.db!.transaction('sc_tracks', 'readwrite');
-    tx.objectStore('sc_tracks').delete(scId);
+    const tx = this.db!.transaction('sc_liked', 'readwrite');
+    tx.objectStore('sc_liked').delete(scId);
   }
 
   async clearScTracks() {
     await this.init();
     if (!this.db) return;
-    const tx = this.db!.transaction('sc_tracks', 'readwrite');
-    tx.objectStore('sc_tracks').clear();
+    const tx = this.db!.transaction('sc_liked', 'readwrite');
+    tx.objectStore('sc_liked').clear();
   }
 
   async replaceScTracks(entries: ScLikedEntry[]) {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('sc_tracks', 'readwrite');
-      const store = tx.objectStore('sc_tracks');
+      const tx = this.db!.transaction('sc_liked', 'readwrite');
+      const store = tx.objectStore('sc_liked');
       try {
         store.clear();
         entries.forEach(entry => store.put(entry));
