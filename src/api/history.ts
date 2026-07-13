@@ -22,13 +22,16 @@ class HistoryStore {
   async init() {
     if (this.initPromise) return this.initPromise;
     this.initPromise = new Promise((resolve, reject) => {
+      console.log(`[history] Opening DB "${this.DB_NAME}" v${this.VERSION}...`);
       const request = indexedDB.open(this.DB_NAME, this.VERSION);
       request.onupgradeneeded = (e: any) => {
         const db = e.target.result;
         const oldVersion = e.oldVersion;
+        console.log(`[history] onupgradeneeded: oldVersion=${oldVersion}, stores=[${Array.from(db.objectStoreNames)}]`);
 
         // ─── Fresh install: create plays store ───
         if (oldVersion === 0) {
+          console.log('[history] Fresh install — creating plays store');
           const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
           store.createIndex('trackId', 'trackId', { unique: false });
           return;
@@ -36,6 +39,7 @@ class HistoryStore {
 
         // ─── v1 → v3: migrate 'tracks' store (with inline track objects) → 'plays' ───
         if (oldVersion < 2 && db.objectStoreNames.contains('tracks')) {
+          console.log('[history] v1→v3 migration: reading from tracks store...');
           const oldStore = e.target.transaction.objectStore('tracks');
           const migrated: { timestamp: number; trackId: string; listenedSeconds: number }[] = [];
           const trackBatch: YTMTrack[] = [];
@@ -54,11 +58,13 @@ class HistoryStore {
               if (old.track) trackBatch.push(old.track);
               cursor.continue();
             } else {
+              console.log(`[history] v1→v3 migration: read ${migrated.length} entries, ${trackBatch.length} tracks`);
               db.deleteObjectStore('tracks');
               const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
               store.createIndex('trackId', 'trackId', { unique: false });
               for (const entry of migrated) store.put(entry);
               this.pendingTrackMigrations = trackBatch;
+              console.log('[history] v1→v3 migration: stores swapped, tracks queued for tracksStore');
             }
           };
           return;
@@ -66,6 +72,7 @@ class HistoryStore {
 
         // ─── v2 → v3: recreate 'plays' store with trackId index ───
         if (oldVersion < 3 && db.objectStoreNames.contains('plays')) {
+          console.log('[history] v2→v3 migration: reading from plays store...');
           const oldStore = e.target.transaction.objectStore('plays');
           const migrated: { timestamp: number; trackId: string; listenedSeconds: number }[] = [];
 
@@ -81,10 +88,12 @@ class HistoryStore {
               });
               cursor.continue();
             } else {
+              console.log(`[history] v2→v3 migration: read ${migrated.length} entries`);
               db.deleteObjectStore('plays');
               const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
               store.createIndex('trackId', 'trackId', { unique: false });
               for (const entry of migrated) store.put(entry);
+              console.log('[history] v2→v3 migration: done');
             }
           };
           return;
@@ -92,19 +101,46 @@ class HistoryStore {
 
         // ─── v2 without plays store: create fresh ───
         if (oldVersion < 3 && !db.objectStoreNames.contains('plays')) {
+          console.log('[history] v2 without plays — creating fresh');
           const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
           store.createIndex('trackId', 'trackId', { unique: false });
         }
       };
       request.onsuccess = (e: any) => {
         this.db = e.target.result;
+        if (!this.db) { reject(new Error('DB is null')); return; }
+        const stores = Array.from(this.db.objectStoreNames);
+        console.log(`[history] DB opened. Stores: [${stores}]`);
+
+        // Check plays count
+        try {
+          const tx = this.db.transaction('plays', 'readonly');
+          const store = tx.objectStore('plays');
+          const countReq = store.count();
+          countReq.onsuccess = () => {
+            console.log(`[history] plays store has ${countReq.result} entries`);
+          };
+          countReq.onerror = () => {
+            console.log(`[history] failed to count plays: ${countReq.error}`);
+          };
+        } catch (err: any) {
+          console.log(`[history] failed to open plays store: ${err.message}`);
+        }
+
         if (this.pendingTrackMigrations.length > 0) {
-          tracksStore.upsertTracksBatch(this.pendingTrackMigrations).catch(() => {});
+          console.log(`[history] Migrating ${this.pendingTrackMigrations.length} tracks to tracksStore...`);
+          tracksStore.upsertTracksBatch(this.pendingTrackMigrations)
+            .then(() => console.log('[history] tracksStore migration complete'))
+            .catch((err) => console.error('[history] tracksStore migration failed:', err));
           this.pendingTrackMigrations = [];
         }
         resolve();
       };
-      request.onerror = () => { this.initPromise = null; reject(request.error); };
+      request.onerror = (e) => {
+        console.error(`[history] DB open FAILED:`, request.error);
+        this.initPromise = null;
+        reject(request.error);
+      };
     });
     return this.initPromise;
   }

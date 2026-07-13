@@ -36,11 +36,13 @@ class HistoryManager {
   }
 
   async init() {
+    console.log('[historyManager] init: starting...');
     await historyStore.init();
+    console.log('[historyManager] init: historyStore ready');
 
     // Subscribe to player events
     player.subscribe((event) => {
-      if (event === "state") {
+      if (event === 'state') {
         this.handleStateChange();
       }
     });
@@ -99,7 +101,7 @@ class HistoryManager {
     if (!player.currentTrack || player.currentTrack.id !== trackId) return;
     
     this.currentTrackLogged = trackId;
-    console.log(`[history] Logging track: ${player.currentTrack.title}`);
+    console.log(`[history] Logging track: ${player.currentTrack.title} (id=${trackId}, src=${player.currentTrack.source})`);
     
     // Background YT history update — только для YT-треков (SC-id это URL, в YT-API не уходит)
     if (player.currentTrack.source !== 'soundcloud') {
@@ -109,8 +111,11 @@ class HistoryManager {
     }
 
     try {
+      console.log('[history] upsertTrack...');
       await tracksStore.upsertTrack(player.currentTrack);
+      console.log('[history] upsertTrack OK, addEntry...');
       const ts = await historyStore.addEntry(player.currentTrack.id);
+      console.log(`[history] addEntry result: ts=${ts}`);
       if (ts != null) this.loggedTimestamp = ts;
     } catch (e) {
       console.error("[history] Failed to add entry", e);

@@ -488,6 +488,12 @@ function createWindow() {
   win.on('unmaximize', sendWindowState)
   win.on('enter-full-screen', sendWindowState)
   win.on('leave-full-screen', sendWindowState)
+
+  // Capture renderer console output to app.log
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const prefix = [' VERBOSE', ' INFO', ' WARNING', ' ERROR'][level] || '';
+    logToFile(`[renderer${prefix}] ${message} (${sourceId}:${line})`);
+  });
 }
 
 app.on('window-all-closed', () => {

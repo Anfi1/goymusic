@@ -9,18 +9,36 @@ class TracksStore {
   async init() {
     if (this.db) return;
     return new Promise<void>((resolve, reject) => {
+      console.log(`[tracks] Opening DB "${this.DB_NAME}" v${this.VERSION}...`);
       const request = indexedDB.open(this.DB_NAME, this.VERSION);
       request.onupgradeneeded = (e: any) => {
         const db = e.target.result;
+        console.log(`[tracks] onupgradeneeded: stores=[${Array.from(db.objectStoreNames)}]`);
         if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+          console.log('[tracks] Creating tracks store');
           db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
         }
       };
       request.onsuccess = (e: any) => {
         this.db = e.target.result;
+        if (!this.db) { reject(new Error('DB is null')); return; }
+        const stores = Array.from(this.db.objectStoreNames);
+        console.log(`[tracks] DB opened. Stores: [${stores}]`);
+
+        try {
+          const tx = this.db.transaction(this.STORE_NAME, 'readonly');
+          const countReq = tx.objectStore(this.STORE_NAME).count();
+          countReq.onsuccess = () => console.log(`[tracks] tracks store has ${countReq.result} entries`);
+        } catch (err: any) {
+          console.log(`[tracks] failed to count: ${err.message}`);
+        }
+
         resolve();
       };
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        console.error(`[tracks] DB open FAILED:`, request.error);
+        reject(request.error);
+      };
     });
   }
 
