@@ -139,6 +139,8 @@ const METRIC_CARD_META: Record<
   albums: { color: 'rgba(168,85,247,0.9)', shadow: 'rgba(168,85,247,0.18)' },
 };
 
+const artistThumbsCache: Record<string, string> = {};
+
 export default function HistoryCharts({
   rawHistory,
   onClose,
@@ -157,7 +159,7 @@ export default function HistoryCharts({
     'artist'
   );
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [artistThumbs, setArtistThumbs] = useState<Record<string, string>>({});
+  const [artistThumbs, setArtistThumbs] = useState<Record<string, string>>({ ...artistThumbsCache });
   const periodRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
 
@@ -288,7 +290,7 @@ export default function HistoryCharts({
 
     const other = totalValue - usedValue;
     if (other > 0) {
-      const hiddenCount = arr.length - top.length;
+      const hiddenCount = filteredArr.length - top.length;
       const itemLabel =
         metric === 'artist'
           ? 'artists'
@@ -315,10 +317,13 @@ export default function HistoryCharts({
     () => agg.reduce((s, a) => s + a.value, 0) || 1,
     [agg]
   );
-  const totalTracks = useMemo(
-    () => rawHistory.filter((h) => h.timestamp >= startTime).length,
-    [rawHistory, startTime]
-  );
+  const totalTracks = useMemo(() => {
+    const filtered = rawHistory.filter((h) => h.timestamp >= startTime);
+    if (metric === 'albums') {
+      return filtered.filter((h) => h.track.album && h.track.album !== 'Unknown album').length;
+    }
+    return filtered.length;
+  }, [rawHistory, startTime, metric]);
   const [playerState, setPlayerState] = useState({
     currentTrackId: player.currentTrack?.id,
     currentArtistIds: player.currentTrack?.artistIds || [] as string[],
@@ -384,8 +389,10 @@ export default function HistoryCharts({
       results.forEach(({ artistId, thumbUrl }) => {
         if (thumbUrl) next[`artist:${artistId}`] = thumbUrl;
       });
-      if (Object.keys(next).length)
+      if (Object.keys(next).length) {
+        Object.assign(artistThumbsCache, next);
         setArtistThumbs((prev) => ({ ...prev, ...next }));
+      }
     });
 
     return () => {
@@ -699,9 +706,9 @@ export default function HistoryCharts({
                     className={styles.legendColor}
                     style={{ background: color }}
                   />
-                  {metric === 'artist' ? (
+                  {metric === 'artist' && (artistThumbs[s.key] || image) ? (
                     <img
-                      src={artistThumbs[s.key] || image || ''}
+                      src={artistThumbs[s.key] || image}
                       alt={title}
                       className={styles.legendImage}
                       loading="lazy"
