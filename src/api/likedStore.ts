@@ -35,6 +35,81 @@ export interface YtImportState {
   updatedAt: number;
 }
 
+function ensureFinalStores(db: IDBDatabase) {
+  if (!db.objectStoreNames.contains('yt_liked')) {
+    const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
+    store.createIndex('originalIndex', 'originalIndex', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('sc_liked')) {
+    const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
+    sc.createIndex('likedAt', 'likedAt', { unique: false });
+    sc.createIndex('trackId', 'trackId', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('yt_import_liked')) {
+    const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
+    pending.createIndex('originalIndex', 'originalIndex', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
+}
+
+function applyMigration(
+  db: IDBDatabase,
+  collected: Record<string, any[]>,
+  trackBatch: YTMTrack[]
+) {
+  // Delete old stores
+  for (const name of ['tracks', 'sc_tracks', 'yt_import_tracks']) {
+    if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
+  }
+
+  // Create new stores with migrated data
+  if (collected['tracks']) {
+    const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
+    store.createIndex('originalIndex', 'originalIndex', { unique: false });
+    for (const old of collected['tracks']) {
+      store.put({
+        trackId: old.track?.id || old.videoId,
+        originalIndex: old.originalIndex,
+        syncedAt: old.syncedAt,
+        likedAt: old.likedAt,
+      });
+    }
+    console.log(`[liked] Created yt_liked: ${collected['tracks'].length} entries`);
+  }
+
+  if (collected['sc_tracks']) {
+    const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
+    sc.createIndex('likedAt', 'likedAt', { unique: false });
+    sc.createIndex('trackId', 'trackId', { unique: false });
+    for (const old of collected['sc_tracks']) {
+      sc.put({
+        scId: old.scId,
+        trackId: old.track?.id || old.scId,
+        likedAt: old.likedAt,
+        localOnly: old.localOnly,
+      });
+    }
+    console.log(`[liked] Created sc_liked: ${collected['sc_tracks'].length} entries`);
+  }
+
+  if (collected['yt_import_tracks']) {
+    const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
+    pending.createIndex('originalIndex', 'originalIndex', { unique: false });
+    for (const old of collected['yt_import_tracks']) {
+      pending.put({
+        trackId: old.track?.id || old.videoId,
+        originalIndex: old.originalIndex,
+        syncedAt: old.syncedAt,
+        likedAt: old.likedAt,
+      });
+    }
+    console.log(`[liked] Created yt_import_liked: ${collected['yt_import_tracks'].length} entries`);
+  }
+
+  ensureFinalStores(db);
+  console.log('[liked] v3→v5 migration complete');
+}
+
 class LikedStore {
   private db: IDBDatabase | null = null;
   private readonly DB_NAME = 'goymusic-liked';
@@ -49,111 +124,55 @@ class LikedStore {
       request.onupgradeneeded = (e: any) => {
         const db = e.target.result;
         const oldVersion = e.oldVersion;
+        console.log(`[liked] onupgradeneeded: oldVersion=${oldVersion}, stores=[${Array.from(db.objectStoreNames)}]`);
 
-        // ─── v3 → v5: migrate old stores ('tracks', 'sc_tracks', 'yt_import_tracks') with full `track` ───
+        // ─── v3 → v5: migrate old stores ───
         if (oldVersion < 4) {
+          const oldStores = ['tracks', 'sc_tracks', 'yt_import_tracks'].filter(s => db.objectStoreNames.contains(s));
+          console.log(`[liked] v3→v5: old stores found: [${oldStores}]`);
+
+          if (oldStores.length === 0) {
+            // No old stores — just create fresh
+            ensureFinalStores(db);
+            return;
+          }
+
+          // Collect all data from old stores via cursors, then do schema changes
+          const collected: Record<string, any[]> = {};
           const trackBatch: YTMTrack[] = [];
+          let pending = oldStores.length;
 
-          // YT liked
-          if (db.objectStoreNames.contains('tracks')) {
-            const oldStore = e.target.transaction.objectStore('tracks');
-            const entries: any[] = [];
+          for (const storeName of oldStores) {
+            collected[storeName] = [];
+            const oldStore = e.target.transaction.objectStore(storeName);
             const cursorReq = oldStore.openCursor();
             cursorReq.onsuccess = (ev: any) => {
               const cursor = ev.target.result;
               if (cursor) {
                 const old = cursor.value;
-                entries.push({
-                  trackId: old.track?.id || old.videoId,
-                  originalIndex: old.originalIndex,
-                  syncedAt: old.syncedAt,
-                  likedAt: old.likedAt,
-                });
                 if (old.track) trackBatch.push(old.track);
+                collected[storeName].push(old);
                 cursor.continue();
               } else {
-                db.deleteObjectStore('tracks');
-                const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
-                store.createIndex('originalIndex', 'originalIndex', { unique: false });
-                for (const entry of entries) store.put(entry);
+                console.log(`[liked] Read ${collected[storeName].length} from ${storeName}`);
+                if (--pending === 0) {
+                  // All cursors done — now do schema changes
+                  applyMigration(db, collected, trackBatch);
+                  this.pendingTrackMigrations = trackBatch;
+                }
+              }
+            };
+            cursorReq.onerror = () => {
+              if (--pending === 0) {
+                applyMigration(db, collected, trackBatch);
+                this.pendingTrackMigrations = trackBatch;
               }
             };
           }
-
-          // SC liked
-          if (db.objectStoreNames.contains('sc_tracks')) {
-            const oldStore = e.target.transaction.objectStore('sc_tracks');
-            const entries: any[] = [];
-            const cursorReq = oldStore.openCursor();
-            cursorReq.onsuccess = (ev: any) => {
-              const cursor = ev.target.result;
-              if (cursor) {
-                const old = cursor.value;
-                entries.push({
-                  scId: old.scId,
-                  trackId: old.track?.id || old.scId,
-                  likedAt: old.likedAt,
-                  localOnly: old.localOnly,
-                });
-                if (old.track) trackBatch.push(old.track);
-                cursor.continue();
-              } else {
-                db.deleteObjectStore('sc_tracks');
-                const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
-                sc.createIndex('likedAt', 'likedAt', { unique: false });
-                sc.createIndex('trackId', 'trackId', { unique: false });
-                for (const entry of entries) sc.put(entry);
-              }
-            };
-          }
-
-          // YT import
-          if (db.objectStoreNames.contains('yt_import_tracks')) {
-            const oldStore = e.target.transaction.objectStore('yt_import_tracks');
-            const entries: any[] = [];
-            const cursorReq = oldStore.openCursor();
-            cursorReq.onsuccess = (ev: any) => {
-              const cursor = ev.target.result;
-              if (cursor) {
-                const old = cursor.value;
-                entries.push({
-                  trackId: old.track?.id || old.videoId,
-                  originalIndex: old.originalIndex,
-                  syncedAt: old.syncedAt,
-                  likedAt: old.likedAt,
-                });
-                if (old.track) trackBatch.push(old.track);
-                cursor.continue();
-              } else {
-                db.deleteObjectStore('yt_import_tracks');
-                const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
-                pending.createIndex('originalIndex', 'originalIndex', { unique: false });
-                for (const entry of entries) pending.put(entry);
-              }
-            };
-          }
-
-          // Ensure remaining stores exist (may be needed if some old stores didn't exist)
-          if (!db.objectStoreNames.contains('yt_liked')) {
-            const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
-            store.createIndex('originalIndex', 'originalIndex', { unique: false });
-          }
-          if (!db.objectStoreNames.contains('sc_liked')) {
-            const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
-            sc.createIndex('likedAt', 'likedAt', { unique: false });
-            sc.createIndex('trackId', 'trackId', { unique: false });
-          }
-          if (!db.objectStoreNames.contains('yt_import_liked')) {
-            const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
-            pending.createIndex('originalIndex', 'originalIndex', { unique: false });
-          }
-          if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
-
-          this.pendingTrackMigrations = trackBatch;
           return;
         }
 
-        // ─── v4 → v5: recreate 'yt_liked' with keyPath trackId instead of videoId ───
+        // ─── v4 → v5: recreate 'yt_liked' with keyPath trackId ───
         if (oldVersion >= 4 && oldVersion < 5 && db.objectStoreNames.contains('yt_liked')) {
           const oldStore = e.target.transaction.objectStore('yt_liked');
           const entries: any[] = [];
@@ -174,36 +193,44 @@ class LikedStore {
               const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
               store.createIndex('originalIndex', 'originalIndex', { unique: false });
               for (const entry of entries) store.put(entry);
+              console.log(`[liked] v4→v5: migrated yt_liked: ${entries.length} entries`);
             }
           };
           return;
         }
 
-        // ─── Fresh install / final: ensure stores exist ───
-        if (!db.objectStoreNames.contains('yt_liked')) {
-          const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
-          store.createIndex('originalIndex', 'originalIndex', { unique: false });
-        }
-        if (!db.objectStoreNames.contains('sc_liked')) {
-          const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
-          sc.createIndex('likedAt', 'likedAt', { unique: false });
-          sc.createIndex('trackId', 'trackId', { unique: false });
-        }
-        if (!db.objectStoreNames.contains('yt_import_liked')) {
-          const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
-          pending.createIndex('originalIndex', 'originalIndex', { unique: false });
-        }
-        if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
+        // ─── Fresh install: create all stores ───
+        ensureFinalStores(db);
       };
       request.onsuccess = (e: any) => {
         this.db = e.target.result;
+        if (!this.db) { reject(new Error('liked DB is null')); return; }
+        const stores = Array.from(this.db.objectStoreNames);
+        console.log(`[liked] DB opened. Stores: [${stores}]`);
+
+        // Log counts
+        for (const s of stores) {
+          try {
+            const tx = this.db.transaction(s, 'readonly');
+            const countReq = tx.objectStore(s).count();
+            countReq.onsuccess = () => console.log(`[liked] ${s}: ${countReq.result} entries`);
+          } catch {}
+        }
+
         if (this.pendingTrackMigrations.length > 0) {
-          tracksStore.upsertTracksBatch(this.pendingTrackMigrations).catch(() => {});
+          console.log(`[liked] Migrating ${this.pendingTrackMigrations.length} tracks to tracksStore...`);
+          tracksStore.upsertTracksBatch(this.pendingTrackMigrations)
+            .then(() => console.log('[liked] tracksStore migration complete'))
+            .catch((err) => console.error('[liked] tracksStore migration failed:', err));
           this.pendingTrackMigrations = [];
         }
         resolve();
       };
-      request.onerror = (e) => { this.initPromise = null; reject(e); };
+      request.onerror = (e) => {
+        console.error(`[liked] DB open FAILED:`, request.error);
+        this.initPromise = null;
+        reject(request.error);
+      };
     });
     return this.initPromise;
   }
