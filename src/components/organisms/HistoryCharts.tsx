@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import styles from './HistoryView.module.css';
 import type { HistoryEntry } from '../../api/history';
 import type { YTMTrack } from '../../api/yt';
@@ -158,6 +158,25 @@ export default function HistoryCharts({
   );
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [artistThumbs, setArtistThumbs] = useState<Record<string, string>>({});
+  const periodRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
+
+  const updateIndicator = useCallback(() => {
+    const btn = periodRefs.current[PERIODS.findIndex(p => p.value === period)];
+    const container = btn?.parentElement;
+    if (btn && container) {
+      setIndicatorStyle({
+        left: btn.offsetLeft,
+        width: btn.offsetWidth,
+      });
+    }
+  }, [period]);
+
+  useEffect(() => {
+    updateIndicator();
+    window.addEventListener('resize', updateIndicator);
+    return () => window.removeEventListener('resize', updateIndicator);
+  }, [updateIndicator]);
 
   const startTime = useMemo(() => {
     const now = Date.now();
@@ -395,10 +414,29 @@ export default function HistoryCharts({
       aria-label="Listening Charts"
     >
       <div className={styles.chartsModal} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
+        {/* Header with period picker */}
         <div className={styles.chartsHeader}>
-          <div>
+          <div className={styles.chartsHeaderLeft}>
             <h3>Listening Charts</h3>
+            <div className={styles.periodPicker}>
+              <div
+                className={styles.periodIndicator}
+                style={{
+                  left: `${indicatorStyle.left}px`,
+                  width: `${indicatorStyle.width}px`,
+                }}
+              />
+              {PERIODS.map((p, pi) => (
+                <button
+                  key={p.value}
+                  ref={el => { periodRefs.current[pi] = el; }}
+                  className={`${styles.periodBtn} ${period === p.value ? styles.periodBtnActive : ''}`}
+                  onClick={() => setPeriod(p.value)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
           <button
             className={styles.btnClose}
@@ -407,26 +445,6 @@ export default function HistoryCharts({
           >
             <X size={18} />
           </button>
-        </div>
-
-        {/* Period picker — pill style */}
-        <div className={styles.periodPicker}>
-          <div
-            className={styles.periodIndicator}
-            style={{
-              left: `${activePeriodIndex * (100 / PERIODS.length)}%`,
-              width: `calc(100% / ${PERIODS.length})`,
-            }}
-          />
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              className={`${styles.periodBtn} ${period === p.value ? styles.periodBtnActive : ''}`}
-              onClick={() => setPeriod(p.value)}
-            >
-              {p.label}
-            </button>
-          ))}
         </div>
 
         {/* Metric selector — visual cards */}
@@ -464,16 +482,21 @@ export default function HistoryCharts({
           {/* Chart */}
           <div className={styles.chartContainer} key={chartKey}>
             <svg
-              width={260}
-              height={260}
-              viewBox="0 0 260 260"
+              width={320}
+              height={320}
+              viewBox="0 0 320 320"
               className={styles.chartSvg}
             >
+              <defs>
+                <filter id="textShadow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="rgba(0,0,0,0.8)" />
+                </filter>
+              </defs>
               {/* Outer ring */}
               <circle
-                cx={130}
-                cy={130}
-                r={115}
+                cx={160}
+                cy={160}
+                r={150}
                 fill="none"
                 stroke="var(--accent)"
                 strokeOpacity={0.04}
@@ -482,31 +505,28 @@ export default function HistoryCharts({
 
               {/* Donut */}
               {(() => {
+                const cx = 160,
+                  cy = 160,
+                  rOuter = 138,
+                  rInner = 92;
+                const gapDeg = 3;
                 let start = 0;
-                const cx = 130,
-                  cy = 130,
-                  rOuter = 105,
-                  rInner = 65;
                 return agg.map((slice, i) => {
-                  const angle = (slice.value / total) * 360;
-                  if (angle < 0.5) return null;
-                  const path = donutSlicePath(
-                    cx,
-                    cy,
-                    rOuter,
-                    rInner,
-                    start,
-                    start + angle
-                  );
+                  const rawAngle = (slice.value / total) * 360;
+                  if (rawAngle < 0.5) return null;
+                  const sweep = Math.max(rawAngle - gapDeg, 0.5);
+                  const segStart = start + gapDeg / 2;
+                  const segEnd = segStart + sweep;
+                  const path = donutSlicePath(cx, cy, rOuter, rInner, segStart, segEnd);
                   const color = CHART_COLORS[i % CHART_COLORS.length];
                   const isHighlighted = hoveredIndex === i;
-                  const midAngle = start + angle / 2;
-                  const textRadius = rInner + (rOuter - rInner) * 0.55;
+                  const midAngle = start + rawAngle / 2;
+                  const rMid = (rOuter + rInner) / 2;
                   const chartRotation = -60;
                   const rotatedLabelPoint = polarToCartesian(
                     cx,
                     cy,
-                    textRadius,
+                    rMid,
                     midAngle + chartRotation
                   );
                   const pct = Math.round((slice.value / total) * 100);
@@ -520,55 +540,85 @@ export default function HistoryCharts({
                     slice.key === 'other'
                       ? isHighlighted
                         ? 0.5
-                        : 0.18
+                        : 0.25
                       : hoveredIndex === null
                         ? 1
                         : isHighlighted
                           ? 1
-                          : 0.82;
+                          : 0.88;
                   const pathShadow = isHighlighted
-                    ? `drop-shadow(0 2px 6px ${makeShadowColor(color, 0.05)})`
-                    : `drop-shadow(0 1px 3px ${makeShadowColor(color, 0.03)})`;
-                  start += angle;
+                    ? `drop-shadow(0 3px 10px ${makeShadowColor(color, 0.12)})`
+                    : `drop-shadow(0 1px 4px ${makeShadowColor(color, 0.04)})`;
+
+                  const popDist = isHighlighted ? 8 : 0;
+                  const baseRad = ((midAngle - 90) * Math.PI) / 180;
+                  const segPopDx = popDist * Math.cos(baseRad);
+                  const segPopDy = popDist * Math.sin(baseRad);
+                  const screenAngle = midAngle + chartRotation;
+                  const txtRad = ((screenAngle - 90) * Math.PI) / 180;
+                  const txtPopDx = popDist * Math.cos(txtRad);
+                  const txtPopDy = popDist * Math.sin(txtRad);
+
+                  start += rawAngle;
                   return (
                     <g key={slice.key}>
-                      <g transform={`rotate(${chartRotation} ${cx} ${cy})`}>
+                      <g
+                        transform={`rotate(${chartRotation} ${cx} ${cy})`}
+                        onMouseEnter={() => setHoveredIndex(i)}
+                        onMouseLeave={() => setHoveredIndex(null)}
+                        onClick={() => handleLegendClick(slice)}
+                        style={{ cursor: slice.key === 'other' ? 'default' : 'pointer' }}
+                      >
+                        {/* Invisible trigger — stays in place */}
                         <path
                           d={path}
-                          fill={sliceFill}
-                          fillOpacity={fillOpacity}
-                          stroke="rgba(255,255,255,0.10)"
-                          strokeWidth={1}
+                          fill="transparent"
+                          stroke="none"
+                        />
+                        {/* Visible segment — pops out */}
+                        <g
                           style={{
-                            transition:
-                              'opacity 0.2s ease, stroke-width 0.2s ease, fill-opacity 0.2s ease',
-                            cursor:
-                              slice.key === 'other' ? 'default' : 'pointer',
-                            filter: pathShadow,
+                            transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                            transform: `translate(${segPopDx}px, ${segPopDy}px)`,
                           }}
-                          onMouseEnter={() => setHoveredIndex(i)}
-                          onMouseLeave={() => setHoveredIndex(null)}
-                          onClick={() => handleLegendClick(slice)}
                         >
-                          <title>{tooltipText}</title>
-                        </path>
+                          <path
+                            d={path}
+                            fill={sliceFill}
+                            fillOpacity={fillOpacity}
+                            stroke="none"
+                            style={{
+                              transition: 'fill-opacity 0.2s ease',
+                              filter: pathShadow,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            <title>{tooltipText}</title>
+                          </path>
+                        </g>
                       </g>
+                      {/* Label — also pops out */}
                       {showLabel && (
-                        <text
-                          x={rotatedLabelPoint.x}
-                          y={rotatedLabelPoint.y}
-                          textAnchor="middle"
-                          dominantBaseline="middle"
-                          fill="rgba(255,255,255,0.92)"
+                        <g
                           style={{
-                            filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.8))',
+                            transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                            transform: `translate(${txtPopDx}px, ${txtPopDy}px)`,
                           }}
-                          fontSize="10"
-                          fontWeight={700}
-                          pointerEvents="none"
                         >
-                          {pct}%
-                        </text>
+                          <text
+                            x={rotatedLabelPoint.x}
+                            y={rotatedLabelPoint.y}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fill="rgba(255,255,255,0.92)"
+                            fontSize="12"
+                            fontWeight={700}
+                            pointerEvents="none"
+                            filter="url(#textShadow)"
+                          >
+                            {pct}%
+                          </text>
+                        </g>
                       )}
                     </g>
                   );
@@ -576,32 +626,32 @@ export default function HistoryCharts({
               })()}
 
               {/* Center */}
-              <circle cx={130} cy={130} r={52} fill="rgba(15,15,25,0.95)" />
+              <circle cx={160} cy={160} r={86} fill="rgba(15,15,25,0.95)" />
               <circle
-                cx={130}
-                cy={130}
-                r={52}
+                cx={160}
+                cy={160}
+                r={86}
                 fill="none"
                 stroke="var(--accent)"
                 strokeOpacity={0.08}
                 strokeWidth={1}
               />
               <text
-                x={130}
-                y={124}
+                x={160}
+                y={155}
                 textAnchor="middle"
                 fill="var(--text-main)"
-                fontSize={16}
+                fontSize={18}
                 fontWeight={700}
               >
                 {formatTotalTime(total)}
               </text>
               <text
-                x={130}
-                y={142}
+                x={160}
+                y={172}
                 textAnchor="middle"
                 fill="var(--text-sub)"
-                fontSize={10}
+                fontSize={11}
                 opacity={0.6}
               >
                 {totalTracks} tracks
@@ -671,9 +721,9 @@ export default function HistoryCharts({
                     </div>
                   )}
                   <div className={styles.legendText}>
-                    <div className={styles.legendTitle}>{title}</div>
+                    <div className={styles.legendTitle} data-tooltip={title} data-tooltip-overflow="">{title}</div>
                     {subtitle && (
-                      <div className={styles.legendSubtitle}>{subtitle}</div>
+                      <div className={styles.legendSubtitle} data-tooltip={subtitle} data-tooltip-overflow="">{subtitle}</div>
                     )}
                     <div className={styles.legendMeta}>
                       <Clock size={10} className={styles.legendClock} />
