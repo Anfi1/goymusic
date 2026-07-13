@@ -6,9 +6,10 @@ import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
-import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLocalOnlyIds, scSetLiked } from '../../api/soundcloud';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked } from '../../api/soundcloud';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
+import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
@@ -27,6 +28,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [scError, setScError] = useState(false);
     const [scLocalCount, setScLocalCount] = useState(0);
     const [scUploading, setScUploading] = useState(false);
+    const [scEnableModalOpen, setScEnableModalOpen] = useState(false);
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
     const [historyCleanup, setHistoryCleanup] = useState(historyManager.cleanupInterval);
@@ -76,8 +78,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
 
     const handleToggleSc = () => {
         const next = !scEnabled;
-        setScEnabled(next);
-        setSoundCloudEnabled(next);
+        if (next && !likedEnabled) {
+            setScEnableModalOpen(true);
+        } else {
+            setScEnabled(next);
+            setSoundCloudEnabled(next);
+        }
+    };
+
+    const handleScEnableModal = (enable: boolean) => {
+        setScEnableModalOpen(false);
+        if (enable) {
+            setScEnabled(true);
+            setSoundCloudEnabled(true);
+            if (!likedEnabled) {
+                likedManager.toggleEnabled(true);
+                setLikedEnabled(true);
+            }
+            loadScLikedIds();
+            loadScLocalOnlyIds();
+        }
     };
 
     // При открытии настроек перепроверяем сохранённый SC-токен.
@@ -176,6 +196,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const clearLikedData = async () => {
         if (confirm('This will delete all locally mirrored liked tracks. Metadata and sorting by album for Liked Songs will be unavailable until next sync. Continue?')) {
             await likedStore.clearAllTracks();
+            await likedStore.clearYtImport();
             await likedStore.setVirtualCount(0);
             alert('Liked songs cache cleared.');
         }
@@ -343,6 +364,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                         <input 
                             type="checkbox" 
                             checked={likedEnabled} 
+                            disabled={scEnabled}
                             onChange={handleToggleLiked} 
                         />
                         <span className={styles.slider}></span>
@@ -485,6 +507,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         </div>
         <YandexImportModal isOpen={yandexModalOpen} onClose={() => setYandexModalOpen(false)} />
         <SpotifyImportModal isOpen={spotifyModalOpen} onClose={() => setSpotifyModalOpen(false)} />
+        <ScEnableModal isOpen={scEnableModalOpen} onClose={handleScEnableModal} />
         </>
     );
 };

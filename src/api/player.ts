@@ -543,8 +543,7 @@ class PlayerStore {
                 // During loading, onMediaError in startPlayback handles the error.
                 // Only intervene for mid-playback errors (after stream loaded).
                 if (!this.isStreamLoading) {
-                    this.isPlaying = false;
-                    this.notify('state');
+                    this.recoverStream(audio);
                 }
             });
         });
@@ -1249,7 +1248,25 @@ class PlayerStore {
         }
 
         if (this.isPlaying) this.activeAudio.pause();
-        else await this.activeAudio.play();
+        else {
+            try {
+                await this.activeAudio.play();
+            } catch (error: unknown) {
+                if ((error as DOMException).name !== 'NotAllowedError') {
+                    this.recoverStream(this.activeAudio);
+                }
+            }
+        }
+    }
+
+    private recoverStream(audio: HTMLAudioElement) {
+        const track = this.currentTrack;
+        if (!track || this.isCurrentTrackLocal || this.isStreamLoading) return;
+
+        // Signed URL у SoundCloud может истечь уже после успешной загрузки трека.
+        // isRetry принудительно обходит кэш и не позволяет зациклить восстановление.
+        const savedTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        void this.startPlayback(track, true, savedTime);
     }
 
     async next(fromError: boolean = false) {

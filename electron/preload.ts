@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('bridge', {
   winMaximize: () => ipcRenderer.send('win:maximize'),
   winFullscreen: () => ipcRenderer.send('win:fullscreen'),
   winClose: () => ipcRenderer.send('win:close'),
+  winGetBounds: () => ipcRenderer.invoke('win:get-bounds'),
   onWindowState: (callback: (state: { isMaximized: boolean, isFullScreen: boolean }) => void) => {
     const listener = (e: any, state: any) => callback(state);
     ipcRenderer.on('win:state-changed', listener);

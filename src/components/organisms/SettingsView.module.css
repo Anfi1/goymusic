@@ -95,6 +95,16 @@ input:checked + .slider:before {
     background-color: #fff;
 }
 
+input:disabled:checked + .slider {
+    opacity: 1;
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+input:disabled:checked + .slider:before {
+    opacity: 1;
+}
+
 .colorPicker {
     appearance: none;
     -webkit-appearance: none;

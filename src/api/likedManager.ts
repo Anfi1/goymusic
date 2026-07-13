@@ -1,6 +1,6 @@
 import { getContinuation, rateSong, YTMTrack, getPlaylistTracks } from './yt';
 import { isScAuthed, scSetLiked } from './soundcloud';
-import { likedStore, LikedEntry } from './likedStore';
+import { likedStore, LikedEntry, YtImportState } from './likedStore';
 import { scLikedManager } from './scLikedManager';
 
 class LikedManager {
@@ -33,12 +33,144 @@ class LikedManager {
     };
   }
 
-  private async notify() {
-    const tracks = await likedStore.getAllTracks();
-    this.listeners.forEach(l => l(tracks, this._isSyncing));
+  private async notify(tracks?: LikedEntry[]) {
+    const visibleTracks = tracks ? [...tracks] : await likedStore.getAllTracks();
+    this.listeners.forEach(l => l(visibleTracks, this._isSyncing));
   }
 
   async sync() {
+    if (this._isSyncing || !this._isEnabled) return;
+    this._isSyncing = true;
+    await this.notify();
+
+    let importState: YtImportState | null = null;
+    try {
+      const firstPage = await getPlaylistTracks('LM', 100);
+      if (!firstPage || !Array.isArray(firstPage.tracks)) throw new Error('Liked Songs unavailable');
+
+      const ytTotal = firstPage.trackCount || firstPage.tracks.length;
+      const currentLocal = await likedStore.getAllTracks();
+      const localVirtual = await likedStore.getVirtualCount();
+      const completedImportVersion = await likedStore.getYtImportCompletedVersion();
+      const headCount = Math.min(10, firstPage.tracks.length, currentLocal.length);
+      let headMismatch = currentLocal.length === 0;
+      for (let i = 0; i < headCount; i++) {
+        if (currentLocal[i].videoId !== firstPage.tracks[i].id) {
+          headMismatch = true;
+          break;
+        }
+      }
+
+      const savedImport = await likedStore.getYtImportState();
+      const headIds = firstPage.tracks.slice(0, 10).map(track => track.id);
+      const canResume = !!savedImport &&
+        savedImport.version === 1 &&
+        savedImport.ytTotal === ytTotal &&
+        savedImport.continuation !== null &&
+        savedImport.headIds.length === headIds.length &&
+        savedImport.headIds.every((id, index) => id === headIds[index]);
+
+      if (!savedImport && completedImportVersion === 1 && !headMismatch && ytTotal === localVirtual && currentLocal.length > 0) {
+        this._isSyncing = false;
+        await this.notify();
+        return;
+      }
+
+      if (savedImport && !canResume) await likedStore.clearYtImport();
+
+      const likedAtMap = await likedStore.getLikedAtMap();
+      let entries: LikedEntry[];
+      let continuation: string | null | undefined;
+      if (canResume) {
+        entries = await likedStore.getYtImportTracks();
+        continuation = savedImport!.continuation;
+        importState = savedImport!;
+      } else {
+        const seen = new Set<string>();
+        const initialEntries = firstPage.tracks.flatMap((track) => {
+          if (!track.id || seen.has(track.id)) return [];
+          seen.add(track.id);
+          return [{ videoId: track.id, track, originalIndex: seen.size - 1, syncedAt: 0 }];
+        });
+        const initialContinuation = firstPage.continuation || null;
+        const now = Date.now();
+        const initialImportState: YtImportState = {
+          version: 1,
+          status: 'importing',
+          ytTotal,
+          scTotal: await likedStore.getScVirtualCount(),
+          downloadedCount: initialEntries.length,
+          continuation: initialContinuation,
+          headIds,
+          startedAt: now,
+          updatedAt: now,
+        };
+        await likedStore.saveYtImportPage(initialEntries, initialImportState);
+        entries = initialEntries;
+        continuation = initialContinuation;
+        importState = initialImportState;
+      }
+
+      await this.notify(entries);
+
+      while (continuation) {
+        const requestedContinuation: string = continuation;
+        const next = await getContinuation(requestedContinuation);
+        if (!Array.isArray(next.tracks) || next.tracks.length === 0) {
+          throw new Error('Liked Songs continuation returned no tracks');
+        }
+
+        const knownIds = new Set(entries.map(entry => entry.videoId));
+        const pageEntries: LikedEntry[] = [];
+        for (const track of next.tracks) {
+          if (!track.id || knownIds.has(track.id)) continue;
+          knownIds.add(track.id);
+          pageEntries.push({ videoId: track.id, track, originalIndex: entries.length + pageEntries.length, syncedAt: 0 });
+        }
+        const nextContinuation = next.continuation || null;
+        const nextCount = entries.length + pageEntries.length;
+        if (nextContinuation === requestedContinuation || nextCount > 100000) {
+          throw new Error('Liked Songs continuation did not advance');
+        }
+
+        const nextImportState: YtImportState = {
+          ...importState!,
+          status: 'importing',
+          continuation: nextContinuation,
+          downloadedCount: nextCount,
+          updatedAt: Date.now(),
+        };
+        await likedStore.saveYtImportPage(pageEntries, nextImportState);
+        entries.push(...pageEntries);
+        continuation = nextContinuation;
+        importState = nextImportState;
+        await this.notify(entries);
+      }
+
+      const now = Date.now();
+      const finalEntries: LikedEntry[] = entries.map((entry, index) => ({
+        ...entry,
+        originalIndex: index,
+        syncedAt: now,
+        likedAt: likedAtMap.get(entry.videoId),
+      }));
+      await likedStore.commitYtImport(finalEntries, ytTotal);
+    } catch (error) {
+      console.error('[liked] sync failed:', error);
+      if (importState) {
+        try {
+          await likedStore.setYtImportState({ ...importState, status: 'failed', updatedAt: Date.now() });
+        } catch (stateError) {
+          console.error('[liked] failed to save import checkpoint:', stateError);
+        }
+      }
+    } finally {
+      this._isSyncing = false;
+      await this.notify();
+    }
+  }
+
+  private async legacySync() {
     if (this._isSyncing || !this._isEnabled) return;
     this._isSyncing = true;
     
@@ -77,8 +209,6 @@ class LikedManager {
 
       console.log(`[liked] 📥 Загрузка... Причина: ${headMismatch ? 'head ' : ''}${countMismatch ? 'count(' + localVirtual + ' vs ' + ytTotal + ')' : ''}`);
 
-      await likedStore.setVirtualCount(ytTotal);
-
       let allTracks: YTMTrack[] = [...firstPage.tracks];
       let continuation = firstPage.continuation;
 
@@ -97,7 +227,7 @@ class LikedManager {
           if (allTracks.length % 500 === 0) console.log(`[liked] Получено ${allTracks.length}...`);
         } catch (e) {
           console.error('[liked] Ошибка пагинации:', e);
-          break;
+          throw e;
         }
         if (allTracks.length > 100000) break;
       }
@@ -113,8 +243,8 @@ class LikedManager {
         likedAt: likedAtMap.get(t.id)
       }));
 
-      await likedStore.clearAllTracks();
-      await likedStore.putTracksBatch(finalEntries);
+      await likedStore.replaceAllTracks(finalEntries);
+      await likedStore.setVirtualCount(ytTotal);
       
       console.log(`%c[liked] ✅ Синхронизация завершена. Всего: ${finalEntries.length}`, 'color: #a6e3a1; font-weight: bold;');
       this._isSyncing = false;

@@ -146,10 +146,10 @@ def is_cancelled():
         return cancelled
 
 # --- SoundCloud internal api-v2 client_id (для поиска артистов/альбомов) ---
-_SC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+_SC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 # app_version шлёт веб-клиент SoundCloud вместе с write-запросами (лайк). Может устаревать.
 _SC_APP_VERSION = '1782399945'  # fallback; реальная версия тянется живьём из versions.json
-_SC_FF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0'
+_SC_FF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
 _sc_client_id = None
 _sc_app_version = None
 
@@ -877,35 +877,33 @@ def _build_formatted_section(section):
 # Запускаем Chrome с кастомным профилем, сворачиваем окно (юзер не видит),
 # инжектим сохранённый oauth_token, кликаем лайк.
 
-def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None, liked: bool = True) -> str:
+def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None, liked: bool = True, app_bounds: dict | None = None) -> str:
     """Возвращает 'liked' | 'unliked' | 'error'. Всегда закрывает браузер."""
     import asyncio
+    import random as _rnd
     import nodriver as uc
 
     async def _do():
         browser = await uc.start(
             user_data_dir=profile_dir,
             headless=False,
-            sandbox=False,
-            browser_args=['--window-size=400,300', '--mute-audio', '--window-position=-1000,-1000'],
+            browser_args=['--window-size=700,900', '--mute-audio', '--window-position=-1000,-1000'],
         )
         try:
             print(f"[nodriver] opening: {url}", file=sys.stderr)
             tab = await browser.get(url)
-            await asyncio.sleep(5)
+            await asyncio.sleep(_rnd.uniform(5.0, 7.0))
 
-            # Инжектим токен
             if oauth_token:
                 await tab.evaluate(
                     f'document.cookie = "oauth_token={oauth_token}; '
                     f'domain=.soundcloud.com; path=/; max-age=31536000; secure;"'
                 )
-                await asyncio.sleep(1)
+                await asyncio.sleep(_rnd.uniform(0.8, 1.5))
 
-            # Определяем текущее состояние кнопки
             def _check():
                 return tab.evaluate('''(() => {
-                    const b = document.querySelector('button.playbackSoundBadge__like,button.sc-button-like,button.likeButton');
+                    const b = document.querySelector('.listenEngagement button.sc-button-like');
                     if (!b) return 'no_button';
                     const span = b.querySelector('span');
                     const txt = (span ? span.textContent.trim().toLowerCase() : '');
@@ -926,43 +924,191 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
             if cur == 'no_button' or cur == 'unknown':
                 return 'error'
 
-            # Нужно кликнуть (переключить состояние)
-            for sel in [
-                'button.playbackSoundBadge__like',
-                'button.sc-button-like',
-                'button.likeButton',
-                'button[aria-label*="Like"]',
-                'button[aria-label*="Unlike"]',
-            ]:
-                try:
-                    btn = await tab.select(sel, timeout=2)
-                    if btn:
-                        await btn.click()
-                        print(f"[nodriver] clicked via: {sel}", file=sys.stderr)
-                        break
-                except:
-                    continue
-            else:
-                # JS fallback
-                print("[nodriver] JS fallback click", file=sys.stderr)
-                await tab.evaluate('''(() => {
-                    for (const b of document.querySelectorAll('button')) {
-                        const t = (b.textContent||'').toLowerCase();
-                        const c = b.className.toLowerCase();
-                        if (t.includes('like')||c.includes('like')) { b.click(); return true; }
-                    }
+            async def _cdp_click(selector):
+                coords_raw = await tab.evaluate('''(() => {
+                    const b = document.querySelector('%s');
+                    if (!b) return null;
+                    b.scrollIntoView({behavior: 'instant', block: 'center'});
+                    const r = b.getBoundingClientRect();
+                    return {x: r.x + r.width/2, y: r.y + r.height/2};
+                })()''' % selector)
+                x = y = None
+                if isinstance(coords_raw, dict):
+                    x = coords_raw.get('x')
+                    y = coords_raw.get('y')
+                elif isinstance(coords_raw, list):
+                    for v in coords_raw:
+                        if isinstance(v, (list, tuple)) and len(v) >= 2:
+                            key, val = v[0], v[1]
+                            if key == 'x': x = val.get('value') if isinstance(val, dict) else val
+                            elif key == 'y': y = val.get('value') if isinstance(val, dict) else val
+                if x is None or y is None:
+                    return False
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mousePressed', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mouseReleased', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                print(f"[nodriver] CDP click at ({x:.0f}, {y:.0f}) — {selector}", file=sys.stderr)
+                return True
+
+            async def _cdp_move(x, y):
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mouseMoved', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('none')))
+
+            async def _get_element_center(selector):
+                coords = await tab.evaluate('''(() => {
+                    const b = document.querySelector('%s');
+                    if (!b) return null;
+                    const r = b.getBoundingClientRect();
+                    return {x: r.x + r.width/2, y: r.y + r.height/2};
+                })()''' % selector)
+                if isinstance(coords, dict):
+                    return coords.get('x'), coords.get('y')
+                return None, None
+
+            # ─── капча ──────────────────────────────────────────────
+
+            async def _check_captcha():
+                return await tab.evaluate('''(() => {
+                    const html = document.documentElement.innerHTML;
+                    const ddMatch = html.match(/var dd\\s*=\\s*\\{[\\s\\S]*?\\}/);
+                    if (ddMatch && (ddMatch[0].includes("'rt': 'c'") || ddMatch[0].includes('"rt": "c"')))
+                        return true;
+                    if (document.querySelector('iframe[src*="captcha-delivery.com"]'))
+                        return true;
+                    if (document.querySelector('#captcha, .captcha-container, #dd-captcha'))
+                        return true;
                     return false;
                 })()''')
 
-            await asyncio.sleep(2)
+            async def _show_browser():
+                try:
+                    window_id, _ = await tab.send(uc.cdp.browser.get_window_for_target())
+                    if app_bounds:
+                        bx = app_bounds.get('x', 100)
+                        by = app_bounds.get('y', 100)
+                        bw = app_bounds.get('width', 700)
+                        left = max(0, bx + bw // 2 - 350)
+                        top = max(0, by - 50)
+                    else:
+                        left, top = 100, 100
+                    bounds = uc.cdp.browser.Bounds(left=left, top=top, width=700, height=900,
+                                                   window_state=uc.cdp.browser.WindowState.NORMAL)
+                    await tab.send(uc.cdp.browser.set_window_bounds(window_id, bounds))
+                except Exception as e:
+                    print(f"[nodriver] failed to show window: {e}", file=sys.stderr)
+
+            async def _hide_browser():
+                try:
+                    window_id, _ = await tab.send(uc.cdp.browser.get_window_for_target())
+                    bounds = uc.cdp.browser.Bounds(left=-1000, top=-1000)
+                    await tab.send(uc.cdp.browser.set_window_bounds(window_id, bounds))
+                except Exception:
+                    pass
+
+            async def _wait_captcha(timeout=120):
+                await _show_browser()
+                print("[nodriver] CAPTCHA — solve it in the browser window", file=sys.stderr)
+                for _ in range(timeout):
+                    await asyncio.sleep(1)
+                    if not await _check_captcha():
+                        print("[nodriver] captcha solved", file=sys.stderr)
+                        await asyncio.sleep(2)
+                        return True
+                print("[nodriver] captcha timeout", file=sys.stderr)
+                await _hide_browser()
+                return False
+
+            # ─── пул минидействий ──────────────────────────────────
+
+            async def _scroll():
+                dy = _rnd.randint(150, 400)
+                await tab.evaluate(f'window.scrollBy(0, {dy})')
+                await asyncio.sleep(_rnd.uniform(0.3, 0.8))
+                await tab.evaluate(f'window.scrollBy(0, -{int(dy * _rnd.uniform(0.6, 1.0))})')
+
+            async def _mouse_move():
+                rx, ry = _rnd.randint(80, 650), _rnd.randint(80, 650)
+                await _cdp_move(rx, ry)
+
+            async def _hover_like():
+                cx, cy = await _get_element_center('.listenEngagement button.sc-button-like')
+                if cx is not None:
+                    await _cdp_move(cx + _rnd.randint(-20, 20), cy + _rnd.randint(-20, 20))
+
+            async def _hover_play():
+                cx, cy = await _get_element_center('.playButton.sc-button-play')
+                if cx is not None:
+                    await _cdp_move(cx + _rnd.randint(-15, 15), cy + _rnd.randint(-15, 15))
+
+            async def _seek_forward():
+                await tab.evaluate('''(() => {
+                    const v = document.querySelector('audio') || document.querySelector('video');
+                    if (v && v.duration) {
+                        const jump = Math.floor(Math.random() * 50) + 10;
+                        v.currentTime = Math.min(v.duration - 5, v.currentTime + jump);
+                    }
+                })()''')
+
+            async def _pause_wait():
+                await asyncio.sleep(_rnd.uniform(0.5, 2.0))
+
+            async def _overshoot():
+                tx, ty = _rnd.randint(200, 500), _rnd.randint(200, 500)
+                await _cdp_move(tx + _rnd.randint(30, 80), ty + _rnd.randint(-40, 40))
+                await asyncio.sleep(_rnd.uniform(0.1, 0.3))
+                await _cdp_move(tx, ty)
+
+            # ─── логика: play + actions или только actions ──────────
+
+            pre_play_pool = [_scroll, _mouse_move,
+                             _hover_like, _hover_play, _pause_wait, _overshoot]
+            post_play_pool = [_scroll, _mouse_move,
+                              _hover_like, _hover_play, _seek_forward, _pause_wait, _overshoot]
+
+            if _rnd.random() < 0.9:
+                play_ok = await _cdp_click('.playButton.sc-button-play')
+                if play_ok:
+                    await asyncio.sleep(_rnd.uniform(2.0, 4.0))
+                chosen = _rnd.sample(post_play_pool, 3)
+            else:
+                chosen = _rnd.sample(pre_play_pool, 3)
+
+            for action in chosen:
+                print(f"[nodriver] action: {action.__name__}", file=sys.stderr)
+                await action()
+                await asyncio.sleep(_rnd.uniform(0.5, 1.5))
+
+            # лайк/анлайк — с проверкой координат
+            like_ok = await _cdp_click('.listenEngagement button.sc-button-like')
+            if not like_ok:
+                print("[nodriver] like button not found, retrying after scroll", file=sys.stderr)
+                await tab.evaluate('window.scrollTo(0, document.body.scrollHeight / 3)')
+                await asyncio.sleep(1)
+                like_ok = await _cdp_click('.listenEngagement button.sc-button-like')
+
+            await asyncio.sleep(_rnd.uniform(2.0, 3.0))
+
+            # проверяем капчу после лайка
+            if await _check_captcha():
+                if await _wait_captcha():
+                    # повторяем лайк — капча могла сбросить действие
+                    await _cdp_click('.listenEngagement button.sc-button-like')
+                    await asyncio.sleep(_rnd.uniform(2.0, 3.0))
+                else:
+                    return 'error'
 
             after = await _check()
-            print(f"[nodriver] after click: {after}", file=sys.stderr)
+            print(f"[nodriver] after like: {after}", file=sys.stderr)
+            await _hide_browser()
             return after if after in ('liked', 'unliked') else 'error'
         finally:
             try:
                 browser.stop()
-            except:
+            except Exception:
                 pass
     return asyncio.run(_do())
 
@@ -975,12 +1121,11 @@ def _sc_nodriver_login(profile_dir: str) -> str | None:
         browser = await uc.start(
             user_data_dir=profile_dir,
             headless=False,
-            sandbox=False,
             browser_args=['--mute-audio'],
         )
         try:
             tab = await browser.get('https://soundcloud.com')
-            for _ in range(300):
+            for _ in range(10):
                 try:
                     cs = await tab.evaluate('document.cookie')
                     if cs and 'oauth_token' in cs:
@@ -992,7 +1137,7 @@ def _sc_nodriver_login(profile_dir: str) -> str | None:
                                 return tok
                 except:
                     break
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
             return None
         finally:
             try: browser.stop()
@@ -2282,7 +2427,7 @@ def handle_request(request):
         elif command == 'sc_client_id':
             # client_id для webview-лайка на стороне renderer.
             try:
-                safe_print({'status': 'ok', 'clientId': get_sc_client_id() or '', 'appVersion': _SC_APP_VERSION, 'callId': call_id})
+                safe_print({'status': 'ok', 'clientId': get_sc_client_id() or '', 'appVersion': get_sc_app_version(), 'callId': call_id})
             except Exception as e:
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
@@ -2338,19 +2483,23 @@ def handle_request(request):
             url = request.get('url', '')
             tid = _sc_extract_track_id(sc_id) or _sc_extract_track_id(url)
             if tid and (not url or not url.startswith('https://soundcloud.com/')):
-                resolved = _sc_api_get(f'/tracks/{tid}', {}, {}).get('permalink_url') if tid else ''
+                resolved = (_sc_api_get(f'/tracks/{tid}', {}, {}) or {}).get('permalink_url') if tid else ''
                 if resolved: url = resolved
-            liked = request.get('liked', True)
-            profile_dir = request.get('profileDir', '')
-            oauth_token = request.get('oauthToken') or None
-            try:
-                result = _sc_nodriver_like(profile_dir, url, oauth_token, liked)
-                safe_print({'status': 'ok' if result != 'error' else 'error',
-                            'liked': result, 'callId': call_id})
-            except Exception as e:
-                print(f"[error] sc_like_nodriver: {e}", file=sys.stderr)
-                safe_print({'status': 'error', 'message': str(e),
-                            'callId': call_id})
+            if not url:
+                safe_print({'status': 'error', 'message': 'Could not resolve track URL', 'callId': call_id})
+            else:
+                liked = request.get('liked', True)
+                profile_dir = request.get('profileDir', '')
+                oauth_token = request.get('oauthToken') or None
+                app_bounds = request.get('appBounds') or None
+                try:
+                    result = _sc_nodriver_like(profile_dir, url, oauth_token, liked, app_bounds)
+                    safe_print({'status': 'ok' if result != 'error' else 'error',
+                                'liked': result, 'callId': call_id})
+                except Exception as e:
+                    print(f"[error] sc_like_nodriver: {e}", file=sys.stderr)
+                    safe_print({'status': 'error', 'message': str(e),
+                                'callId': call_id})
 
         elif command == 'sc_setup_profile':
             profile_dir = request.get('profileDir', '')
@@ -2563,7 +2712,7 @@ def handle_request(request):
                 else:
                     playlist_id = resolved.get('id')
                     # Fetch full playlist with tracks
-                    data = _sc_api_get(f'/playlists/{playlist_id}', {})
+                    data = _sc_api_get(f'/playlists/{playlist_id}', {'representation': 'full'})
                     tracks = []
                     for t in (data or {}).get('tracks') or []:
                         if not t or not t.get('permalink_url'):
@@ -2632,12 +2781,15 @@ def handle_request(request):
                     ),
                     'quiet': True,
                     'no_warnings': True,
-                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 }
                 if is_sc:
+                    cid = get_sc_client_id() or ''
                     ydl_opts['http_headers'] = {
                         'Referer': 'https://soundcloud.com/',
                         'Origin': 'https://soundcloud.com',
+                        'Accept': '*/*',
+                        'client_id': cid,
                     }
                     
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -2990,7 +3142,7 @@ def handle_request(request):
                 'outtmpl': output_template, 'noplaylist': True,
             }
             if is_sc:
-                ydl_opts['http_headers'] = {'Referer': 'https://soundcloud.com/', 'Origin': 'https://soundcloud.com', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+                ydl_opts['http_headers'] = {'Referer': 'https://soundcloud.com/', 'Origin': 'https://soundcloud.com', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'}
 
             def progress_hook(d):
                 if d['status'] == 'downloading':

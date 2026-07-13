@@ -66,8 +66,7 @@ class ScLikedManager {
       }
 
       const merged = [...fresh, ...localOnlyEntries];
-      await likedStore.clearScTracks();
-      await likedStore.putScTracksBatch(merged);
+      await likedStore.replaceScTracks(merged);
       await likedStore.setScVirtualCount(meta.count || fresh.length);
 
       // Обновляем in-memory set локальных ID

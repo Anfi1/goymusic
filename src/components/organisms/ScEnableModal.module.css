@@ -1,0 +1,87 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000001;
+}
+
+.modal {
+    background: #1e1e2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    width: 460px;
+    max-width: calc(100vw - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    animation: appear 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes appear {
+    from { opacity: 0; transform: scale(0.9) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #cdd6f4;
+}
+
+.subtitle {
+    font-size: 13px;
+    color: #a6adc8;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.btnPrimary {
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    background: #ff5500;
+    color: #fff;
+    transition: background 0.15s;
+}
+
+.btnPrimary:hover {
+    background: #ff7733;
+}
+
+.btnSecondary {
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    background: transparent;
+    color: #a6adc8;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btnSecondary:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #cdd6f4;
+}

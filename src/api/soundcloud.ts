@@ -245,13 +245,15 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
   }
 
   const doLike = async (): Promise<boolean> => {
+    let appBounds: { x: number; y: number; width: number; height: number } | null = null;
+    try { appBounds = await bridge.winGetBounds(); } catch {}
     const res = await bridge.pyCall('sc_like_nodriver', {
-      scId, url: trackUrl, liked, profileDir, oauthToken: token,
+      scId, url: trackUrl, liked, profileDir, oauthToken: token, appBounds,
     });
     if (res?.status === 'ok') {
       const actualLiked = res.liked === 'liked';
       if (actualLiked) scLikedSet.add(scId); else scLikedSet.delete(scId);
-      return true;
+      return actualLiked === liked;
     }
     return false;
   };

@@ -831,6 +831,11 @@ ipcMain.on('win:fullscreen', () => {
 })
 ipcMain.on('win:close', () => win?.close())
 
+ipcMain.handle('win:get-bounds', () => {
+  if (!win) return null
+  return win.getBounds()
+})
+
 function sendWindowState() {
   if (!win) return
   win.webContents.send('win:state-changed', {
