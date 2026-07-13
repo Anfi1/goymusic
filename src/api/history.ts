@@ -17,6 +17,7 @@ class HistoryStore {
   private readonly STORE_NAME = 'plays';
   private readonly VERSION = 3;
   private initPromise: Promise<void> | null = null;
+  private pendingTrackMigrations: YTMTrack[] = [];
 
   async init() {
     if (this.initPromise) return this.initPromise;
@@ -26,10 +27,48 @@ class HistoryStore {
         const db = e.target.result;
         const oldVersion = e.oldVersion;
 
+        // ─── Fresh install: create plays store ───
+        if (oldVersion === 0) {
+          const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
+          store.createIndex('trackId', 'trackId', { unique: false });
+          return;
+        }
+
+        // ─── v1 → v3: migrate 'tracks' store (with inline track objects) → 'plays' ───
         if (oldVersion < 2 && db.objectStoreNames.contains('tracks')) {
-          // v0/v1: migrate old 'tracks' store (with full `track` object) → 'plays' with trackId
           const oldStore = e.target.transaction.objectStore('tracks');
-          const migrated: any[] = [];
+          const migrated: { timestamp: number; trackId: string; listenedSeconds: number }[] = [];
+          const trackBatch: YTMTrack[] = [];
+
+          const cursorReq = oldStore.openCursor();
+          cursorReq.onsuccess = (ev: any) => {
+            const cursor = ev.target.result;
+            if (cursor) {
+              const old = cursor.value;
+              const trackId = old.track?.id || old.videoId;
+              migrated.push({
+                timestamp: old.timestamp,
+                trackId,
+                listenedSeconds: old.listenedSeconds || 0,
+              });
+              if (old.track) trackBatch.push(old.track);
+              cursor.continue();
+            } else {
+              db.deleteObjectStore('tracks');
+              const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
+              store.createIndex('trackId', 'trackId', { unique: false });
+              for (const entry of migrated) store.put(entry);
+              this.pendingTrackMigrations = trackBatch;
+            }
+          };
+          return;
+        }
+
+        // ─── v2 → v3: recreate 'plays' store with trackId index ───
+        if (oldVersion < 3 && db.objectStoreNames.contains('plays')) {
+          const oldStore = e.target.transaction.objectStore('plays');
+          const migrated: { timestamp: number; trackId: string; listenedSeconds: number }[] = [];
+
           const cursorReq = oldStore.openCursor();
           cursorReq.onsuccess = (ev: any) => {
             const cursor = ev.target.result;
@@ -37,56 +76,32 @@ class HistoryStore {
               const old = cursor.value;
               migrated.push({
                 timestamp: old.timestamp,
-                trackId: old.track?.id || old.videoId,
+                trackId: old.trackId || (old as any).videoId,
                 listenedSeconds: old.listenedSeconds || 0,
               });
-              if (old.track) tracksStore.upsertTrack(old.track);
               cursor.continue();
             } else {
-              db.deleteObjectStore('tracks');
-              for (const entry of migrated) {
-                db.createObjectStore('plays', { keyPath: 'timestamp' })
-                  .put(entry);
-              }
+              db.deleteObjectStore('plays');
+              const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
+              store.createIndex('trackId', 'trackId', { unique: false });
+              for (const entry of migrated) store.put(entry);
             }
           };
+          return;
         }
 
-        if (oldVersion < 3) {
-          // Recreate 'plays' store: drop videoId, keep trackId only
-          if (db.objectStoreNames.contains('plays')) {
-            // Read all existing data from v2 store
-            const oldStore = e.target.transaction.objectStore('plays');
-            const migrated: any[] = [];
-            const cursorReq = oldStore.openCursor();
-            cursorReq.onsuccess = (ev: any) => {
-              const cursor = ev.target.result;
-              if (cursor) {
-                const old = cursor.value;
-                migrated.push({
-                  timestamp: old.timestamp,
-                  trackId: old.trackId || old.videoId,
-                  listenedSeconds: old.listenedSeconds || 0,
-                });
-                cursor.continue();
-              } else {
-                db.deleteObjectStore('plays');
-                const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
-                store.createIndex('trackId', 'trackId', { unique: false });
-                for (const entry of migrated) {
-                  store.put(entry);
-                }
-              }
-            };
-          } else {
-            // Fresh install: create 'plays' store
-            const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
-            store.createIndex('trackId', 'trackId', { unique: false });
-          }
+        // ─── v2 without plays store: create fresh ───
+        if (oldVersion < 3 && !db.objectStoreNames.contains('plays')) {
+          const store = db.createObjectStore('plays', { keyPath: 'timestamp' });
+          store.createIndex('trackId', 'trackId', { unique: false });
         }
       };
       request.onsuccess = (e: any) => {
         this.db = e.target.result;
+        if (this.pendingTrackMigrations.length > 0) {
+          tracksStore.upsertTracksBatch(this.pendingTrackMigrations).catch(() => {});
+          this.pendingTrackMigrations = [];
+        }
         resolve();
       };
       request.onerror = () => { this.initPromise = null; reject(request.error); };

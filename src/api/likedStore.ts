@@ -40,6 +40,7 @@ class LikedStore {
   private readonly DB_NAME = 'goymusic-liked';
   private readonly VERSION = 5;
   private initPromise: Promise<void> | null = null;
+  private pendingTrackMigrations: YTMTrack[] = [];
 
   async init() {
     if (this.initPromise) return this.initPromise;
@@ -49,8 +50,10 @@ class LikedStore {
         const db = e.target.result;
         const oldVersion = e.oldVersion;
 
-        // ─── v3 → v5: old stores ('tracks', 'sc_tracks', 'yt_import_tracks') with full `track` ───
+        // ─── v3 → v5: migrate old stores ('tracks', 'sc_tracks', 'yt_import_tracks') with full `track` ───
         if (oldVersion < 4) {
+          const trackBatch: YTMTrack[] = [];
+
           // YT liked
           if (db.objectStoreNames.contains('tracks')) {
             const oldStore = e.target.transaction.objectStore('tracks');
@@ -66,7 +69,7 @@ class LikedStore {
                   syncedAt: old.syncedAt,
                   likedAt: old.likedAt,
                 });
-                if (old.track) tracksStore.upsertTrack(old.track);
+                if (old.track) trackBatch.push(old.track);
                 cursor.continue();
               } else {
                 db.deleteObjectStore('tracks');
@@ -92,7 +95,7 @@ class LikedStore {
                   likedAt: old.likedAt,
                   localOnly: old.localOnly,
                 });
-                if (old.track) tracksStore.upsertTrack(old.track);
+                if (old.track) trackBatch.push(old.track);
                 cursor.continue();
               } else {
                 db.deleteObjectStore('sc_tracks');
@@ -119,7 +122,7 @@ class LikedStore {
                   syncedAt: old.syncedAt,
                   likedAt: old.likedAt,
                 });
-                if (old.track) tracksStore.upsertTrack(old.track);
+                if (old.track) trackBatch.push(old.track);
                 cursor.continue();
               } else {
                 db.deleteObjectStore('yt_import_tracks');
@@ -129,6 +132,25 @@ class LikedStore {
               }
             };
           }
+
+          // Ensure remaining stores exist (may be needed if some old stores didn't exist)
+          if (!db.objectStoreNames.contains('yt_liked')) {
+            const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
+            store.createIndex('originalIndex', 'originalIndex', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('sc_liked')) {
+            const sc = db.createObjectStore('sc_liked', { keyPath: 'scId' });
+            sc.createIndex('likedAt', 'likedAt', { unique: false });
+            sc.createIndex('trackId', 'trackId', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('yt_import_liked')) {
+            const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
+            pending.createIndex('originalIndex', 'originalIndex', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
+
+          this.pendingTrackMigrations = trackBatch;
+          return;
         }
 
         // ─── v4 → v5: recreate 'yt_liked' with keyPath trackId instead of videoId ───
@@ -154,6 +176,7 @@ class LikedStore {
               for (const entry of entries) store.put(entry);
             }
           };
+          return;
         }
 
         // ─── Fresh install / final: ensure stores exist ───
@@ -172,7 +195,14 @@ class LikedStore {
         }
         if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
       };
-      request.onsuccess = (e: any) => { this.db = e.target.result; resolve(); };
+      request.onsuccess = (e: any) => {
+        this.db = e.target.result;
+        if (this.pendingTrackMigrations.length > 0) {
+          tracksStore.upsertTracksBatch(this.pendingTrackMigrations).catch(() => {});
+          this.pendingTrackMigrations = [];
+        }
+        resolve();
+      };
       request.onerror = (e) => { this.initPromise = null; reject(e); };
     });
     return this.initPromise;
