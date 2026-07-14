@@ -14,7 +14,7 @@ _MAX_ENTRIES = 5000
 _EVICT_BATCH = 500  # remove 10% at a time
 _cache: dict[str, tuple[str, float]] = {}  # normalized_name → (browseId, expires_at)
 
-_SEPARATORS = ("&", "и", ",", ";")
+SEPARATORS = ("&", "и", ",", ";")
 
 
 def _normalize(name: str) -> str:
@@ -64,7 +64,7 @@ def lookup_with_separators(name: str) -> str | None:
     if direct:
         return direct
     # Try splitting by separators
-    for sep in _SEPARATORS:
+    for sep in SEPARATORS:
         if sep in name:
             parts = [p.strip() for p in name.split(sep) if p.strip()]
             for part in parts:
@@ -72,3 +72,29 @@ def lookup_with_separators(name: str) -> str | None:
                 if found:
                     return found
     return None
+
+
+def split_artists(name: str) -> list[str] | None:
+    """Split combined artist name by separators. Returns None if no separator found."""
+    for sep in SEPARATORS:
+        if sep in name:
+            parts = [p.strip() for p in name.split(sep) if p.strip()]
+            return parts if len(parts) > 1 else None
+    return None
+
+
+def resolve_artists(name: str, browse_id: str | None) -> list[dict]:
+    """Resolve artist name to list of {name, id} entries.
+    
+    If browse_id is present, stores in cache and returns single entry.
+    If no browse_id, tries splitting combined name and looking up each part.
+    """
+    if browse_id:
+        store(name, browse_id)
+        return [{"name": name, "id": browse_id}]
+    
+    parts = split_artists(name)
+    if parts:
+        return [{"name": p, "id": lookup_with_separators(p)} for p in parts]
+    
+    return [{"name": name, "id": lookup_with_separators(name)}]

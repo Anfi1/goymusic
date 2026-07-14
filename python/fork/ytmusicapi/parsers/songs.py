@@ -6,9 +6,7 @@ from ytmusicapi.type_alias import JsonDict, JsonList
 from ._utils import *
 from .artists import parse_artists_runs
 from .constants import DOT_SEPARATOR_RUN
-from .artist_cache import store, lookup_with_separators
-
-_SEPARATORS = ("&", "и", ",", ";")
+from .artist_cache import store, lookup_with_separators, resolve_artists
 
 
 def parse_song_artists(data: JsonDict, index: int) -> JsonList:
@@ -83,23 +81,9 @@ def parse_song_runs(runs: JsonList, skip_type_spec: bool = False) -> JsonDict:
                 parsed["album"] = data
             case "artist":
                 parsed["artists"] = parsed.get("artists", [])
-                # Split combined artist names ("archcorpse & dekma") into separate entries
                 name = data.get("name", "")
-                has_separator = any(sep in name for sep in _SEPARATORS)
-                if has_separator:
-                    parts = []
-                    for sep in _SEPARATORS:
-                        if sep in name:
-                            parts = [p.strip() for p in name.split(sep) if p.strip()]
-                            break
-                    if len(parts) > 1:
-                        for part in parts:
-                            cached_id = lookup_with_separators(part)
-                            parsed["artists"].append({"name": part, "id": cached_id})
-                    else:
-                        parsed["artists"].append(data)
-                else:
-                    parsed["artists"].append(data)
+                browse_id = data.get("id")
+                parsed["artists"].extend(resolve_artists(name, browse_id))
             case "views":
                 parsed["views"] = data
             case "duration":
