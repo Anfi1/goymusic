@@ -173,7 +173,7 @@ export const HomeView: React.FC<{
     if (type === 'artist') onSelectArtist(item.id);
     else if (type === 'album') onSelectAlbum(item.id);
     else if (type === 'playlist') onSelectPlaylist(item.id, item.title);
-    else if (type === 'song') onSelectAlbum(item.albumId || item.id);
+    else if (type === 'song' && item.albumId) onSelectAlbum(item.albumId);
   }, [onSelectArtist, onSelectAlbum, onSelectPlaylist]);
 
   const menuItems: ContextMenuItem[] = useMemo(() => {
