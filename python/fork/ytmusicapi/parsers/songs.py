@@ -6,6 +6,9 @@ from ytmusicapi.type_alias import JsonDict, JsonList
 from ._utils import *
 from .artists import parse_artists_runs
 from .constants import DOT_SEPARATOR_RUN
+from .artist_cache import store, lookup_with_separators
+
+_SEPARATORS = ("&", "и", ",", ";")
 
 
 def parse_song_artists(data: JsonDict, index: int) -> JsonList:
@@ -26,6 +29,14 @@ def parse_song_run(run: JsonDict) -> JsonDict:
         if item["id"] and (item["id"].startswith("MPRE") or "release_detail" in item["id"]):  # album
             return {"type": "album", "data": item}
         else:  # artist
+            # Cache artist name → browseId for future restoration
+            if item["id"]:
+                store(text, item["id"])
+            else:
+                # Try to restore from cache when YouTube gave no ID
+                cached_id = lookup_with_separators(text)
+                if cached_id:
+                    item["id"] = cached_id
             return {"type": "artist", "data": item}
     else:
         # note: YT uses non-breaking space \xa0 to separate number and magnitude
@@ -38,8 +49,9 @@ def parse_song_run(run: JsonDict) -> JsonDict:
         elif re.match(r"^\d{4}$", text):
             return {"type": "year", "data": text}
 
-        else:  # artist without id
-            return {"type": "artist", "data": {"name": text, "id": None}}
+        else:  # artist without id — try to restore from cache
+            cached_id = lookup_with_separators(text)
+            return {"type": "artist", "data": {"name": text, "id": cached_id}}
 
 
 def parse_song_runs(runs: JsonList, skip_type_spec: bool = False) -> JsonDict:
@@ -71,7 +83,23 @@ def parse_song_runs(runs: JsonList, skip_type_spec: bool = False) -> JsonDict:
                 parsed["album"] = data
             case "artist":
                 parsed["artists"] = parsed.get("artists", [])
-                parsed["artists"].append(data)
+                # Split combined artist names ("archcorpse & dekma") into separate entries
+                name = data.get("name", "")
+                has_separator = any(sep in name for sep in _SEPARATORS)
+                if has_separator:
+                    parts = []
+                    for sep in _SEPARATORS:
+                        if sep in name:
+                            parts = [p.strip() for p in name.split(sep) if p.strip()]
+                            break
+                    if len(parts) > 1:
+                        for part in parts:
+                            cached_id = lookup_with_separators(part)
+                            parsed["artists"].append({"name": part, "id": cached_id})
+                    else:
+                        parsed["artists"].append(data)
+                else:
+                    parsed["artists"].append(data)
             case "views":
                 parsed["views"] = data
             case "duration":

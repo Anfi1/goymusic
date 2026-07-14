@@ -3,7 +3,7 @@ import { streamCache } from './cache';
 import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
-import { searchSoundCloud, isSoundCloudEnabled, interleaveTracks, pickBestScMatch, isSoundCloudId, getScRecommendations } from './soundcloud';
+import { searchSoundCloud, isSoundCloudEnabled, interleaveTracks, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
 
 export type PlayerEventType = 'state' | 'tick' | 'buffer';
 type PlayerCallback = (event: PlayerEventType) => void;
@@ -1159,11 +1159,24 @@ class PlayerStore {
 
     private applyRecommendations(fresh: YTMTrack[], forceReplace: boolean) {
         if (fresh.length === 0) return;
+        const queueAndRecs = [...this.queue, ...(forceReplace ? [] : this.recommendations)];
+        const batchDeduped: YTMTrack[] = [];
+        for (const t of fresh) {
+            if (!batchDeduped.some(existing => isDuplicateTrack(existing, t)) &&
+                !queueAndRecs.some(qt => isDuplicateTrack(qt, t))) {
+                batchDeduped.push(t);
+            }
+        }
+        if (batchDeduped.length < fresh.length) {
+            console.log(`[dedup] ${fresh.length} → ${batchDeduped.length} (removed ${fresh.length - batchDeduped.length} cross-platform dups)`);
+        }
         if (forceReplace || this.recommendations.length === 0) {
-            this.recommendations = fresh.slice(0, 200);
+            this.recommendations = batchDeduped.slice(0, 200);
         } else {
             const existing = new Set(this.recommendations.map(t => t.id));
-            this.recommendations = [...this.recommendations, ...fresh.filter(t => !existing.has(t.id))].slice(0, 150);
+            const deduped = batchDeduped.filter(t => !existing.has(t.id) &&
+                !this.recommendations.some(r => isDuplicateTrack(r, t)));
+            this.recommendations = [...this.recommendations, ...deduped].slice(0, 150);
         }
     }
 
@@ -1172,8 +1185,23 @@ class PlayerStore {
     private async scRadioTracks(videoId: string): Promise<YTMTrack[]> {
         const { track, query } = this.scRadioQuery(videoId);
         const url = track?.scUrl || (isSoundCloudId(videoId) ? videoId : undefined);
-        let scTracks = await getScRecommendations({ scId: track?.scId, url });
-        // Если related отдал мало — добираем поиском по «artist title» (до 25), без дублей.
+        let scTracks: YTMTrack[] = [];
+
+        // Если сид — YT-трек (нет SC-ссылки), ищем матченый SC-трек для related-рекомендаций.
+        if (!url && !track?.scId && query) {
+            const match = await searchSoundCloud(query, 3);
+            const best = pickBestScMatch(match, this.parseDuration(track?.duration || '0:00'));
+            if (best?.scUrl) {
+                scTracks = await getScRecommendations({ scId: best.scId, url: best.scUrl });
+            }
+        }
+
+        // Обычный путь: related от SC-трека.
+        if (scTracks.length === 0) {
+            scTracks = await getScRecommendations({ scId: track?.scId, url });
+        }
+
+        // Добираем поиском, если related дал мало.
         if (scTracks.length < 10 && query) {
             const extra = await searchSoundCloud(query, 25);
             const ids = new Set(scTracks.map(t => t.id));
@@ -1208,10 +1236,10 @@ class PlayerStore {
         const qIds = new Set(this.queue.map(t => t.id));
         const ytFresh = (ytRes.tracks || []).filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
         const scFresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
-        // При forceReplace явно сбрасываем, чтобы hybrid-refresh точно заменил оба источника,
-        // а не смешал новые треки с остатками старых рекомендаций.
+        // Убираем SC-дубли YT-треков (одна и та же песня на разных платформах).
+        const scDeduped = scFresh.filter(sc => !ytFresh.some(yt => isDuplicateTrack(yt, sc)));
         if (forceReplace) this.recommendations = [];
-        this.applyRecommendations(interleaveTracks(ytFresh, scFresh), forceReplace);
+        this.applyRecommendations(interleaveTracks(ytFresh, scDeduped), forceReplace);
     }
 
     // Подбираем YouTube-видео под SC-трек (для гибрид-рекомендаций от SC-сида).

@@ -70,6 +70,92 @@ function durationToSeconds(d: string | undefined | null): number {
   return parts.reduce((acc, v) => acc * 60 + v, 0);
 }
 
+// --- Cross-platform dedup (YouTube ↔ SoundCloud) ---
+
+/** Нормализованная сигнатура трека: title + artists, нижний регистр, без пунктуации/пробелов. */
+export function normalizeSignature(t: YTMTrack): string {
+  const raw = [t.title, ...(t.artists || [])].join(' ');
+  return raw.toLowerCase().replace(/[^a-zа-яё0-9]/gi, '').replace(/\s+/g, '');
+}
+
+/** Нормализованная сигнатура только артистов (без названия). */
+function artistSignature(t: YTMTrack): string {
+  return normalizeSignature({ ...t, title: '' } as YTMTrack);
+}
+
+/** Нормализованная сигнатура только заголовка (без артистов). */
+function titleSignature(t: YTMTrack): string {
+  return normalizeSignature({ ...t, artists: [] } as YTMTrack);
+}
+
+/** Расстояние Левенштейна (нужно для нечёткого сравнения сигнатур). */
+function levenshtein(a: string, b: string): number {
+  const al = a.length, bl = b.length;
+  if (al === 0) return bl;
+  if (bl === 0) return al;
+  const dp: number[] = Array.from({ length: bl + 1 }, (_, i) => i);
+  for (let i = 1; i <= al; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= bl; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1]
+        ? prev
+        : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[bl];
+}
+
+function similarity(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+}
+
+function durationsClose(a: YTMTrack, b: YTMTrack, tol = 5): boolean {
+  const durA = durationToSeconds(a.duration);
+  const durB = durationToSeconds(b.duration);
+  if (durA <= 0 || durB <= 0) return true; // неизвестна — не отсеиваем
+  return Math.abs(durA - durB) <= tol;
+}
+
+/**
+ * Проверяет, являются ли два трека дубликатами (одна и та же песня на разных платформах).
+ *
+ * Этап 1: точное совпадение нормализованных сигнатур (title+artists) → дубль.
+ * Этап 2: нечёткое совпадение ≥85% + длительность ±5 сек → дубль.
+ * Этап 3: артисты одного трека совпадают с полной сигнатурой другого + длительность ±5 сек → дубль.
+ *         (ловит случай когда SC-аплоадер назвал трек именами артистов без названия песни)
+ */
+export function isDuplicateTrack(a: YTMTrack, b: YTMTrack): boolean {
+  const sigA = normalizeSignature(a);
+  const sigB = normalizeSignature(b);
+
+  // Этап 1: точное совпадение
+  if (sigA === sigB) return true;
+  if (sigA.length === 0 || sigB.length === 0) return false;
+
+  // Этап 2: нечёткое совпадение ≥85%
+  const sim = similarity(sigA, sigB);
+  if (sim >= 0.85 && durationsClose(a, b)) return true;
+
+  // Этап 3: заголовок одного трека содержит артистов другого
+  // Ловит случай когда SC-аплоадер назвал трек именами артистов (без названия песни).
+  const artA = artistSignature(a);
+  const artB = artistSignature(b);
+  const titleA = titleSignature(a);
+  const titleB = titleSignature(b);
+  const artMinLen = 8;
+  // Заголовок B содержит артистов A → B назван именами артистов A
+  if (artA.length >= artMinLen && titleB.includes(artA) && durationsClose(a, b)) return true;
+  // Заголовок A содержит артистов B → A назван именами артистов B
+  if (artB.length >= artMinLen && titleA.includes(artB) && durationsClose(a, b)) return true;
+
+  return false;
+}
+
 /**
  * Выбирает лучший SC-кандидат под исходный трек по близости длительности.
  * targetSeconds<=0 (длительность неизвестна) → первый результат.
