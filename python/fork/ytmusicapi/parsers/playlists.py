@@ -173,6 +173,23 @@ def parse_playlist_items(
     is_album: bool = False,
     is_collaborative: bool = False,
 ) -> JsonList:
+    # Pass 1: Pre-populate artist cache with explicit artist IDs in this list
+    for result in results:
+        if MRLIR not in result:
+            continue
+        data = result[MRLIR]
+        for flex in data.get("flexColumns", []):
+            flex_item = flex.get("musicResponsiveListItemFlexColumnRenderer")
+            runs = flex_item.get("text", {}).get("runs", []) if flex_item else []
+            for run in runs:
+                if isinstance(run, dict) and "navigationEndpoint" in run:
+                    bid = nav(run, NAVIGATION_BROWSE_ID, True)
+                    if bid and not (bid.startswith("MPRE") or "release_detail" in bid):
+                        name = run.get("text")
+                        if name:
+                            store(name, bid)
+
+    # Pass 2: Parse items
     songs = []
     for result in results:
         if MRLIR not in result:
@@ -190,7 +207,7 @@ def parse_playlist_item(
     is_album: bool = False,
     is_collaborative: bool = False,
 ) -> JsonDict | None:
-    videoId = setVideoId = None
+    videoId = setVideoId = creditsBrowseId = None
     like = None
 
     # if the item has a menu, find its setVideoId
@@ -203,6 +220,10 @@ def parse_playlist_item(
                     videoId = nav(
                         menu_service, ["playlistEditEndpoint", "actions", 0, "removedVideoId"], True
                     )
+            elif MNIR in item:
+                maybe_credits_browse_id = nav(item, [MNIR, *NAVIGATION_BROWSE_ID], True)
+                if maybe_credits_browse_id and maybe_credits_browse_id.startswith("MPTC"):
+                    creditsBrowseId = maybe_credits_browse_id
 
     song_menu_data = {"inLibrary": None, "pinnedToListenAgain": None} | parse_song_menu_data(data)
 
@@ -326,6 +347,8 @@ def parse_playlist_item(
         song["duration_seconds"] = parse_duration(duration)
     if setVideoId:
         song["setVideoId"] = setVideoId
+    if creditsBrowseId:
+        song["creditsBrowseId"] = creditsBrowseId
 
     return song
 

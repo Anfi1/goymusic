@@ -1,4 +1,3 @@
-import typing
 
 from ytmusicapi.type_alias import JsonDict, JsonList
 
@@ -62,12 +61,24 @@ def parse_watch_track(data: JsonDict) -> JsonDict:
     return track
 
 
-def get_tab_browse_id(watchNextRenderer: JsonDict, tab_id: int) -> str | None:
-    try:
-        tab_renderer = watchNextRenderer["tabs"][tab_id]["tabRenderer"]
-        if "unselectable" not in tab_renderer:
-            endpoint = tab_renderer.get("endpoint") or tab_renderer.get("navigationEndpoint") or {}
-            return endpoint.get("browseEndpoint", {}).get("browseId")
-    except (KeyError, IndexError, TypeError, AttributeError):
-        pass
-    return None
+def get_tab_browse_ids(watchNextRenderer: JsonDict) -> dict[str, str]:
+    """Извлечение browseId вкладок по pageType вместо позиции.
+    Устойчиво к добавлению/удалению/перестановке вкладок YouTube."""
+    browse_ids: dict[str, str] = {}
+    for tab in watchNextRenderer.get("tabs", []):
+        tab_renderer = tab.get("tabRenderer", {})
+        if "unselectable" in tab_renderer:
+            continue
+
+        endpoint = (
+            tab_renderer.get("endpoint")
+            or tab_renderer.get("navigationEndpoint")
+            or {}
+        )
+        browse_endpoint = endpoint.get("browseEndpoint")
+        if browse_endpoint:
+            page_type = nav(browse_endpoint, PAGE_TYPE, True)
+            if page_type:
+                browse_ids[page_type] = browse_endpoint["browseId"]
+    return browse_ids
+

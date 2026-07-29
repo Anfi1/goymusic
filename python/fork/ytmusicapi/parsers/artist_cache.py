@@ -14,7 +14,10 @@ _MAX_ENTRIES = 5000
 _EVICT_BATCH = 500  # remove 10% at a time
 _cache: dict[str, tuple[str, float]] = {}  # normalized_name → (browseId, expires_at)
 
+import re
+
 SEPARATORS = ("&", "и", ",", ";")
+SPLIT_PATTERN = re.compile(r"\s*(?:,|&|;|\bи\b|\band\b)\s*", re.IGNORECASE)
 
 
 def _normalize(name: str) -> str:
@@ -58,36 +61,21 @@ def lookup(name: str) -> str | None:
 
 
 def lookup_with_separators(name: str) -> str | None:
-    """Look up by name, also trying parts if name contains separators (&, и, etc.)."""
-    # Direct lookup first
-    direct = lookup(name)
-    if direct:
-        return direct
-    # Try splitting by separators
-    for sep in SEPARATORS:
-        if sep in name:
-            parts = [p.strip() for p in name.split(sep) if p.strip()]
-            for part in parts:
-                found = lookup(part)
-                if found:
-                    return found
-    return None
+    """Look up by exact name. Retained for backwards compatibility."""
+    return lookup(name)
 
 
 def split_artists(name: str) -> list[str] | None:
     """Split combined artist name by separators. Returns None if no separator found."""
-    for sep in SEPARATORS:
-        if sep in name:
-            parts = [p.strip() for p in name.split(sep) if p.strip()]
-            return parts if len(parts) > 1 else None
-    return None
+    parts = [p.strip() for p in SPLIT_PATTERN.split(name) if p.strip()]
+    return parts if len(parts) > 1 else None
 
 
 def resolve_artists(name: str, browse_id: str | None) -> list[dict]:
     """Resolve artist name to list of {name, id} entries.
     
     If browse_id is present, stores in cache and returns single entry.
-    If no browse_id, tries splitting combined name and looking up each part.
+    If no browse_id, tries splitting combined name and looking up each part in cache.
     """
     if browse_id:
         store(name, browse_id)
@@ -95,6 +83,7 @@ def resolve_artists(name: str, browse_id: str | None) -> list[dict]:
     
     parts = split_artists(name)
     if parts:
-        return [{"name": p, "id": lookup_with_separators(p)} for p in parts]
+        return [{"name": p, "id": lookup(p)} for p in parts]
     
-    return [{"name": name, "id": lookup_with_separators(name)}]
+    return [{"name": name, "id": lookup(name)}]
+
