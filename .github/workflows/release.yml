@@ -87,14 +87,8 @@ jobs:
       - name: Build app
         run: npm run build
 
-      # --- Package & Release ---
-      - name: Package and publish
-        run: npx electron-builder --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # --- Push version bump ---
-      - name: Commit version bump
+      # --- Push version bump & tag ---
+      - name: Commit version bump and push tag
         if: steps.version.outputs.bumped == 'true'
         shell: bash
         run: |
@@ -103,5 +97,12 @@ jobs:
           git add package.json
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           git tag -f "v${{ steps.version.outputs.version }}"
-          git push
           git push origin "v${{ steps.version.outputs.version }}" --force
+          git push
+
+      # --- Package & Release ---
+      - name: Package and publish
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
