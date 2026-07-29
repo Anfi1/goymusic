@@ -63,9 +63,11 @@ def parse_watch_track(data: JsonDict) -> JsonDict:
 
 
 def get_tab_browse_id(watchNextRenderer: JsonDict, tab_id: int) -> str | None:
-    if "unselectable" not in watchNextRenderer["tabs"][tab_id]["tabRenderer"]:
-        return typing.cast(
-            str, watchNextRenderer["tabs"][tab_id]["tabRenderer"]["endpoint"]["browseEndpoint"]["browseId"]
-        )
-    else:
-        return None
+    try:
+        tab_renderer = watchNextRenderer["tabs"][tab_id]["tabRenderer"]
+        if "unselectable" not in tab_renderer:
+            endpoint = tab_renderer.get("endpoint") or tab_renderer.get("navigationEndpoint") or {}
+            return endpoint.get("browseEndpoint", {}).get("browseId")
+    except (KeyError, IndexError, TypeError, AttributeError):
+        pass
+    return None
