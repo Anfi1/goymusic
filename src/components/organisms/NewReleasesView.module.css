@@ -55,6 +55,7 @@
     letter-spacing: -0.03em;
     background: linear-gradient(to right, #fff, var(--text-main));
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
@@ -88,9 +89,9 @@
 
 .grid {
     display: grid;
-    /* Card size preserved as requested: 175px */
-    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
-    gap: 24px; /* Slightly tighter gap */
+    /* Responsive columns that fill 100% width without leaving right gaps */
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 20px;
     width: 100%;
 }
 

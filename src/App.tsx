@@ -58,6 +58,11 @@ const MainContentWrapper = memo(
             onSelectArtist={handleSelectArtist}
             onSelectAlbum={handleSelectAlbum}
           />
+        ) : activeView.type === 'library' ? (
+          <div style={{ padding: '3rem 2rem', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '1.8rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--text-main)' }}>Библиотека</h2>
+            <p style={{ opacity: 0.6, fontSize: '0.95rem' }}>Раздел находится в разработке</p>
+          </div>
         ) : activeView.type === 'new-releases' ? (
           <NewReleasesView
             key="new-releases"
@@ -89,6 +94,7 @@ const MainContentWrapper = memo(
             onSelectArtist={handleSelectArtist}
             onSelectAlbum={handleSelectAlbum}
             onSelectPlaylist={handleSelectPlaylist}
+            onSelectView={navigate}
           />
         ) : (
           <MainView

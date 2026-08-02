@@ -864,10 +864,14 @@ def _build_formatted_section(section):
     if not items:
         return None
 
+    item_types = set(i.get('type') for i in items if i.get('type'))
+
     category = 'mixed'
-    if len(content_types) == 1:
-        category = list(content_types)[0]
-    elif 'artist' in content_types and len(content_types) <= 2:
+    if len(item_types) == 1:
+        category = list(item_types)[0]
+    elif item_types.issubset({'song', 'video'}):
+        category = 'song'
+    elif 'artist' in item_types and len(item_types) <= 2:
         category = 'artist'
 
     return {'title': section.get('title'), 'category': category, 'contents': items}
@@ -1635,10 +1639,8 @@ def handle_request(request):
             try:
                 continuation = request.get('continuation')
                 if continuation:
-                    response = api._send_request('browse', {
-                        'browseId': 'FEmusic_home',
-                        'continuation': continuation,
-                    })
+                    params = f"&ctoken={continuation}&continuation={continuation}"
+                    response = api._send_request('browse', {'browseId': 'FEmusic_home'}, params)
                     section_list = response.get('continuationContents', {}).get('sectionListContinuation', {})
                 else:
                     response = api._send_request('browse', {'browseId': 'FEmusic_home'})

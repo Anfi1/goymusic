@@ -8,11 +8,13 @@ import { Carousel } from '../molecules/Carousel';
 import { Skeleton } from '../atoms/Skeleton';
 import {
   Pin, PinOff, Trash2, Play,
-  ListMusic, Mic2, Disc, Library, Music2, Zap, LayoutGrid, RefreshCw
+  ListMusic, Mic2, Disc, Library, Music2, Zap, LayoutGrid, RefreshCw,
+  ChevronRight
 } from 'lucide-react';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
 import { useToast } from '../atoms/Toast';
 import { YTMHomeSection } from '../../api/yt';
+import { ActiveView } from '../../types';
 import styles from './HomeView.module.css';
 
 const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
@@ -26,9 +28,58 @@ const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
   }
 };
 
-const FORBIDDEN_TITLES = ['new releases', 'новые релизы', 'новинки'];
+const FORBIDDEN_TITLES: string[] = [];
+
+// Маппинг заголовков секций для интерактивной навигации по клику
+interface SectionNavTarget {
+  keywords: string[];
+  targetView: ActiveView;
+  tooltip: string;
+}
+
+const SECTION_NAV_TARGETS: SectionNavTarget[] = [
+  {
+    keywords: ['new releases', 'новые релизы', 'новинки'],
+    targetView: { type: 'new-releases' },
+    tooltip: 'Открыть Новые Релизы',
+  },
+  {
+    keywords: ['from your library', 'из вашей библиотеки', 'ваша библиотека', 'библиотека', 'library'],
+    targetView: { type: 'library' },
+    tooltip: 'Открыть Библиотеку',
+  },
+];
+
+function getSectionNavTarget(title?: string): SectionNavTarget | null {
+  if (!title) return null;
+  const lower = title.toLowerCase();
+  for (const nav of SECTION_NAV_TARGETS) {
+    if (nav.keywords.some(k => lower.includes(k))) {
+      return nav;
+    }
+  }
+  return null;
+}
+
+// Ключевые слова для приоритетных секций (выводятся первыми на Главной)
+const LISTEN_AGAIN_KEYWORDS = [
+  'listen again',
+  'послушайте ещё раз',
+  'послушать ещё раз',
+  'послушайте еще раз',
+  'послушать еще раз',
+  'быстрый выбор',
+  'quick picks',
+];
+
+function isListenAgainSection(title?: string): boolean {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return LISTEN_AGAIN_KEYWORDS.some(k => lower.includes(k));
+}
 
 function filterSection(section: YTMHomeSection): boolean {
+  if (FORBIDDEN_TITLES.length === 0) return true;
   return !FORBIDDEN_TITLES.some(t => section.title?.toLowerCase().includes(t));
 }
 
@@ -62,7 +113,8 @@ export const HomeView: React.FC<{
   onSelectArtist: (id: string) => void;
   onSelectAlbum: (id: string) => void;
   onSelectPlaylist: (id: string, title: string) => void;
-}> = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist }) => {
+  onSelectView?: (view: ActiveView) => void;
+}> = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onSelectView }) => {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, item: any } | null>(null);
@@ -85,13 +137,26 @@ export const HomeView: React.FC<{
     staleTime: 60 * 60 * 1000,
   });
 
-  // Flatten + filter all loaded pages
+  // Flatten + filter + priority-reorder all loaded pages
   const sections = useMemo(() => {
     if (!data) return [];
-    return data.pages
+    const all = data.pages
       .flatMap(p => p.sections)
-      .filter(filterSection)
-      .map((s, i) => normalizePins(s, i === 0));
+      .filter(filterSection);
+
+    const prioritySections: YTMHomeSection[] = [];
+    const otherSections: YTMHomeSection[] = [];
+
+    for (const sec of all) {
+      if (isListenAgainSection(sec.title)) {
+        prioritySections.push(sec);
+      } else {
+        otherSections.push(sec);
+      }
+    }
+
+    const reordered = [...prioritySections, ...otherSections];
+    return reordered.map((s, i) => normalizePins(s, i === 0));
   }, [data]);
 
   const pagesLoaded = data?.pages?.length ?? 0;
@@ -210,15 +275,24 @@ export const HomeView: React.FC<{
       {sections.map((section: any, idx: number) => {
         const Icon = getSectionIcon(section.category, idx === 0);
         const isSongGrid = section.category === 'song';
+        const navTarget = getSectionNavTarget(section.title);
+
         return (
           <section
             key={`${section.title}-${idx}`}
             className={`${styles.section} ${isSongGrid ? styles.songSection : ''}`}
           >
             <div className={styles.sectionHeader}>
-              <div className={styles.sectionTitleWrapper}>
+              <div 
+                className={`${styles.sectionTitleWrapper} ${navTarget ? styles.clickableTitle : ''}`}
+                onClick={navTarget ? () => onSelectView?.(navTarget.targetView) : undefined}
+                title={navTarget?.tooltip}
+              >
                 <Icon size={20} className={styles.sectionIcon} />
-                <h2 className={styles.sectionTitle}>{section.title}</h2>
+                <h2 className={styles.sectionTitle}>
+                  {section.title}
+                  {navTarget && <ChevronRight size={20} className={styles.titleChevron} />}
+                </h2>
               </div>
               {idx === 0 && isFetching && !isFetchingNextPage && (
                 <div className={styles.updatingBadge}>

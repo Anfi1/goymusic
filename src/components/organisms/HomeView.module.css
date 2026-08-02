@@ -34,6 +34,28 @@
     position: relative;
 }
 
+.clickableTitle {
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.clickableTitle:hover {
+    opacity: 0.8;
+}
+
+.titleChevron {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 6px;
+    opacity: 0.6;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.clickableTitle:hover .titleChevron {
+    opacity: 1;
+    transform: translateX(3px);
+}
+
 .sectionIcon {
     position: absolute;
     left: -32px;
