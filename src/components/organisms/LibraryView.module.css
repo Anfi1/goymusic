@@ -1,0 +1,445 @@
+.container {
+    padding: 1.25rem 1.75rem;
+    height: 100%;
+    overflow-y: auto;
+    background: linear-gradient(180deg, rgba(137, 180, 250, 0.05) 0%, transparent 600px);
+}
+
+.headerRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 1rem;
+}
+
+.titleWrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.titleWrapper h1 {
+    font-size: 1.8rem;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -0.03em;
+    color: var(--text-main);
+}
+
+.icon {
+    color: var(--accent);
+    filter: drop-shadow(0 0 12px rgba(137, 180, 250, 0.6));
+}
+
+.rightControls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-right: 16px;
+}
+
+.tabsRow {
+    margin-bottom: 1.25rem;
+}
+
+.tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    width: 100%;
+    overflow: hidden;
+}
+
+.tabBtn {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 8px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.tabText {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tabBtn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.activeTab {
+    background: rgba(137, 180, 250, 0.15) !important;
+    color: var(--accent) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.sortSelectWrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+}
+
+.shuffleBtn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: rgba(137, 180, 250, 0.12);
+    color: var(--accent);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(12px);
+    white-space: nowrap;
+}
+
+.shuffleBtn:hover {
+    background: rgba(137, 180, 250, 0.22);
+    box-shadow: 0 0 12px rgba(137, 180, 250, 0.3);
+}
+
+/* Custom Dropdown Menu */
+.dropdownWrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdownTrigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    padding: 7px 14px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(12px);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.dropdownTrigger:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(137, 180, 250, 0.3);
+}
+
+.dropdownTriggerActive {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
+}
+
+.chevronIcon {
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+    opacity: 0.7;
+}
+
+.chevronOpen {
+    transform: rotate(180deg);
+}
+
+.dropdownMenu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 170px;
+    background: rgba(24, 24, 37, 0.95);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(20px);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: dropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.dropdownOption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+.dropdownOption:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-main);
+}
+
+.dropdownOptionActive {
+    color: var(--accent);
+    background: rgba(137, 180, 250, 0.1);
+    font-weight: 600;
+}
+
+.checkIcon {
+    color: var(--accent);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 20px;
+    width: 100%;
+}
+
+.trackList, .modalTable {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.spinIcon {
+    animation: spin 1s linear infinite;
+    color: var(--accent);
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.emptyState {
+    padding: 4rem 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.emptyIcon {
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.emptyText {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-main);
+}
+
+.emptySubtext {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
+/* Artist Liked Songs Modal Overlay */
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(16px);
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 70px;
+    padding-bottom: 90px;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    animation: fadeInModal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeInModal {
+    from {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modalContainer {
+    background: rgba(24, 24, 37, 0.95);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    width: 100%;
+    max-width: 920px;
+    max-height: calc(100vh - 180px);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+}
+
+.modalHeader {
+    padding: 1.25rem 2rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.modalArtistInfo {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.modalAvatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(137, 180, 250, 0.4);
+}
+
+.modalTitles h2, .modalArtistTitle {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 0 0 2px 0;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: color 0.2s ease, text-decoration 0.2s ease;
+    display: inline-block;
+}
+
+.modalArtistTitle:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.modalSubtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.modalActions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modalCloseBtn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modalCloseBtn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-main);
+}
+
+.modalBody {
+    padding: 1rem 1.5rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+}
+
+.modalTable {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.rightControls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+    .container {
+        padding: 0.75rem 1rem;
+    }
+    
+    .titleWrapper h1 {
+        font-size: 1.5rem;
+    }
+    
+    .rightControls {
+        margin-right: 6px;
+    }
+    
+    .tabBtn {
+        padding: 7px 4px;
+        font-size: 0.78rem;
+        gap: 4px;
+    }
+    
+    .shuffleBtn, .dropdownTrigger {
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        gap: 5px;
+    }
+}
+
+@media (max-width: 650px) {
+    .tabText {
+        display: none;
+    }
+    .tabBtn {
+        padding: 8px 4px;
+    }
+}

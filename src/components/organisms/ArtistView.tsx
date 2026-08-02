@@ -18,13 +18,14 @@ import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { LazyImage } from '../atoms/LazyImage';
 import { player } from '../../api/player';
 import { 
-  ChevronRight, ArrowLeft,
+  ChevronRight, ArrowLeft, Heart,
   Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle,
   Music, Clock
 } from 'lucide-react';
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
+import { likedStore } from '../../api/likedStore';
 
 /** Парсит локализованное значение и форматирует как короткое число */
 function formatStatValue(raw: string | null | undefined): string {
@@ -135,8 +136,18 @@ const AllSongsTable = React.forwardRef<HTMLTableElement, any>((props, ref) => (
 ));
 
 const AllSongsTableRow = React.forwardRef<HTMLTableRowElement, any>((props, ref) => {
-  const { item, ...rest } = props;
-  return <tr {...rest} ref={ref} className={trackStyles.row} />;
+  const { item, context, ...rest } = props;
+  const index = props['data-index'];
+  return (
+    <tr 
+      {...rest} 
+      ref={ref} 
+      className={trackStyles.row} 
+      onClick={() => context?.onPlay?.(index)}
+      onContextMenu={(e) => { e.preventDefault(); context?.onContextMenu?.(e, item); }}
+      style={{ ...rest.style, cursor: 'pointer' }}
+    />
+  );
 });
 AllSongsTableRow.displayName = 'AllSongsTableRow';
 
@@ -166,7 +177,34 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [shadowColor, setShadowColor] = useState('rgba(0,0,0,0.5)');
+  const [likesOnly, setLikesOnly] = useState(false);
+  const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
   const trackMenuRef = useRef<TrackContextMenuHandle>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    likedStore.getAllTracks().then(entries => {
+      if (mounted) {
+        setLikedIds(new Set(entries.map(e => e.trackId)));
+      }
+    });
+    const handleLikeUpdate = (e: any) => {
+      if (e.detail?.id && e.detail?.status === 'success') {
+        const { id, likeStatus } = e.detail;
+        setLikedIds(prev => {
+          const next = new Set(prev);
+          if (likeStatus === 'LIKE') next.add(id);
+          else next.delete(id);
+          return next;
+        });
+      }
+    };
+    window.addEventListener('track-like-updated', handleLikeUpdate as EventListener);
+    return () => {
+      mounted = false;
+      window.removeEventListener('track-like-updated', handleLikeUpdate as EventListener);
+    };
+  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, track: YTMTrack) => {
     e.preventDefault();
@@ -365,6 +403,16 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     return fetchedSongs;
   }, [allSongsPages, detail]);
 
+  const displayedSongs = useMemo(() => {
+    if (!likesOnly) return allSongs;
+    return allSongs.filter((song: YTMTrack) => song.likeStatus === 'LIKE' || (song.id && likedIds.has(song.id)));
+  }, [allSongs, likesOnly, likedIds]);
+
+  const virtuosoContext = useMemo(() => ({
+    onPlay: (index: number) => player.playTrackList(displayedSongs, index, artistId, 'artist'),
+    onContextMenu: (e: React.MouseEvent, song: YTMTrack) => handleContextMenu(e, song)
+  }), [displayedSongs, artistId, handleContextMenu]);
+
   // UI State
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
   const [isPlaying, setIsPlaying] = useState<boolean>(player.isPlaying);
@@ -501,7 +549,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 onSelectAlbum={onSelectAlbum} 
                 onClick={() => detail.isSoundCloud
                   ? player.playTrackList(detail.topSongs, i, 'sc-artist-' + artistId)
-                  : player.playSingle(track)}
+                  : player.playTrackList(detail.topSongs, i, artistId, 'artist')}
                 onContextMenu={(e) => handleContextMenu(e, track)}
               />
             ))}</tbody>
@@ -675,9 +723,17 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 {isSongsInitialLoading ? (
                   <Loader2 size={12} className={styles.trackCountSpinner} />
                 ) : null}
-                {isSongsInitialLoading ? 'Loading...' : `${allSongs.length} tracks`}
+                {isSongsInitialLoading ? 'Loading...' : `${displayedSongs.length} tracks`}
               </span>
             </div>
+            <button 
+              className={`${styles.likesOnlyBtn} ${likesOnly ? styles.active : ''}`}
+              onClick={() => setLikesOnly(prev => !prev)}
+              title={likesOnly ? "Show all tracks" : "Show only liked tracks"}
+            >
+              <Heart size={15} fill={likesOnly ? "currentColor" : "none"} />
+              <span>Likes only</span>
+            </button>
           </header>
           <div className={styles.allSongsContent} ref={modalContentRef}>
             {isSongsInitialLoading ? (
@@ -701,21 +757,30 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                   </tbody>
                 </table>
               </div>
-            ) : allSongs.length === 0 ? (
+            ) : displayedSongs.length === 0 ? (
               <div className={styles.allSongsEmpty}>
-                <Music size={64} className={styles.allSongsEmptyIcon} />
-                <div className={styles.allSongsEmptyText}>No songs found</div>
-                <div className={styles.allSongsEmptyHint}>This artist doesn't have any tracks yet</div>
+                {likesOnly ? (
+                  <Heart size={64} className={styles.allSongsEmptyIcon} style={{ color: '#f38ba8', opacity: 0.6 }} />
+                ) : (
+                  <Music size={64} className={styles.allSongsEmptyIcon} />
+                )}
+                <div className={styles.allSongsEmptyText}>
+                  {likesOnly ? 'Нет понравившихся треков' : 'No songs found'}
+                </div>
+                <div className={styles.allSongsEmptyHint}>
+                  {likesOnly ? 'У вас нет лайкнутых треков у этого исполнителя' : "This artist doesn't have any tracks yet"}
+                </div>
               </div>
             ) : (
               <div className={styles.virtuosoWrapper}>
                 <TableVirtuoso
                   style={{ height: '100%' }}
-                  data={allSongs}
+                  data={displayedSongs}
+                  context={virtuosoContext}
                   overscan={400}
                   increaseViewportBy={500}
                   fixedItemHeight={56}
-                  endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+                  endReached={() => { if (!likesOnly && hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
                   computeItemKey={(index, track) => track.id || index}
                   fixedHeaderContent={() => (
                     <tr className={`${styles.tableHeaderRow} ${isTableScrolled ? styles.scrolled : ''}`}>
@@ -739,8 +804,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                       isPlaying={isPlaying}
                       onSelectArtist={onSelectArtist}
                       onSelectAlbum={onSelectAlbum}
-                      onClick={() => player.playTrackList(allSongs, index)}
-                      onContextMenu={(e) => handleContextMenu(e, song)}
                       renderOnlyCells
                     />
                   )}

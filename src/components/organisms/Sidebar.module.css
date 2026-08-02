@@ -95,6 +95,13 @@
     letter-spacing: 1.5px;
     color: var(--text-main);
     white-space: nowrap;
+    cursor: pointer;
+    transition: opacity 0.2s, color 0.2s;
+}
+
+.sectionTitle:hover {
+    opacity: 0.9;
+    color: var(--accent);
 }
 
 .scrollArea {

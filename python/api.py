@@ -21,6 +21,7 @@ from urllib.parse import urlparse, urlunparse
 from ytmusicapi import YTMusic, OAuthCredentials
 from pytubefix import YouTube
 from ytmusicapi.navigation import nav, SINGLE_COLUMN_TAB, SECTION_LIST, TITLE_TEXT, CAROUSEL_TITLE, TITLE, NAVIGATION_BROWSE_ID, RUN_TEXT
+SECTION_LIST_ITEM = ['sectionListRenderer', 'contents', 0]
 
 # Force UTF-8 for communication to handle Russian text on Windows
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
@@ -255,6 +256,45 @@ def _sc_extract_track_id(url):
     u = url.replace('%3A', ':').replace('%2F', '/')
     m = re.search(r'tracks[:/](\d+)', u)
     return m.group(1) if m else None
+
+def parse_watch_video_renderer(item):
+    v_id = item.get('videoId')
+    if not v_id: return None
+    title = nav(item, ['title', 'runs', 0, 'text'], True) or ''
+    byline_runs = nav(item, ['longBylineText', 'runs'], True) or []
+    artists = []
+    artist_ids = []
+    album = ''
+    album_id = None
+    for run in byline_runs:
+        text = run.get('text', '')
+        b_id = nav(run, ['navigationEndpoint', 'browseEndpoint', 'browseId'], True)
+        p_type = nav(run, ['navigationEndpoint', 'browseEndpoint', 'browseEndpointContextSupportedConfigs', 'browseEndpointContextMusicConfig', 'pageType'], True)
+        if p_type == 'MUSIC_PAGE_TYPE_ARTIST':
+            artists.append(text)
+            if b_id: artist_ids.append(b_id)
+        elif p_type == 'MUSIC_PAGE_TYPE_ALBUM':
+            album = text
+            album_id = b_id
+
+    thumbs = nav(item, ['thumbnail', 'thumbnails'], True) or []
+    thumb_url = thumbs[-1].get('url') if thumbs else ''
+    duration = nav(item, ['lengthText', 'runs', 0, 'text'], True) or ''
+    like_status = nav(item, ['menu', 'menuRenderer', 'topLevelButtons', 0, 'likeButtonRenderer', 'likeStatus'], True) or 'LIKE'
+
+    return {
+        'id': v_id,
+        'videoId': v_id,
+        'type': 'song',
+        'title': title,
+        'artists': artists,
+        'artistIds': artist_ids,
+        'album': album,
+        'albumId': album_id,
+        'thumbUrl': thumb_url,
+        'duration': duration,
+        'likeStatus': like_status
+    }
 
 # Monkey-patch YTMusic._send_request to support cancellation
 _original_send_request = YTMusic._send_request
@@ -1249,6 +1289,39 @@ def handle_request(request):
                         'trackCount': len(tracks),
                         'callId': call_id
                     })
+                elif playlist_id and playlist_id.startswith('MPLA'):
+                    continuation = request.get('continuation')
+                    from ytmusicapi.parsers.playlists import parse_playlist_items
+                    if continuation:
+                        params = f"&ctoken={continuation}&continuation={continuation}"
+                        response = api._send_request('browse', {'browseId': playlist_id}, params)
+                        cont_contents = nav(response, ['continuationContents', 'musicShelfContinuation'], True) or {}
+                        raw_tracks = cont_contents.get('contents', [])
+                        conts = cont_contents.get('continuations', [])
+                        next_c = conts[0].get('nextContinuationData', {}).get('continuation') if conts else None
+                        tracks = [track_to_dict(t) for t in parse_playlist_items(raw_tracks) if track_to_dict(t)]
+                        safe_print({
+                            'status': 'ok',
+                            'tracks': tracks,
+                            'continuation': next_c,
+                            'callId': call_id
+                        })
+                    else:
+                        response = api._send_request('browse', {'browseId': playlist_id})
+                        shelf = nav(response, [*SINGLE_COLUMN_TAB, *SECTION_LIST_ITEM, 'musicShelfRenderer'], True) or {}
+                        contents = shelf.get('contents', [])
+                        conts = shelf.get('continuations', [])
+                        next_c = conts[0].get('nextContinuationData', {}).get('continuation') if conts else None
+                        tracks = [track_to_dict(t) for t in parse_playlist_items(contents) if track_to_dict(t)]
+                        header_title = nav(response, ['header', 'musicHeaderRenderer', 'title', 'runs', 0, 'text'], True) or "Liked Tracks"
+                        safe_print({
+                            'status': 'ok',
+                            'tracks': tracks,
+                            'title': header_title,
+                            'trackCount': len(tracks),
+                            'continuation': next_c,
+                            'callId': call_id
+                        })
                 else:
                     playlist = api.get_playlist(playlist_id, limit=limit)
                     tracks = [track_to_dict(t) for t in playlist.get('tracks', []) if track_to_dict(t)]
@@ -1660,6 +1733,131 @@ def handle_request(request):
             except Exception as e:
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
+        elif command == 'get_library':
+            api = get_api()
+            try:
+                tab = request.get('tab', 'playlists')
+                limit = request.get('limit', 25)
+                order = request.get('order')
+
+                items = []
+                if tab == 'playlists':
+                    raw_items = api.get_library_playlists(limit=limit)
+                    for item in raw_items:
+                        p_id = item.get('playlistId') or item.get('browseId')
+                        al = item.get('artists', [])
+                        items.append({
+                            'id': p_id,
+                            'playlistId': p_id,
+                            'type': 'playlist',
+                            'title': item.get('title'),
+                            'artists': [a.get('name') for a in al] if isinstance(al, list) else [],
+                            'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '',
+                            'count': item.get('count'),
+                            'description': item.get('description'),
+                        })
+                elif tab == 'albums':
+                    raw_items = api.get_library_albums(limit=limit, order=order)
+                    for item in raw_items:
+                        b_id = item.get('browseId')
+                        al = item.get('artists', [])
+                        items.append({
+                            'id': b_id or item.get('playlistId'),
+                            'browseId': b_id,
+                            'type': 'album',
+                            'title': item.get('title'),
+                            'artists': [a.get('name') for a in al] if isinstance(al, list) else [],
+                            'artistIds': [a.get('id') for a in al] if isinstance(al, list) else [],
+                            'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '',
+                            'year': item.get('year'),
+                            'audioPlaylistId': item.get('playlistId'),
+                        })
+                elif tab == 'artists':
+                    raw_items = api.get_library_artists(limit=limit, order=order if order != 'most_songs' else None)
+                    for item in raw_items:
+                        b_id = item.get('browseId') or item.get('id') or ''
+                        channel_id = b_id[4:] if b_id.startswith('MPLAUC') else (b_id[4:] if b_id.startswith('MPLA') else b_id)
+                        sub_text = str(item.get('subscribers') or '').strip()
+                        sub_text = sub_text.replace('треков', 'tracks').replace('трека', 'tracks').replace('трек', 'track')
+                        if sub_text.isdigit():
+                            sub_text = f"{sub_text} {'track' if sub_text == '1' else 'tracks'}"
+                        items.append({
+                            'id': b_id if b_id.startswith('MPLA') else channel_id,
+                            'playlistId': b_id if b_id.startswith('MPLA') else None,
+                            'artistId': channel_id,
+                            'type': 'playlist' if b_id.startswith('MPLA') else 'artist',
+                            'title': item.get('artist') or item.get('title') or item.get('name'),
+                            'description': sub_text,
+                            'subscribers': sub_text,
+                            'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '',
+                        })
+                elif tab == 'subscriptions':
+                    raw_items = api.get_library_subscriptions(limit=limit)
+                    for item in raw_items:
+                        b_id = item.get('browseId') or item.get('id') or ''
+                        channel_id = b_id[4:] if b_id.startswith('MPLAUC') else (b_id[4:] if b_id.startswith('MPLA') else b_id)
+                        sub_text = (item.get('subscribers') or '').replace('треков', 'tracks').replace('трека', 'tracks').replace('трек', 'track')
+                        items.append({
+                            'id': channel_id,
+                            'type': 'artist',
+                            'title': item.get('artist') or item.get('title') or item.get('name'),
+                            'description': sub_text,
+                            'subscribers': sub_text,
+                            'thumbUrl': item['thumbnails'][-1]['url'] if item.get('thumbnails') else '',
+                        })
+                elif tab == 'songs':
+                    raw_items = api.get_library_songs(limit=limit, order=order)
+                    tracks_raw = raw_items.get('tracks', []) if isinstance(raw_items, dict) else (raw_items or [])
+                    for track in tracks_raw:
+                        v_id = track.get('videoId') or track.get('id')
+                        if v_id:
+                            al = track.get('artists', [])
+                            items.append({
+                                'id': v_id,
+                                'videoId': v_id,
+                                'type': 'song',
+                                'title': track.get('title'),
+                                'artists': [a.get('name') if isinstance(a, dict) else str(a) for a in al] if isinstance(al, list) else [],
+                                'artistIds': [a.get('id') for a in al if isinstance(a, dict) and a.get('id')] if isinstance(al, list) else [],
+                                'thumbUrl': track['thumbnails'][-1]['url'] if track.get('thumbnails') else '',
+                                'duration': track.get('duration'),
+                                'album': track.get('album', {}).get('name') if isinstance(track.get('album'), dict) else '',
+                                'albumId': track.get('album', {}).get('id') if isinstance(track.get('album'), dict) else None,
+                                'likeStatus': track.get('likeStatus') or 'INDIFFERENT',
+                            })
+
+                safe_print({'status': 'ok', 'tab': tab, 'items': items, 'callId': call_id})
+            except Exception as e:
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'shuffle_library_songs':
+            api = get_api()
+            try:
+                body = {
+                    'playlistId': 'MLCT',
+                    'params': 'wAEB8gECKAE=',
+                    'isAudioOnly': True,
+                    'tunerSettingValue': 'AUTOMIX_SETTING_NORMAL',
+                    'enablePersistentPlaylistPanel': True
+                }
+                response = api._send_request('next', body)
+                def find_all_video_renderers(obj):
+                    items = []
+                    if isinstance(obj, dict):
+                        if 'playlistPanelVideoRenderer' in obj:
+                            items.append(obj['playlistPanelVideoRenderer'])
+                        for v in obj.values():
+                            items.extend(find_all_video_renderers(v))
+                    elif isinstance(obj, list):
+                        for el in obj:
+                            items.extend(find_all_video_renderers(el))
+                    return items
+                raw_renderers = find_all_video_renderers(response)
+                tracks = [parse_watch_video_renderer(r) for r in raw_renderers if parse_watch_video_renderer(r)]
+                safe_print({'status': 'ok', 'tracks': tracks, 'audioPlaylistId': 'MLCT', 'callId': call_id})
+            except Exception as e:
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
         elif command == 'get_explore_releases':
             api = get_api()
             try:
@@ -1705,12 +1903,13 @@ def handle_request(request):
                         if subtitle_runs and not nav(subtitle_runs[0], ['navigationEndpoint'], True):
                             display_type = subtitle_runs[0].get('text', 'Album')
                         
-                        if b_id:
-                            if b_id.startswith('MPRE'): res_type = 'album'
-                            elif b_id.startswith('UC'): res_type = 'artist'
-                            else: res_type = 'playlist'
-                        elif v_id:
+                        if v_id:
                             res_type = 'song'
+                            display_type = subtitle_runs[0].get('text', 'Video') if subtitle_runs and not nav(subtitle_runs[0], ['navigationEndpoint'], True) else 'Song'
+                        elif b_id:
+                            if b_id.startswith('MPRE'): res_type = 'album'
+                            elif b_id.startswith(('UC', 'Fv')): res_type = 'artist'
+                            else: res_type = 'playlist'
                         elif p_id:
                             res_type = 'playlist'
 

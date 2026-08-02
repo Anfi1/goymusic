@@ -679,6 +679,12 @@ class PlayerStore {
     }
 
     private getNextTrackInQueue(): YTMTrack | null {
+        if (this.queue.length - this.queueIndex <= 5 && !this.isRecommendationsLoading) {
+            const currentId = this.currentTrack?.id || this.queue[this.queueIndex]?.id;
+            if (currentId) {
+                this.fetchRecommendations(currentId);
+            }
+        }
         if (this.queueIndex + 1 < this.queue.length) {
             return this.queue[this.queueIndex + 1];
         }
@@ -699,10 +705,10 @@ class PlayerStore {
     }
 
     private resolveContextId(track: YTMTrack, recId: string | null, sourceId: string | null): string | null {
-        if (recId && !recId.startsWith('MPREb') && recId !== 'LM') return recId;
+        if (recId && !recId.startsWith('MPREb') && recId !== 'LM' && recId !== 'library-songs') return recId;
         const candidates = [track.audioPlaylistId, track.playlistId, sourceId];
         for (const id of candidates) {
-            if (id && !id.startsWith('MPREb') && id !== 'LM') return id;
+            if (id && !id.startsWith('MPREb') && id !== 'LM' && id !== 'library-songs') return id;
         }
         if (sourceId?.startsWith('MPREb') && track.audioPlaylistId) return track.audioPlaylistId;
         return null;
@@ -1102,12 +1108,15 @@ class PlayerStore {
         try {
             // При выключенном SoundCloud режим = youtube. НО от SC-трека YT-радио построить нельзя
             // (нет YT videoId — RDAMVM+<sc-url> невалиден), поэтому для SC-трека всегда SC-радио.
+            const isMlct = this.queueSourceId === 'MLCT' || this.recommendationPlaylistId === 'MLCT';
             const seedTrack = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
             const seedIsSc = seedTrack?.source === 'soundcloud' || isSoundCloudId(videoId);
             // SC-сид: в режиме «Гибрид» добираем YouTube через матч (как E3, но обратно); иначе SC-радио.
-            const mode = seedIsSc
-                ? (isSoundCloudEnabled() && this.radioMode === 'hybrid' ? 'hybrid' : 'soundcloud')
-                : (isSoundCloudEnabled() ? this.radioMode : 'youtube');
+            const mode = isMlct
+                ? 'youtube'
+                : (seedIsSc
+                    ? (isSoundCloudEnabled() && this.radioMode === 'hybrid' ? 'hybrid' : 'soundcloud')
+                    : (isSoundCloudEnabled() ? this.radioMode : 'youtube'));
             if (mode === 'soundcloud') await this.fetchSoundCloudRadio(videoId, forceReplace);
             else if (mode === 'hybrid') await this.fetchHybridRecommendations(videoId, forceReplace);
             else await this.fetchYouTubeRecommendations(videoId, forceReplace);
@@ -1126,15 +1135,14 @@ class PlayerStore {
         const { tracks } = await getQueueRecommendations(videoId, rid);
         if (tracks.length > 0) {
             const qIds = new Set(this.queue.map(t => t.id));
-            if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD'))) {
+            if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD') || rid === 'MLCT')) {
                 const currentIndex = tracks.findIndex(t => t.id === videoId);
                 if (currentIndex !== -1) {
-                    // Preserve in-memory likeStatus so the API response doesn't overwrite user-toggled state
-                    const currentTrackItem = { ...tracks[currentIndex], likeStatus: this.currentTrack?.likeStatus ?? tracks[currentIndex].likeStatus };
-                    const otherTracks = tracks.filter(t => t.id !== videoId);
-                    this.queue = [currentTrackItem, ...otherTracks];
-                    this.queueIndex = 0;
-                    this.currentTrack = this.queue[0];
+                    // Preserve full YouTube queue order and queueIndex
+                    const fullQueue = tracks.map((t, i) => i === currentIndex ? { ...t, likeStatus: this.currentTrack?.likeStatus ?? t.likeStatus } : t);
+                    this.queue = fullQueue;
+                    this.queueIndex = currentIndex;
+                    this.currentTrack = this.queue[currentIndex];
                     this.recommendations = [];
                     this.recommendationPlaylistId = null;
                     this.saveState();
@@ -1177,6 +1185,17 @@ class PlayerStore {
             const deduped = batchDeduped.filter(t => !existing.has(t.id) &&
                 !this.recommendations.some(r => isDuplicateTrack(r, t)));
             this.recommendations = [...this.recommendations, ...deduped].slice(0, 150);
+        }
+
+        // Auto-expand queue for MLCT supermix
+        if (this.queueSourceId === 'MLCT' || this.recommendationPlaylistId === 'MLCT') {
+            const qIds = new Set(this.queue.map(t => t.id));
+            const freshQueue = batchDeduped.filter(t => !qIds.has(t.id));
+            if (freshQueue.length > 0) {
+                this.queue = [...this.queue, ...freshQueue];
+                this.saveState();
+                this.notify('state');
+            }
         }
     }
 

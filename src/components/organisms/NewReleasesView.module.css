@@ -49,14 +49,11 @@
 }
 
 .titleInfo h1 {
-    font-size: 2.2rem; /* Slightly smaller to match tightened layout */
+    font-size: 2.2rem;
     font-weight: 900;
     margin: 0;
     letter-spacing: -0.03em;
-    background: linear-gradient(to right, #fff, var(--text-main));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-main);
 }
 
 .section {

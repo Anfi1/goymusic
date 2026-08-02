@@ -129,8 +129,10 @@ def get_parsed_continuation_items(
 
 
 def get_continuation_params(results: JsonDict, ctoken_path: str = "") -> str:
-    ctoken = nav(results, ["continuations", 0, "next" + ctoken_path + "ContinuationData", "continuation"])
-    return get_continuation_string(ctoken)
+    ctoken = nav(results, ["continuations", 0, "next" + ctoken_path + "ContinuationData", "continuation"], True)
+    if not ctoken and ctoken_path:
+        ctoken = nav(results, ["continuations", 0, "nextContinuationData", "continuation"], True)
+    return get_continuation_string(ctoken) if ctoken else ""
 
 
 def get_reloadable_continuation_params(results: JsonDict) -> str:

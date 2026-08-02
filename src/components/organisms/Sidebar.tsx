@@ -401,7 +401,13 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
 
       <div className={sidebarStyles.playlistSection}>
         <div className={sidebarStyles.sectionHeader}>
-          <h3 className={sidebarStyles.sectionTitle}>{collapsed ? '' : 'Collection'}</h3>
+          <h3 
+            className={sidebarStyles.sectionTitle}
+            onClick={() => onSelectView?.({ type: 'library' })}
+            title="Open Library"
+          >
+            {collapsed ? '' : 'Collection'}
+          </h3>
           {!collapsed && (
             <IconButton 
               icon={Plus} 

@@ -283,6 +283,37 @@
     flex-shrink: 0;
 }
 
+.likesOnlyBtn {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 20px;
+    background: var(--glass-surface);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(8px);
+}
+
+.likesOnlyBtn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.likesOnlyBtn.active {
+    background: rgba(243, 139, 168, 0.15);
+    border-color: rgba(243, 139, 168, 0.4);
+    color: #f38ba8;
+    box-shadow: 0 0 12px rgba(243, 139, 168, 0.25);
+}
+
 .allSongsTitle {
     font-size: 1.25rem;
     font-weight: 700;

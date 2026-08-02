@@ -11,7 +11,7 @@ export const TrackRowSkeleton = forwardRef<HTMLTableRowElement, TrackRowSkeleton
         <tr
             ref={ref}
             className={`${styles.row} animate-slide-up`}
-            style={{ animationDelay: `${index * 0.03}s` }}
+            style={{ animationDelay: `${(index % 12) * 0.03}s` }}
         >
             <td className={styles.indexCell}>
                 <div className={styles.indexWrapper}>

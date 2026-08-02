@@ -15,6 +15,7 @@ import { LyricsView } from './components/organisms/LyricsView';
 import { NewReleasesView } from './components/organisms/NewReleasesView';
 import { RadioView } from './components/organisms/RadioView';
 import { MyWaveView } from './components/organisms/MyWaveView';
+import { LibraryView } from './components/organisms/LibraryView';
 import { ImageViewer } from './components/molecules/ImageViewer';
 
 import { ToastProvider } from './components/atoms/Toast';
@@ -59,10 +60,12 @@ const MainContentWrapper = memo(
             onSelectAlbum={handleSelectAlbum}
           />
         ) : activeView.type === 'library' ? (
-          <div style={{ padding: '3rem 2rem', textAlign: 'center' }}>
-            <h2 style={{ fontSize: '1.8rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--text-main)' }}>Библиотека</h2>
-            <p style={{ opacity: 0.6, fontSize: '0.95rem' }}>Раздел находится в разработке</p>
-          </div>
+          <LibraryView
+            key="library"
+            onSelectAlbum={handleSelectAlbum}
+            onSelectPlaylist={handleSelectPlaylist}
+            onSelectArtist={handleSelectArtist}
+          />
         ) : activeView.type === 'new-releases' ? (
           <NewReleasesView
             key="new-releases"

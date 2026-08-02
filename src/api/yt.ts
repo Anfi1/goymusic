@@ -249,7 +249,12 @@ export async function addToHistory(videoId: string): Promise<void> {
     }
 }
 
-export async function getPlaylistTracks(playlistId: string, limit: number | null = null, signal?: AbortSignal): Promise<{ 
+export async function getPlaylistTracks(
+    playlistId: string, 
+    limit: number | null = null, 
+    continuationOrSignal?: string | null | AbortSignal,
+    signal?: AbortSignal
+): Promise<{ 
     tracks: YTMTrack[], 
     trackCount: number, 
     continuation?: string | null,
@@ -267,7 +272,14 @@ export async function getPlaylistTracks(playlistId: string, limit: number | null
     menu_tokens?: any,
     isPinned?: boolean
 }> {
-    const res = await pyCall('get_playlist_tracks', { playlistId, limit }, signal);
+    let continuation: string | null = null;
+    let sig = signal;
+    if (typeof continuationOrSignal === 'string') {
+        continuation = continuationOrSignal;
+    } else if (continuationOrSignal && typeof continuationOrSignal === 'object' && 'aborted' in continuationOrSignal) {
+        sig = continuationOrSignal as AbortSignal;
+    }
+    const res = await pyCall('get_playlist_tracks', { playlistId, limit, continuation }, sig);
     if (res.status === 'ok') {
         return { 
             tracks: res.tracks || [], 
@@ -389,6 +401,29 @@ export async function getHomeSections(continuation?: string | null): Promise<{ s
         return { sections: res.sections ?? [], continuation: res.continuation ?? null };
     }
     return { sections: [], continuation: null };
+}
+
+export type LibraryTab = 'playlists' | 'albums' | 'artists' | 'subscriptions' | 'songs';
+export type LibraryOrder = 'a_to_z' | 'z_to_a' | 'recently_added' | 'most_songs';
+
+export async function getLibrary(
+    tab: LibraryTab = 'playlists',
+    limit: number = 25,
+    order?: LibraryOrder
+): Promise<any[]> {
+    const res = await pyCall('get_library', { tab, limit, order });
+    if (res.status === 'ok') {
+        return res.items || [];
+    }
+    return [];
+}
+
+export async function shuffleLibrarySongs(): Promise<YTMTrack[]> {
+    const res = await pyCall('shuffle_library_songs');
+    if (res.status === 'ok') {
+        return res.tracks || [];
+    }
+    return [];
 }
 
 export async function getQueueRecommendations(videoId: string, recommendationPlaylistId: string | null = null): Promise<{ tracks: YTMTrack[], relatedId?: string }> {

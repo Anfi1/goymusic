@@ -34,7 +34,21 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
     if (type === 'artist') onSelectArtist(item.id);
     else if (type === 'album') onSelectAlbum(item.browseId || item.id);
     else if (type === 'playlist') onSelectPlaylist(item.playlistId || item.id, item.title);
-    else if (type === 'song') onSelectAlbum(item.browseId || item.id);
+    else if (type === 'song') {
+      if (item.videoId) {
+        player.playSingle({
+          id: item.videoId,
+          title: item.title,
+          artists: item.artists,
+          artistIds: item.artistIds,
+          thumbUrl: item.thumbUrl,
+          album: '',
+          duration: ''
+        } as any);
+      } else if (item.browseId) {
+        onSelectAlbum(item.browseId);
+      }
+    }
   }, [onSelectArtist, onSelectAlbum, onSelectPlaylist]);
 
   const handlePlayClick = useCallback(async (item: any) => {
