@@ -88,17 +88,19 @@ jobs:
         run: npm run build
 
       # --- Push version bump & tag ---
-      - name: Commit version bump and push tag
-        if: steps.version.outputs.bumped == 'true'
+      # --- Push version bump & tag ---
+      - name: Ensure git tag exists and push
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          if [ "${{ steps.version.outputs.bumped }}" = "true" ]; then
+            git add package.json
+            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+            git push
+          fi
           git tag -f "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}" --force
-          git push
 
       # --- Package & Release ---
       - name: Package and publish
