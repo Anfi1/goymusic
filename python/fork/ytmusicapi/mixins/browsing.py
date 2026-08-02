@@ -258,22 +258,34 @@ class BrowsingMixin(MixinProtocol):
         descriptionShelf = find_object_by_key(results, DESCRIPTION_SHELF[0], is_key=True)
         if descriptionShelf:
             artist["description"] = nav(descriptionShelf, DESCRIPTION)
-            artist["views"] = (
+            raw_views = (
                 None
                 if "subheader" not in descriptionShelf
                 else descriptionShelf["subheader"]["runs"][0]["text"]
             )
+            # Strip locale prefix ("Просмотров:", "Views:", etc.)
+            # and trailing suffix ("views", "просмотров", etc.)
+            if raw_views:
+                import re as _re
+                # Keep only the numeric part (digits, separators, spaces between digits)
+                m = _re.search(r"[\d][\d\s\xa0.,]*[\d]", raw_views)
+                artist["views"] = m.group(0).strip() if m else raw_views
+            else:
+                artist["views"] = None
         subscription_button = header["subscriptionButton"]["subscribeButtonRenderer"]
         artist["channelId"] = subscription_button["channelId"]
         artist["shuffleId"] = nav(header, ["playButton", "buttonRenderer", *NAVIGATION_PLAYLIST_ID], True)
         artist["radioId"] = nav(header, ["startRadioButton", "buttonRenderer", *NAVIGATION_PLAYLIST_ID], True)
         artist["subscribers"] = nav(subscription_button, ["subscriberCountText", "runs", 0, "text"], True)
-        artist["monthlyListeners"] = nav(header, ["monthlyListenerCount", "runs", 0, "text"], True)
-        artist["monthlyListeners"] = (
-            artist["monthlyListeners"].replace(" monthly audience", "")
-            if artist["monthlyListeners"]
-            else None
-        )
+        raw_monthly = nav(header, ["monthlyListenerCount", "runs", 0, "text"], True)
+        if raw_monthly:
+            # Strip trailing text in any locale:
+            # "29.1M monthly audience", "29,1 млн ежемесячных слушателей"
+            import re as _re
+            m = _re.match(r"^[\d\s\xa0.,]+\s*\S*", raw_monthly)
+            artist["monthlyListeners"] = m.group(0).strip() if m else raw_monthly
+        else:
+            artist["monthlyListeners"] = None
         artist["subscribed"] = subscription_button["subscribed"]
         artist["thumbnails"] = nav(header, THUMBNAILS, True)
         artist["songs"] = {"browseId": None}

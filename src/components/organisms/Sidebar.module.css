@@ -66,7 +66,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    min-height: 0; /* Critical for scroll */
+    min-height: 0;
     margin-top: 12px;
 }
 
@@ -101,15 +101,9 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 0 4px 0 0;
-    direction: rtl;
 }
 
-.scrollArea > .nav {
-    direction: ltr;
-}
-
-/* Custom Scrollbar — LEFT side */
+/* Custom Scrollbar — RIGHT side */
 .scrollArea::-webkit-scrollbar {
     width: 4px;
 }
@@ -119,12 +113,8 @@
 }
 
 .scrollArea::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 10px;
-}
-
-.scrollArea:hover::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
 }
 
 /* User Profile */
