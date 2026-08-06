@@ -936,37 +936,218 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
         try:
             print(f"[nodriver] opening: {url}", file=sys.stderr)
             tab = await browser.get(url)
-            await asyncio.sleep(_rnd.uniform(5.0, 7.0))
+            await asyncio.sleep(_rnd.uniform(0.5, 2.0))
 
             if oauth_token:
                 await tab.evaluate(
                     f'document.cookie = "oauth_token={oauth_token}; '
                     f'domain=.soundcloud.com; path=/; max-age=31536000; secure;"'
                 )
-                await asyncio.sleep(_rnd.uniform(0.8, 1.5))
+                await asyncio.sleep(0.5)
+
+            # Wait for document.readyState == complete
+            for _ in range(15):
+                try:
+                    ready = await tab.evaluate("document.readyState === 'complete'")
+                    if ready:
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+
+            JS_FIND_LIKE_BTN = '''
+            const findLikeBtn = () => {
+                const trackHeaders = document.querySelectorAll('section[aria-label="Track header"], [aria-label="Track header"], .fullHero, .listenEngagement');
+                for (const trackHeader of trackHeaders) {
+                    const btns = Array.from(trackHeader.querySelectorAll('button, [role="button"]'));
+                    for (const btn of btns) {
+                        const r = btn.getBoundingClientRect();
+                        if (r.width === 0 || r.height === 0) continue;
+                        const pTitle = (btn.parentElement ? btn.parentElement.getAttribute('title') : '') || '';
+                        const pLabel = (btn.parentElement ? btn.parentElement.getAttribute('aria-label') : '') || '';
+                        const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || pTitle || pLabel || '').trim().toLowerCase();
+                        if (label === 'like' || label === 'unlike' || label.startsWith('like') || label.startsWith('unlike')) {
+                            return btn;
+                        }
+                    }
+                }
+
+                const allBtns = Array.from(document.querySelectorAll('button, [role="button"]'));
+                for (const btn of allBtns) {
+                    if (btn.closest('ul') || btn.closest('li') || btn.closest('[aria-label="Comments"]') || btn.closest('.playControls') || btn.closest('footer') || btn.closest('form')) continue;
+                    const r = btn.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) continue;
+                    const pTitle = (btn.parentElement ? btn.parentElement.getAttribute('title') : '') || '';
+                    const pLabel = (btn.parentElement ? btn.parentElement.getAttribute('aria-label') : '') || '';
+                    const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || pTitle || pLabel || '').trim().toLowerCase();
+                    if (label === 'like' || label === 'unlike' || label.startsWith('like') || label.startsWith('unlike')) {
+                        return btn;
+                    }
+                    const svgPath = btn.querySelector('svg path');
+                    if (svgPath) {
+                        const d = svgPath.getAttribute('d') || '';
+                        if (d.startsWith('M21.25') || d.includes('9.9375')) {
+                            return btn;
+                        }
+                    }
+                }
+
+                const fallbackBtns = Array.from(document.querySelectorAll('.listenEngagement button.sc-button-like, button.sc-button-like'));
+                for (const btn of fallbackBtns) {
+                    const r = btn.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0 && !btn.closest('ul') && !btn.closest('li')) return btn;
+                }
+                return null;
+            };
+            '''
+
+            JS_FIND_PLAY_BTN = '''
+            const findPlayBtn = () => {
+                const trackHeaders = document.querySelectorAll('section[aria-label="Track header"], [aria-label="Track header"], .fullHero, .listenEngagement');
+                for (const trackHeader of trackHeaders) {
+                    const btns = Array.from(trackHeader.querySelectorAll('button, [role="button"]'));
+                    for (const btn of btns) {
+                        const r = btn.getBoundingClientRect();
+                        if (r.width === 0 || r.height === 0) continue;
+                        const pLabel = (btn.parentElement ? btn.parentElement.getAttribute('aria-label') : '') || '';
+                        const pTitle = (btn.parentElement ? btn.parentElement.getAttribute('title') : '') || '';
+                        const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || pLabel || pTitle || '').trim().toLowerCase();
+                        if (label === 'play' || label === 'play track' || label.startsWith('play')) {
+                            return btn;
+                        }
+                    }
+                }
+                const allBtns = Array.from(document.querySelectorAll('button, [role="button"]'));
+                for (const btn of allBtns) {
+                    if (btn.closest('ul') || btn.closest('li') || btn.closest('[aria-label="Comments"]') || btn.closest('.playControls') || btn.closest('footer') || btn.closest('form')) continue;
+                    const r = btn.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) continue;
+                    const pLabel = (btn.parentElement ? btn.parentElement.getAttribute('aria-label') : '') || '';
+                    const pTitle = (btn.parentElement ? btn.parentElement.getAttribute('title') : '') || '';
+                    const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || pLabel || pTitle || '').trim().toLowerCase();
+                    if (label === 'play' || label === 'play track' || label.startsWith('play')) {
+                        return btn;
+                    }
+                }
+                const fallbackBtns = Array.from(document.querySelectorAll('.playButton.sc-button-play, .sc-button-play'));
+                for (const btn of fallbackBtns) {
+                    const r = btn.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) return btn;
+                }
+                return null;
+            };
+            '''
 
             def _check():
-                return tab.evaluate('''(() => {
-                    const b = document.querySelector('.listenEngagement button.sc-button-like');
+                return tab.evaluate('''(() => {''' + JS_FIND_LIKE_BTN + '''
+                    const b = findLikeBtn();
                     if (!b) return 'no_button';
+                    const pTitle = (b.parentElement ? b.parentElement.getAttribute('title') : '') || '';
+                    const pLabel = (b.parentElement ? b.parentElement.getAttribute('aria-label') : '') || '';
+                    const label = (b.getAttribute('aria-label') || b.getAttribute('title') || pTitle || pLabel || '').trim().toLowerCase();
+                    
+                    if (label === 'unlike' || label.startsWith('unlike') || label.includes('remove from likes') || label.includes('dislike')) {
+                        return 'liked';
+                    }
+                    if (label === 'like' || label.startsWith('like')) {
+                        return 'unliked';
+                    }
+
+                    const svgPath = b.querySelector('svg path');
+                    if (svgPath) {
+                        const fill = (svgPath.getAttribute('fill') || '').toLowerCase();
+                        if (fill === 'none') return 'unliked';
+                        if (fill && fill !== 'none') return 'liked';
+                    }
+
+                    const pressed = b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-checked') === 'true';
+                    if (pressed) return 'liked';
+
                     const span = b.querySelector('span');
-                    const txt = (span ? span.textContent.trim().toLowerCase() : '');
+                    const txt = (span ? span.textContent.trim().toLowerCase() : b.textContent.trim().toLowerCase());
                     if (txt === 'liked') return 'liked';
                     if (txt === 'like') return 'unliked';
-                    const c = b.className, l = (b.getAttribute('aria-label')||'').toLowerCase();
-                    if (c.includes('sc-button-selected')||l.includes('unlike')) return 'liked';
-                    if (l.includes('like')) return 'unliked';
+
+                    const className = (b.className || '').toString();
+                    if (className.includes('sc-button-selected') || className.includes('Mui-selected')) return 'liked';
+
                     return 'unknown';
                 })()''')
 
-            cur = await _check()
+            cur = 'no_button'
+            for retry in range(15):
+                cur = await _check()
+                if cur in ('liked', 'unliked'):
+                    break
+                await asyncio.sleep(0.5)
+
             want = 'liked' if liked else 'unliked'
             print(f"[nodriver] cur={cur} want={want}", file=sys.stderr)
 
             if cur == want:
                 return want
-            if cur == 'no_button' or cur == 'unknown':
+            if cur not in ('liked', 'unliked'):
                 return 'error'
+
+            async def _cdp_click_like():
+                coords_raw = await tab.evaluate('''(() => {''' + JS_FIND_LIKE_BTN + '''
+                    const b = findLikeBtn();
+                    if (!b) return null;
+                    b.scrollIntoView({behavior: 'instant', block: 'center'});
+                    try { b.click(); } catch(e){}
+                    const r = b.getBoundingClientRect();
+                    return {x: r.x + r.width/2, y: r.y + r.height/2};
+                })()''')
+                x = y = None
+                if isinstance(coords_raw, dict):
+                    x = coords_raw.get('x')
+                    y = coords_raw.get('y')
+                elif isinstance(coords_raw, list):
+                    for v in coords_raw:
+                        if isinstance(v, (list, tuple)) and len(v) >= 2:
+                            key, val = v[0], v[1]
+                            if key == 'x': x = val.get('value') if isinstance(val, dict) else val
+                            elif key == 'y': y = val.get('value') if isinstance(val, dict) else val
+                if x is None or y is None:
+                    return False
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mousePressed', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mouseReleased', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                print(f"[nodriver] CDP click like button at ({x:.0f}, {y:.0f})", file=sys.stderr)
+                return True
+
+            async def _cdp_click_play():
+                coords_raw = await tab.evaluate('''(() => {''' + JS_FIND_PLAY_BTN + '''
+                    const b = findPlayBtn();
+                    if (!b) return null;
+                    b.scrollIntoView({behavior: 'instant', block: 'center'});
+                    try { b.click(); } catch(e){}
+                    const r = b.getBoundingClientRect();
+                    return {x: r.x + r.width/2, y: r.y + r.height/2};
+                })()''')
+                x = y = None
+                if isinstance(coords_raw, dict):
+                    x = coords_raw.get('x')
+                    y = coords_raw.get('y')
+                elif isinstance(coords_raw, list):
+                    for v in coords_raw:
+                        if isinstance(v, (list, tuple)) and len(v) >= 2:
+                            key, val = v[0], v[1]
+                            if key == 'x': x = val.get('value') if isinstance(val, dict) else val
+                            elif key == 'y': y = val.get('value') if isinstance(val, dict) else val
+                if x is None or y is None:
+                    return False
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mousePressed', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mouseReleased', x=x, y=y,
+                    button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                print(f"[nodriver] CDP click play button at ({x:.0f}, {y:.0f})", file=sys.stderr)
+                return True
 
             async def _cdp_click(selector):
                 coords_raw = await tab.evaluate('''(() => {
@@ -1069,33 +1250,78 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
             # ─── пул минидействий ──────────────────────────────────
 
             async def _scroll():
-                dy = _rnd.randint(150, 400)
-                await tab.evaluate(f'window.scrollBy(0, {dy})')
-                await asyncio.sleep(_rnd.uniform(0.3, 0.8))
-                await tab.evaluate(f'window.scrollBy(0, -{int(dy * _rnd.uniform(0.6, 1.0))})')
+                dy = _rnd.randint(180, 350)
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mouseWheel', x=350, y=400, delta_x=0, delta_y=dy))
+                await asyncio.sleep(_rnd.uniform(0.6, 1.2))
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_='mouseWheel', x=350, y=400, delta_x=0, delta_y=-int(dy * _rnd.uniform(0.6, 0.9))))
 
             async def _mouse_move():
                 rx, ry = _rnd.randint(80, 650), _rnd.randint(80, 650)
                 await _cdp_move(rx, ry)
 
             async def _hover_like():
-                cx, cy = await _get_element_center('.listenEngagement button.sc-button-like')
-                if cx is not None:
-                    await _cdp_move(cx + _rnd.randint(-20, 20), cy + _rnd.randint(-20, 20))
+                coords_raw = await tab.evaluate('''(() => {''' + JS_FIND_LIKE_BTN + '''
+                    const b = findLikeBtn();
+                    if (!b) return null;
+                    const r = b.getBoundingClientRect();
+                    return {x: r.x + r.width/2, y: r.y + r.height/2};
+                })()''')
+                if isinstance(coords_raw, dict):
+                    cx, cy = coords_raw.get('x'), coords_raw.get('y')
+                    if cx is not None and cy is not None:
+                        await _cdp_move(cx + _rnd.randint(-20, 20), cy + _rnd.randint(-20, 20))
 
             async def _hover_play():
-                cx, cy = await _get_element_center('.playButton.sc-button-play')
-                if cx is not None:
-                    await _cdp_move(cx + _rnd.randint(-15, 15), cy + _rnd.randint(-15, 15))
+                coords_raw = await tab.evaluate('''(() => {''' + JS_FIND_PLAY_BTN + '''
+                    const b = findPlayBtn();
+                    if (!b) return null;
+                    const r = b.getBoundingClientRect();
+                    return {x: r.x + r.width/2, y: r.y + r.height/2};
+                })()''')
+                if isinstance(coords_raw, dict):
+                    cx, cy = coords_raw.get('x'), coords_raw.get('y')
+                    if cx is not None and cy is not None:
+                        await _cdp_move(cx + _rnd.randint(-15, 15), cy + _rnd.randint(-15, 15))
 
             async def _seek_forward():
-                await tab.evaluate('''(() => {
-                    const v = document.querySelector('audio') || document.querySelector('video');
-                    if (v && v.duration) {
-                        const jump = Math.floor(Math.random() * 50) + 10;
-                        v.currentTime = Math.min(v.duration - 5, v.currentTime + jump);
+                coords_raw = await tab.evaluate('''(() => {
+                    const bar = document.querySelector('.playbackTimeline__progressWrapper, [role="progressbar"], .playbackTimeline');
+                    if (bar) {
+                        const r = bar.getBoundingClientRect();
+                        if (r.width > 0) {
+                            const ratio = Math.random() * 0.4 + 0.3;
+                            const cx = r.x + r.width * ratio;
+                            const cy = r.y + r.height / 2;
+                            try {
+                                const evt = new MouseEvent('click', {
+                                    bubbles: true, cancelable: true,
+                                    clientX: cx, clientY: cy
+                                });
+                                bar.dispatchEvent(evt);
+                            } catch(e){}
+                            return {x: cx, y: cy};
+                        }
                     }
+                    const audio = document.querySelector('audio');
+                    if (audio && audio.duration && !isNaN(audio.duration)) {
+                        const jump = Math.floor(Math.random() * 25) + 15;
+                        audio.currentTime = Math.min(audio.duration - 5, audio.currentTime + jump);
+                    }
+                    return null;
                 })()''')
+                if isinstance(coords_raw, dict):
+                    cx, cy = coords_raw.get('x'), coords_raw.get('y')
+                    if cx is not None and cy is not None:
+                        await _cdp_move(cx, cy)
+                        await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                            type_='mousePressed', x=cx, y=cy,
+                            button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                        await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                            type_='mouseReleased', x=cx, y=cy,
+                            button=uc.cdp.input_.MouseButton('left'), click_count=1))
+                        print(f"[nodriver] CDP click progress bar at ({cx:.0f}, {cy:.0f})", file=sys.stderr)
 
             async def _pause_wait():
                 await asyncio.sleep(_rnd.uniform(0.5, 2.0))
@@ -1109,12 +1335,12 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
             # ─── логика: play + actions или только actions ──────────
 
             pre_play_pool = [_scroll, _mouse_move,
-                             _hover_like, _hover_play, _pause_wait, _overshoot]
+                             _hover_like, _pause_wait, _overshoot]
             post_play_pool = [_scroll, _mouse_move,
-                              _hover_like, _hover_play, _seek_forward, _pause_wait, _overshoot]
+                              _hover_like, _seek_forward, _pause_wait, _overshoot]
 
             if _rnd.random() < 0.9:
-                play_ok = await _cdp_click('.playButton.sc-button-play')
+                play_ok = await _cdp_click_play()
                 if play_ok:
                     await asyncio.sleep(_rnd.uniform(2.0, 4.0))
                 chosen = _rnd.sample(post_play_pool, 3)
@@ -1127,31 +1353,43 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
                 await asyncio.sleep(_rnd.uniform(0.5, 1.5))
 
             # лайк/анлайк — с проверкой координат
-            like_ok = await _cdp_click('.listenEngagement button.sc-button-like')
+            like_ok = await _cdp_click_like()
             if not like_ok:
                 print("[nodriver] like button not found, retrying after scroll", file=sys.stderr)
                 await tab.evaluate('window.scrollTo(0, document.body.scrollHeight / 3)')
                 await asyncio.sleep(1)
-                like_ok = await _cdp_click('.listenEngagement button.sc-button-like')
+                like_ok = await _cdp_click_like()
 
-            await asyncio.sleep(_rnd.uniform(2.0, 3.0))
+            await asyncio.sleep(_rnd.uniform(1.5, 2.5))
+
+            # Проверяем переключился ли статус, если нет — резервный прямой b.click()
+            after_check = await _check()
+            print(f"[nodriver] check status: {after_check}", file=sys.stderr)
+            if after_check != want:
+                print("[nodriver] status not changed, trigger fallback direct b.click()", file=sys.stderr)
+                await tab.evaluate('''(() => {''' + JS_FIND_LIKE_BTN + '''
+                    const b = findLikeBtn();
+                    if (b) { try { b.click(); } catch(e){} }
+                })()''')
+                await asyncio.sleep(2.0)
 
             # проверяем капчу после лайка
             if await _check_captcha():
                 if await _wait_captcha():
                     # повторяем лайк — капча могла сбросить действие
-                    await _cdp_click('.listenEngagement button.sc-button-like')
+                    await _cdp_click_like()
                     await asyncio.sleep(_rnd.uniform(2.0, 3.0))
                 else:
                     return 'error'
 
             after = await _check()
-            print(f"[nodriver] after like: {after}", file=sys.stderr)
+            print(f"[nodriver] final status: {after}", file=sys.stderr)
             await _hide_browser()
             return after if after in ('liked', 'unliked') else 'error'
         finally:
             try:
                 browser.stop()
+                pass
             except Exception:
                 pass
     return asyncio.run(_do())
