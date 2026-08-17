@@ -12,6 +12,7 @@ import { openImageViewer } from '../molecules/ImageViewer';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 import { YTMTrack } from '../../api/yt';
+import { useToast } from '../atoms/Toast';
 import styles from './PlayerBar.module.css';
 
 interface PlayerBarProps {
@@ -180,6 +181,24 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
     }
   };
 
+  const { showToast } = useToast();
+
+  const handleCopyTitle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!track?.title) return;
+    navigator.clipboard.writeText(track.title);
+    showToast('Название скопировано', 'success');
+  };
+
+  const handleCopyArtist = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!track?.artists?.length) return;
+    navigator.clipboard.writeText(track.artists.join(', '));
+    showToast('Исполнитель скопирован', 'success');
+  };
+
   return (
     <div className={`${styles.nowPlaying} ${(track?.albumId || player.queueSourceId) ? styles.clickable : ''} ${isLoading ? styles.loading : ''}`} onClick={handleSourceClick}>
       <div className={styles.artWrapper} onClick={handleArtClick}>
@@ -198,8 +217,8 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
         {isLoading && <div className={styles.spinner} />}
       </div>
       <div className={styles.trackInfo}>
-        <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="">{track?.title || 'No track selected'}</div>
-        <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="">
+        <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="" onContextMenu={handleCopyTitle}>{track?.title || 'No track selected'}</div>
+        <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="" onContextMenu={handleCopyArtist}>
           {track?.artists?.map((artist: string, i: number) => {
             const id = track.artistIds?.[i];
             return (

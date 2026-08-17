@@ -818,6 +818,17 @@ ipcMain.handle('sc:profile-path', () => {
   return join(app.getPath('userData'), 'sc-chrome')
 })
 
+// Ручной выбор Chromium-браузера (Chrome/Edge/Brave/...) для лайков SC, если автоопределение не подошло.
+ipcMain.handle('sc:pick-browser', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: 'Выберите исполняемый файл браузера',
+    filters: [{ name: 'Executable', extensions: ['exe'] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+})
+
 ipcMain.handle('open-external', async (event, url) => {
   await shell.openExternal(url)
 })

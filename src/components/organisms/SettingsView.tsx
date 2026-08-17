@@ -6,7 +6,7 @@ import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
-import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked } from '../../api/soundcloud';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath } from '../../api/soundcloud';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
@@ -29,6 +29,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [scLocalCount, setScLocalCount] = useState(0);
     const [scUploading, setScUploading] = useState(false);
     const [scEnableModalOpen, setScEnableModalOpen] = useState(false);
+    const [scBrowserPath, setScBrowserPathState] = useState<string>(getScBrowserPath());
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
     const [historyCleanup, setHistoryCleanup] = useState(historyManager.cleanupInterval);
@@ -138,6 +139,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
             setScError(true);
         }
         setScConnecting(false);
+    };
+
+    const handlePickScBrowser = async () => {
+        const picked = await (window as any).bridge.pickScBrowser();
+        if (picked) {
+            setScBrowserPath(picked);
+            setScBrowserPathState(picked);
+        }
+    };
+
+    const handleResetScBrowser = () => {
+        setScBrowserPath('');
+        setScBrowserPathState('');
     };
 
     const handleScDisconnect = async () => {
@@ -329,6 +343,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+                {scEnabled && (
+                    <div className={styles.row}>
+                        <div className={styles.col}>
+                            <span>Browser for SC likes</span>
+                            <span className={styles.subtitle} style={{ wordBreak: 'break-all' }}>
+                                {scBrowserPath || 'Auto (system default browser, or Chrome)'}
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                            <button className={styles.btnSecondary} onClick={handlePickScBrowser}>
+                                Browse...
+                            </button>
+                            {scBrowserPath && (
+                                <button className={styles.btnSecondary} onClick={handleResetScBrowser}>
+                                    Reset
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>

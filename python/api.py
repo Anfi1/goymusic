@@ -921,16 +921,77 @@ def _build_formatted_section(section):
 # Запускаем Chrome с кастомным профилем, сворачиваем окно (юзер не видит),
 # инжектим сохранённый oauth_token, кликаем лайк.
 
-def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None, liked: bool = True, app_bounds: dict | None = None) -> str:
+_CHROMIUM_EXE_NAMES = ('chrome.exe', 'msedge.exe', 'brave.exe', 'vivaldi.exe', 'opera.exe')
+
+def _sc_default_browser_path() -> str | None:
+    """Путь к браузеру по умолчанию из реестра Windows, если он Chromium-based. Не требует прав администратора (ключи в HKCU/HKCR)."""
+    if sys.platform != 'win32':
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r'Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice'
+        ) as key:
+            prog_id = winreg.QueryValueEx(key, 'ProgId')[0]
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, f'{prog_id}\\shell\\open\\command') as key:
+            command = winreg.QueryValueEx(key, '')[0]
+        # command обычно вида: "C:\Path\To\browser.exe" -- %1
+        exe_path = command.split('" ')[0].strip('"').strip()
+        if os.path.basename(exe_path).lower() in _CHROMIUM_EXE_NAMES and os.path.exists(exe_path):
+            return exe_path
+    except Exception:
+        pass
+    return None
+
+def _common_chromium_paths() -> list[str]:
+    candidates = []
+    for env_var in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA', 'PROGRAMW6432'):
+        base = os.environ.get(env_var)
+        if not base:
+            continue
+        candidates += [
+            os.path.join(base, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(base, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+        ]
+    return candidates
+
+def _resolve_sc_browser_path(override: str | None = None) -> str:
+    """Определяет путь к Chromium-браузеру для nodriver: юзер-override -> дефолтный браузер системы -> Chrome (nodriver) -> Edge/Brave по типовым путям."""
+    if override and os.path.exists(override) and os.access(override, os.X_OK):
+        return override
+
+    default_path = _sc_default_browser_path()
+    if default_path:
+        return default_path
+
+    try:
+        from nodriver.core.config import find_chrome_executable
+        return find_chrome_executable()
+    except Exception:
+        pass
+
+    for candidate in _common_chromium_paths():
+        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    raise RuntimeError(
+        'Не найден Chrome, Edge или Brave. Укажите путь к браузеру в Настройках → SoundCloud.'
+    )
+
+def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None, liked: bool = True, app_bounds: dict | None = None, browser_path: str | None = None) -> str:
     """Возвращает 'liked' | 'unliked' | 'error'. Всегда закрывает браузер."""
     import asyncio
     import random as _rnd
     import nodriver as uc
 
+    browser_executable_path = _resolve_sc_browser_path(browser_path)
+
     async def _do():
         browser = await uc.start(
             user_data_dir=profile_dir,
             headless=False,
+            browser_executable_path=browser_executable_path,
             browser_args=['--window-size=700,900', '--mute-audio', '--window-position=-1000,-1000'],
         )
         try:
@@ -1395,14 +1456,17 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
     return asyncio.run(_do())
 
 
-def _sc_nodriver_login(profile_dir: str) -> str | None:
+def _sc_nodriver_login(profile_dir: str, browser_path: str | None = None) -> str | None:
     import asyncio
     import nodriver as uc
+
+    browser_executable_path = _resolve_sc_browser_path(browser_path)
 
     async def _do():
         browser = await uc.start(
             user_data_dir=profile_dir,
             headless=False,
+            browser_executable_path=browser_executable_path,
             browser_args=['--mute-audio'],
         )
         try:
@@ -2967,8 +3031,9 @@ def handle_request(request):
                 profile_dir = request.get('profileDir', '')
                 oauth_token = request.get('oauthToken') or None
                 app_bounds = request.get('appBounds') or None
+                browser_path = request.get('browserPath') or None
                 try:
-                    result = _sc_nodriver_like(profile_dir, url, oauth_token, liked, app_bounds)
+                    result = _sc_nodriver_like(profile_dir, url, oauth_token, liked, app_bounds, browser_path)
                     safe_print({'status': 'ok' if result != 'error' else 'error',
                                 'liked': result, 'callId': call_id})
                 except Exception as e:
@@ -2978,8 +3043,9 @@ def handle_request(request):
 
         elif command == 'sc_setup_profile':
             profile_dir = request.get('profileDir', '')
+            browser_path = request.get('browserPath') or None
             try:
-                token = _sc_nodriver_login(profile_dir)
+                token = _sc_nodriver_login(profile_dir, browser_path)
                 if token:
                     safe_print({'status': 'ok', 'token': token, 'callId': call_id})
                 else:

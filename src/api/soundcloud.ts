@@ -186,6 +186,17 @@ export function setSoundCloudEnabled(value: boolean): void {
 // --- SoundCloud авторизация (ручной oauth_token, хранится локально) ---
 const SC_TOKEN_KEY = 'sc-oauth-token';
 const SC_UID_KEY = 'sc-uid';
+const SC_BROWSER_PATH_KEY = 'sc-browser-path';
+
+// Путь к Chromium-браузеру для клика лайка (nodriver). Пусто = автоопределение (дефолтный браузер системы / Chrome).
+export function getScBrowserPath(): string {
+  return localStorage.getItem(SC_BROWSER_PATH_KEY) || '';
+}
+
+export function setScBrowserPath(path: string): void {
+  if (path) localStorage.setItem(SC_BROWSER_PATH_KEY, path);
+  else localStorage.removeItem(SC_BROWSER_PATH_KEY);
+}
 
 let scClientId = '';
 let scAppVersion = '';
@@ -336,12 +347,16 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
     try { appBounds = await bridge.winGetBounds(); } catch {}
     const res = await bridge.pyCall('sc_like_nodriver', {
       scId, url: trackUrl, liked, profileDir, oauthToken: token, appBounds,
+      browserPath: getScBrowserPath() || undefined,
     });
     if (res?.status === 'ok') {
       const actualLiked = res.liked === 'liked';
       if (actualLiked) scLikedSet.add(scId); else scLikedSet.delete(scId);
       return actualLiked === liked;
     }
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: { message: res?.message ? `Не удалось поставить лайк SoundCloud: ${res.message}` : 'Не удалось поставить лайк SoundCloud', type: 'error' },
+    }));
     return false;
   };
 
@@ -354,10 +369,15 @@ export async function scEnsureProfile(): Promise<boolean> {
   try {
     const bridge = (window as any).bridge;
     const profileDir = await bridge.getScProfileDir();
-    const res = await bridge.pyCall('sc_setup_profile', { profileDir });
+    const res = await bridge.pyCall('sc_setup_profile', { profileDir, browserPath: getScBrowserPath() || undefined });
     if (res?.status === 'ok' && res.token) {
       const acc = await scConnect(res.token);
       if (acc) return true;
+    }
+    if (res?.message) {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: { message: `Не удалось настроить браузер SoundCloud: ${res.message}`, type: 'error' },
+      }));
     }
   } catch (e) {
     console.warn('[soundcloud] profile setup failed', e);

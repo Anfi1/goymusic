@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('bridge', {
   deleteSongFile: (filename: string) => ipcRenderer.invoke('songs:delete-file', filename),
   importSongFile: () => ipcRenderer.invoke('songs:import-file'),
   getScProfileDir: () => ipcRenderer.invoke('sc:profile-path'),
+  pickScBrowser: () => ipcRenderer.invoke('sc:pick-browser'),
 
   onDeepLink: (callback: (url: string) => void) => {
     const listener = (_e: any, url: string) => callback(url);
