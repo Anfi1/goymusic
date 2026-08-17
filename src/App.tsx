@@ -129,7 +129,7 @@ const MemoizedLyricsView = memo(LyricsView);
 const MemoizedTitleBar = memo(TitleBar);
 
 function App() {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'glass'>('dark');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [rightPanelContent, setRightPanelContent] = useState<
     'queue' | 'lyrics' | 'none'
@@ -229,6 +229,7 @@ function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    (window as any).bridge?.winSetBackgroundMaterial?.(theme === 'glass' ? 'acrylic' : 'mica');
   }, [theme]);
 
   useEffect(() => {
@@ -493,7 +494,7 @@ function App() {
   }, [queryClient]);
 
   const toggleTheme = useCallback(
-    () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark')),
+    () => setTheme((prev) => (prev === 'dark' ? 'glass' : 'dark')),
     []
   );
   const toggleSidebar = useCallback(

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('bridge', {
   winMaximize: () => ipcRenderer.send('win:maximize'),
   winFullscreen: () => ipcRenderer.send('win:fullscreen'),
   winClose: () => ipcRenderer.send('win:close'),
+  winSetBackgroundMaterial: (material: 'mica' | 'acrylic') => ipcRenderer.send('win:set-background-material', material),
   winGetBounds: () => ipcRenderer.invoke('win:get-bounds'),
   onWindowState: (callback: (state: { isMaximized: boolean, isFullScreen: boolean }) => void) => {
     const listener = (e: any, state: any) => callback(state);

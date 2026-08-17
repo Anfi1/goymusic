@@ -58,60 +58,33 @@
     --badge-icon-color: #1a1a1a;
 }
 
-[data-theme="light"] {
-    /* Colors - Light Mode (Latte inspired) */
-    --bg-base: #eff1f5;
-    --bg-mantle: #e6e9ef;
-    --bg-crust: #dce0e8;
+/* Стеклянная тема (эксперимент): использует нативный Windows Acrylic/Mica за окном
+   вместо непрозрачного фона, поэтому все фоновые токены здесь -- полупрозрачные.
+   Текст/акценты наследуются от :root (тёмная палитра) -- переопределяем только фоны. */
+[data-theme="glass"] {
+    --bg-base: rgba(9, 9, 15, 0.35);
+    --bg-mantle: rgba(17, 17, 27, 0.35);
+    --bg-crust: rgba(0, 0, 0, 0.25);
 
-    --text-main: #4c4f69;
-    --text-sub: #5c5f77;
-    --text-dim: rgba(76, 79, 105, 0.4);
+    --panel-bg: rgba(10, 10, 16, 0.35);
+    --border-color: rgba(255, 255, 255, 0.08);
 
-    --accent: #1e66f5;
-    --accent-soft: rgba(30, 102, 245, 0.1);
-
-    --panel-bg: rgba(255, 255, 255, 0.85);
-    --border-color: rgba(0, 0, 0, 0.05);
-
-    /* Glassmorphism - Light Adjustments */
-    --glass-opacity: 0.4;
+    /* Glassmorphism - Glass Adjustments */
+    --glass-opacity: 0.05;
     --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
-    --border-subtle: rgba(0, 0, 0, 0.05);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --glass-popover-bg: rgba(9, 9, 15, 0.45);
 
-    /* Enhanced Glass Surfaces - Light */
-    --glass-surface: rgba(255, 255, 255, 0.3);
-    --glass-surface-main: rgba(255, 255, 255, 0.4);
-    --bg-main-glass: rgba(255, 255, 255, 0.6);
-    --glass-surface-player: rgba(255, 255, 255, 0.7);
-
-    /* Badge colors - Light */
-    --badge-pro-color: #b45309;
-    --badge-pro-bg: rgba(180, 83, 9, 0.5);
-    --badge-pro-bg-hover: rgba(180, 83, 9, 0.65);
-    --badge-pro-border: rgba(180, 83, 9, 0.3);
-    --badge-pro-border-hover: rgba(180, 83, 9, 0.4);
-    --badge-pro-shadow: 0 0 12px rgba(180, 83, 9, 0.15);
-    --badge-pro-lg-shadow: 0 0 18px rgba(180, 83, 9, 0.2);
-
-    --badge-verified-bg: rgba(30, 102, 245, 0.5);
-    --badge-verified-bg-hover: rgba(30, 102, 245, 0.7);
-    --badge-verified-border: rgba(30, 102, 245, 0.3);
-    --badge-verified-border-hover: rgba(30, 102, 245, 0.45);
-    --badge-verified-shadow: 0 0 12px rgba(30, 102, 245, 0.12);
-
-    --badge-verified-bg-lg: rgba(30, 102, 245, 0.7);
-    --badge-verified-bg-lg-hover: rgba(30, 102, 245, 0.85);
-    --badge-verified-border-lg: rgba(30, 102, 245, 0.4);
-    --badge-verified-border-lg-hover: rgba(30, 102, 245, 0.55);
-    --badge-verified-lg-shadow: 0 0 18px rgba(30, 102, 245, 0.15);
-
-    --badge-icon-color: #fff;
+    /* Enhanced Glass Surfaces - Glass */
+    --glass-surface: rgba(10, 10, 16, 0.18);
+    --glass-surface-main: rgba(10, 10, 16, 0.22);
+    --bg-main-glass: rgba(10, 10, 16, 0.3);
+    --glass-surface-player: rgba(10, 10, 16, 0.35);
 }
 
 :root {
     /* Layout */
-    --sidebar-width: 220px;
+    --sidebar-width: 200px;
     --right-panel-width: 260px;
     --player-height: 90px;
     --title-height: 36px;

@@ -29,6 +29,11 @@ body {
     width: 100%;
 }
 
+/* Стеклянная тема: фон окна должен быть прозрачным, чтобы был виден Acrylic-материал Windows. */
+[data-theme="glass"] body {
+    background-color: transparent;
+}
+
 /* ── Global styled tooltip ───────────────────────────────────────────────── */
 .global-tooltip {
     position: fixed;

@@ -1491,6 +1491,20 @@ def _sc_nodriver_login(profile_dir: str, browser_path: str | None = None) -> str
     return asyncio.run(_do())
 
 
+def _yt_dlp_js_runtime_opts() -> dict:
+    """yt-dlp никогда не определяет JS-рантайм сам -- его нужно явно включить через
+    'js_runtimes', иначе решение nsig/JS-challenge для YouTube не запускается вообще,
+    даже если Node реально установлен. Предпочитаем забандленный Node (не зависит от
+    того, стоит ли у юзера Node.js), иначе -- 'node' из системного PATH."""
+    try:
+        import nodejs_wheel.executable as _njs
+        node_path = os.path.join(_njs.ROOT_DIR, 'node.exe' if os.name == 'nt' else 'node')
+        if os.path.exists(node_path):
+            return {'js_runtimes': {'node': {'path': node_path}}}
+    except Exception:
+        pass
+    return {'js_runtimes': {'node': {}}}
+
 
 def handle_request(request):
     global _auth_data, _auth_type
@@ -2646,6 +2660,7 @@ def handle_request(request):
                         'youtube_include_dash_manifest': False, 'cachedir': False,
                         'extractor_args': {'youtube': {'player_client': ['web', 'mweb'], 'skip': ['hls']}},
                         'extractor_timeout': 15, 'socket_timeout': 15,
+                        **_yt_dlp_js_runtime_opts(),
                     }
                     # Если есть куки, добавляем их
                     if _auth_type == 'browser' and _auth_data:
@@ -3323,6 +3338,7 @@ def handle_request(request):
                     'quiet': True,
                     'no_warnings': True,
                     'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    **_yt_dlp_js_runtime_opts(),
                 }
                 if is_sc:
                     cid = get_sc_client_id() or ''
@@ -3437,6 +3453,7 @@ def handle_request(request):
                     'outtmpl': output_template,
                     'noplaylist': True,
                     'progress_hooks': [progress_hook],
+                    **_yt_dlp_js_runtime_opts(),
                 }
                 if is_sc:
                     ydl_opts['http_headers'] = {
@@ -3681,6 +3698,7 @@ def handle_request(request):
             ydl_opts = {
                 'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True, 'noprogress': True,
                 'outtmpl': output_template, 'noplaylist': True,
+                **_yt_dlp_js_runtime_opts(),
             }
             if is_sc:
                 ydl_opts['http_headers'] = {'Referer': 'https://soundcloud.com/', 'Origin': 'https://soundcloud.com', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'}

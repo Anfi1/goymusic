@@ -2,7 +2,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: 12px;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
@@ -23,8 +23,8 @@
 
 .coverWrapper {
     position: relative;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     border-radius: 8px;
     overflow: hidden;
     flex-shrink: 0;

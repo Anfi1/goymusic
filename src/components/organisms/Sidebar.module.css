@@ -5,7 +5,7 @@
     background: var(--glass-surface);
     backdrop-filter: blur(var(--glass-blur));
     border-right: 1px solid var(--border-color);
-    padding: 24px 8px 0;
+    padding: 16px 8px 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -27,7 +27,7 @@
     align-items: center;
     justify-content: flex-start;
     gap: 8px;
-    margin-bottom: 32px;
+    margin-bottom: 16px;
     padding: 0 12px;
     min-height: 44px;
 }
@@ -127,7 +127,7 @@
 /* User Profile */
 .userProfile {
     position: relative;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     padding: 0 4px;
 }
 
@@ -135,7 +135,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
+    padding: 6px 12px;
     border-radius: 12px;
     cursor: pointer;
     transition: background 0.2s;
@@ -147,20 +147,20 @@
 
 .userProfileCollapsed .userTrigger {
     justify-content: center;
-    padding: 8px 0;
+    padding: 6px 0;
 }
 
 .avatar {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     object-fit: cover;
     border: 1px solid var(--border-color);
 }
 
 .avatarPlaceholder {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     background: var(--glass-surface-player);
     display: flex;

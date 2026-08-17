@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Sun, Moon, Minus, Square, Copy, X, ChevronLeft, RefreshCw, Search, Loader2, Clock } from 'lucide-react';
+import { Sparkles, Moon, Minus, Square, Copy, X, ChevronLeft, RefreshCw, Search, Loader2, Clock } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
 import { EqualizerMenu } from '../molecules/EqualizerMenu';
 import { getSearchSuggestions } from '../../api/yt';
@@ -7,7 +7,7 @@ import { getSearchHistory, addToSearchHistory, removeFromSearchHistory } from '.
 import styles from './TitleBar.module.css';
 
 interface TitleBarProps {
-  theme: 'dark' | 'light';
+  theme: 'dark' | 'glass';
   onToggleTheme: () => void;
   onBack?: () => void;
   onRefresh?: () => void;
@@ -253,7 +253,7 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
       <div className={styles.windowControls} style={NO_DRAG_STYLE}>
         {!isInitializing && <EqualizerMenu />}
         <IconButton
-          icon={theme === 'dark' ? Sun : Moon}
+          icon={theme === 'dark' ? Sparkles : Moon}
           size={28}
           iconSize={14}
           onClick={onToggleTheme}

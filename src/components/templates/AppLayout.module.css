@@ -19,10 +19,12 @@
 
 .ambientBlur {
     position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
+    /* Начинается сразу под тайтлбаром -- покрывает сайдбар/контент/очередь/плеер
+       как раньше, просто больше не заходит в верхнюю панель. */
+    top: var(--title-height);
+    left: -20%;
+    right: -20%;
+    bottom: -20%;
     background-size: cover;
     background-position: center;
     filter: blur(80px) saturate(1.5) brightness(0.6); /* Reduced from 120px for HUGE performance gain */

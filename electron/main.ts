@@ -431,10 +431,10 @@ function createWindow() {
     minHeight: 700,
     frame: false,
     titleBarStyle: 'hidden',
-    backgroundColor: '#09090f', 
+    backgroundColor: '#00000000',
     icon: join(process.env.PUBLIC!, 'icon.png'),
-    vibrancy: 'under-window', 
-    backgroundMaterial: 'mica', 
+    vibrancy: 'under-window',
+    backgroundMaterial: 'mica',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       webSecurity: false, 
@@ -847,6 +847,11 @@ ipcMain.on('win:fullscreen', () => {
   }
 })
 ipcMain.on('win:close', () => win?.close())
+
+// Материал фона окна (Mica для обычной тёмной темы, Acrylic для стеклянной) -- Windows only.
+ipcMain.on('win:set-background-material', (_event, material: 'mica' | 'acrylic') => {
+  win?.setBackgroundMaterial(material)
+})
 
 ipcMain.handle('win:get-bounds', () => {
   if (!win) return null
