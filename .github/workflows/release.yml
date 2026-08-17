@@ -22,32 +22,28 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Version determination ---
+      # Источник правды -- реально опубликованные GitHub Releases, а не git-теги:
+      # теги пушатся на этапе "Ensure git tag exists and push" ДО того, как релиз
+      # реально создан, поэтому rerun упавшей джобы видел уже запушенный тег
+      # предыдущей попытки и вычислял версию неправильно (см. инцидент с v6.0.5).
       - name: Determine version
         id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          LATEST_TAG=$(git tag --list 'v*' --sort=-version:refname | head -1)
+          LATEST_RELEASE=$(gh api "repos/${{ github.repository }}/releases" --paginate \
+            --jq '[.[] | select(.draft==false and .prerelease==false) | .tag_name | ltrimstr("v")]
+                  | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$")))
+                  | sort_by(split(".") | map(tonumber))
+                  | last // "0.0.0"')
 
-          if [ -z "$LATEST_TAG" ]; then
-            echo "version=$PKG_VERSION" >> $GITHUB_OUTPUT
-            echo "bumped=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_RELEASE"
+          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Latest published release: $LATEST_RELEASE -> building $NEW_VERSION"
 
-          TAG_VERSION="${LATEST_TAG#v}"
-
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "version=$PKG_VERSION" >> $GITHUB_OUTPUT
-            echo "bumped=false" >> $GITHUB_OUTPUT
-          else
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$PKG_VERSION"
-            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "bumped=true" >> $GITHUB_OUTPUT
-
-            node -e "const p=require('./package.json');p.version='$NEW_VERSION';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')"
-          fi
+          node -e "const p=require('./package.json');p.version='$NEW_VERSION';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')"
 
       # --- Python embedded environment ---
       - name: Setup Python 3.13 embedded
@@ -89,19 +85,34 @@ jobs:
         run: npm run build
 
       # --- Push version bump & tag ---
-      # --- Push version bump & tag ---
       - name: Ensure git tag exists and push
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ "${{ steps.version.outputs.bumped }}" = "true" ]; then
-            git add package.json
-            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-            git push
-          fi
+          git add package.json
+          git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git push
           git tag -f "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}" --force
+
+      # --- Create the GitHub release up front ---
+      # electron-builder uploads several assets (exe, blockmap, latest.yml) concurrently;
+      # if no release exists yet each upload races to create one, which has produced
+      # duplicate release objects for the same tag in the past. Creating the release as
+      # a single atomic call first means electron-builder just finds and uploads to it.
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, reusing it."
+          else
+            gh release create "$TAG" --repo "${{ github.repository }}" \
+              --title "${{ steps.version.outputs.version }}" --generate-notes --latest
+          fi
 
       # --- Package & Release ---
       - name: Package and publish
