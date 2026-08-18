@@ -5,7 +5,7 @@ import { spawn, exec, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
-import { autoUpdater } from 'electron-updater'
+import { autoUpdater, NsisUpdater } from 'electron-updater'
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
@@ -320,6 +320,13 @@ function killScChrome() {
 function initAutoUpdater() {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  // NSIS-апдейтер по умолчанию не знает, что юзер ставил приложение в кастомную
+  // папку (allowToChangeInstallationDirectory), и тихий инсталлятор без /D=...
+  // падает в дефолтный путь — рядом появляется вторая, отдельная установка.
+  // installDirectory явно указывает обновляться поверх текущей директории.
+  if (autoUpdater instanceof NsisUpdater) {
+    autoUpdater.installDirectory = dirname(app.getPath('exe'))
+  }
 
   autoUpdater.on('update-available', (info) => {
     logToFile(`Update available: ${info.version}`)
