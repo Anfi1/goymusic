@@ -5,7 +5,6 @@ from ytmusicapi.enums import ResponseStatus
 from ytmusicapi.exceptions import YTMusicUserError
 from ytmusicapi.helpers import sum_total_duration
 from ytmusicapi.models.content.enums import PlaylistSortOrder, PlaylistVoteEditOptions
-from ytmusicapi.helpers import sum_total_duration
 from ytmusicapi.navigation import *
 from ytmusicapi.parsers.browsing import parse_content_list, parse_playlist
 from ytmusicapi.parsers.playlists import *
@@ -112,12 +111,19 @@ class PlaylistsMixin(MixinProtocol):
                     "pin": "AB9zfpImL2k...",
                     "unpin": "AB9zfpJt6pA..."
                   },
-
+                  "communityVoteStatus": {
+                    "netVoteValue": 12,
+                    "status": "VOTE_STATUS_UPVOTED""
+                  }
+                }
+                  "creditsBrowseId": "MPTCekz1IJ9I0sw"
               ]
             }
 
         The setVideoId is the unique id of this playlist item and
         needed for moving/removing playlist items
+
+        Note that communityVoteStatus can be null if the information is not available (i.e. playlist does not have that setting enabled, the request is not authenticated, ...)
 
         Collaborative playlists replace ``author`` with limited data about ``collaborators``::
             {
@@ -143,7 +149,9 @@ class PlaylistsMixin(MixinProtocol):
         response = request_func("")
 
         request_func_continuations: RequestFuncBodyType = lambda body: self._send_request(endpoint, body)
-        if playlistId.startswith("OLA") or playlistId.startswith("VLOLA"):
+        is_ola = playlistId.startswith(("OLA", "VLOLA"))
+        has_playlist_header = nav(response, [*TWO_COLUMN_RENDERER, *TAB_CONTENT, *SECTION_LIST_ITEM], True)
+        if is_ola and not has_playlist_header:
             return parse_audio_playlist(response, limit, request_func_continuations)
 
         header_data = nav(response, [*TWO_COLUMN_RENDERER, *TAB_CONTENT, *SECTION_LIST_ITEM])
@@ -294,7 +302,12 @@ class PlaylistsMixin(MixinProtocol):
 
         endpoint = "playlist/create"
         response = self._send_request(endpoint, body)
-        return response["playlistId"] if "playlistId" in response else response
+        if "playlistId" in response:
+            playlist_id: str = response["playlistId"]
+            return playlist_id
+
+        validate_write_response(response)
+        return response
 
     def join_collaborative_playlist(self, playlistId: str, joinCollaborationToken: str) -> str | JsonDict:
         """
@@ -429,7 +442,8 @@ class PlaylistsMixin(MixinProtocol):
         body = {"playlistId": validate_playlist_id(playlistId)}
         endpoint = "playlist/delete"
         response = self._send_request(endpoint, body)
-        return response["status"] if "status" in response else response
+        result: str | JsonDict = response.get("status", response)
+        return result
 
     def add_playlist_items(
         self,
@@ -508,4 +522,5 @@ class PlaylistsMixin(MixinProtocol):
 
         endpoint = "browse/edit_playlist"
         response = self._send_request(endpoint, body)
-        return response["status"] if "status" in response else response
+        result: str | JsonDict = response.get("status", response)
+        return result

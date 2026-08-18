@@ -1,12 +1,11 @@
 import re
-from collections.abc import Callable
 
 from ytmusicapi.type_alias import JsonDict, JsonList
 
 from ._utils import *
 from .artists import parse_artists_runs
-from .constants import DOT_SEPARATOR_RUN
 from .artist_cache import lookup, resolve_artists, store
+from .constants import DOT_SEPARATOR_RUN
 
 
 def parse_song_artists(data: JsonDict, index: int) -> JsonList:
@@ -82,13 +81,15 @@ def parse_song_runs(runs: JsonList, skip_type_spec: bool = False) -> JsonDict:
     parsed: JsonDict = {}
 
     # prevent type specifier from being parsed as an artist
-    # it's the first run, separated from the actual artists by " • "
+    # it's the unlinked first run, separated by " • " from the artists, or from
+    # metadata (duration/views/year) when the song lists no artist at all
     if (
         skip_type_spec
         and len(runs) > 2
+        and "navigationEndpoint" not in runs[0]
         and parse_song_run(runs[0])["type"] == "artist"
         and runs[1] == DOT_SEPARATOR_RUN
-        and parse_song_run(runs[2])["type"] == "artist"
+        and parse_song_run(runs[2])["type"] in ("artist", "duration", "views", "year")
     ):
         runs = runs[2:]
 
@@ -158,12 +159,16 @@ def parse_song_menu_data(data: JsonDict) -> JsonDict:
         current_icon_type = nav(menu_item, ["defaultIcon", "iconType"], True) or nav(
             menu_item, ["icon", "iconType"], True
         )
-        feedback_token: Callable[[str], str | None] = lambda endpoint_type: nav(
-            menu_item, [endpoint_type, *FEEDBACK_TOKEN], True
-        )
+
+        def feedback_token(endpoint_type: str, menu_item: JsonDict = menu_item) -> str | None:
+            return nav(menu_item, [endpoint_type, *FEEDBACK_TOKEN], True)
+
+        # YTM signals the current state with isToggled instead of swapping the default/toggled icons
+        is_toggled = bool(menu_item.get("isToggled"))
 
         match current_icon_type:
             case "KEEP":  # pin to listen again
+                song_data["pinnedToListenAgain"] = is_toggled
                 song_data["listenAgainFeedbackTokens"] = {
                     "pin": feedback_token("defaultServiceEndpoint"),
                     "unpin": feedback_token("toggledServiceEndpoint"),
@@ -175,6 +180,7 @@ def parse_song_menu_data(data: JsonDict) -> JsonDict:
                     "unpin": feedback_token("defaultServiceEndpoint"),
                 }
             case "BOOKMARK_BORDER":  # add to library
+                song_data["inLibrary"] = is_toggled
                 song_data["feedbackTokens"] = {
                     "add": feedback_token("defaultServiceEndpoint"),
                     "remove": feedback_token("toggledServiceEndpoint"),

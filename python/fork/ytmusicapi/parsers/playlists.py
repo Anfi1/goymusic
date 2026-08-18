@@ -2,6 +2,7 @@ import re
 
 from ytmusicapi.continuations import *
 from ytmusicapi.helpers import sum_total_duration
+from ytmusicapi.models.content.enums import VoteStatus
 from ytmusicapi.type_alias import JsonDict, JsonList, ParseFuncType, RequestFuncBodyType
 
 from ..helpers import to_int
@@ -228,12 +229,13 @@ def parse_playlist_item(
     song_menu_data = {"inLibrary": None, "pinnedToListenAgain": None} | parse_song_menu_data(data)
 
     # if item is not playable, the videoId was retrieved above
-    if nav(data, PLAY_BUTTON, none_if_absent=True) is not None:
-        if "playNavigationEndpoint" in nav(data, PLAY_BUTTON):
-            videoId = nav(data, PLAY_BUTTON)["playNavigationEndpoint"]["watchEndpoint"]["videoId"]
+    if nav(data, PLAY_BUTTON, none_if_absent=True) is not None and "playNavigationEndpoint" in nav(
+        data, PLAY_BUTTON
+    ):
+        videoId = nav(data, PLAY_BUTTON)["playNavigationEndpoint"]["watchEndpoint"]["videoId"]
 
-            if "menu" in data:
-                like = nav(data, MENU_LIKE_STATUS, True)
+        if "menu" in data:
+            like = nav(data, MENU_LIKE_STATUS, True)
 
     isAvailable = True
     if "musicItemRendererDisplayPolicy" in data:
@@ -325,6 +327,17 @@ def parse_playlist_item(
         True,
     )
 
+    voting_status = nav(data, ENGAGEMENT_BAR, none_if_absent=True)
+
+    community_vote_status = (
+        None
+        if voting_status is None
+        else {
+            "netVoteValue": voting_status["votes"],
+            "status": VoteStatus(voting_status["status"]),
+        }
+    )
+
     song = {
         "videoId": videoId,
         "title": title,
@@ -337,6 +350,7 @@ def parse_playlist_item(
         "isExplicit": isExplicit,
         "videoType": videoType,
         "views": views,
+        "communityVoteStatus": community_vote_status,
     }
 
     if is_album:

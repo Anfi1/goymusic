@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Callable
 from random import randint
 
@@ -22,15 +23,16 @@ class LibraryMixin(MixinProtocol):
         Retrieves the playlists in the user's library.
 
         :param limit: Number of playlists to retrieve. ``None`` retrieves them all.
-        :return: List of owned playlists.
+        :return: List of playlists in the user's library.
 
         Each item is in the following format::
 
             {
                 'playlistId': 'PLQwVIlKxHM6rz0fDJVv_0UlXGEWf-bFys',
                 'title': 'Playlist title',
-                'thumbnails: [...],
-                'count': 5
+                'thumbnails': [...],
+                'count': '5',
+                'owned': True
             }
         """
         self._check_auth()
@@ -338,7 +340,7 @@ class LibraryMixin(MixinProtocol):
         self._check_auth()
         url = song["playbackTracking"]["videostatsPlaybackUrl"]["baseUrl"]
         CPNA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-        cpn = "".join(CPNA[randint(0, 256) & 63] for _ in range(0, 16))
+        cpn = "".join(CPNA[randint(0, 256) & 63] for _ in range(16))
         params = {"ver": 2, "c": "WEB_REMIX", "cpn": cpn}
         return self._send_get_request(url, params)
 
@@ -375,11 +377,15 @@ class LibraryMixin(MixinProtocol):
 
     def edit_song_library_status(self, feedbackTokens: list[str] | None = None) -> JsonDict:
         """
-        Adds or removes a song from your library depending on the token provided.
+        Depending on the provided tokens:
+        - Adds or removes songs from your library
+        - Pins or unpins content from the "Listen Again" carousel
 
         :param feedbackTokens: List of feedbackTokens obtained from authenticated requests
             to endpoints that return songs (i.e. :py:func:`get_album`)
         :return: Full response
+
+        .. warning:: Due to a YouTube Music bug, content might not be unpinned from "Listen Again".
         """
         self._check_auth()
         body = {"feedbackTokens": feedbackTokens}
@@ -404,17 +410,40 @@ class LibraryMixin(MixinProtocol):
         endpoint = prepare_like_endpoint(rating)
         return self._send_request(endpoint, body)
 
+    def subscribe_artist(self, channelId: str) -> JsonDict:
+        """
+        Subscribe to an artist. Adds the artist to your library
+
+        :param channelId: Artist channel id
+        :return: Full response
+        """
+        self._check_auth()
+        body = {"channelIds": [channelId]}
+        endpoint = "subscription/subscribe"
+        return self._send_request(endpoint, body)
+
     def subscribe_artists(self, channelIds: list[str]) -> JsonDict:
         """
         Subscribe to artists. Adds the artists to your library
 
+        .. deprecated::
+            Use :meth:`subscribe_artist` instead. YouTube Music only supports
+            subscribing to one artist at a time.
+
         :param channelIds: Artist channel ids
         :return: Full response
         """
-        self._check_auth()
-        body = {"channelIds": channelIds}
-        endpoint = "subscription/subscribe"
-        return self._send_request(endpoint, body)
+        warnings.warn(
+            "subscribe_artists is deprecated, use subscribe_artist instead. "
+            "YouTube Music only supports subscribing to one artist at a time.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if len(channelIds) > 1:
+            raise YTMusicUserError(
+                "YouTube Music only supports subscribing to one artist at a time. Use subscribe_artist instead."
+            )
+        return self.subscribe_artist(channelIds[0])
 
     def unsubscribe_artists(self, channelIds: list[str]) -> JsonDict:
         """

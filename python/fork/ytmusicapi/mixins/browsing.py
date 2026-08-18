@@ -6,7 +6,7 @@ from ytmusicapi.continuations import (
     get_continuations,
     get_reloadable_continuation_params,
 )
-from ytmusicapi.helpers import YTM_DOMAIN, sum_total_duration
+from ytmusicapi.helpers import YTM_DOMAIN, parse_description_runs, sum_total_duration
 from ytmusicapi.models.lyrics import LyricLine, Lyrics, TimedLyrics
 from ytmusicapi.parsers.albums import parse_album_header_2024
 from ytmusicapi.parsers.browsing import (
@@ -171,6 +171,11 @@ class BrowsingMixin(MixinProtocol):
 
             {
                 "description": "Oasis were ...",
+                "descriptionRuns": [
+                    {
+                        "text":"Oasis were ..."
+                    }
+                ],
                 "views": "3,693,390,359 views",
                 "name": "Oasis",
                 "channelId": "UCUDVBtnOQi4c7E8jebpjc9Q",
@@ -209,6 +214,7 @@ class BrowsingMixin(MixinProtocol):
                         {
                             "title": "Stand By Me (Mustique Demo)",
                             "thumbnails": [...],
+                            "type": "Single",
                             "year": "2016",
                             "browseId": "MPREb_7MPKLhibN5G"
                         }
@@ -244,20 +250,31 @@ class BrowsingMixin(MixinProtocol):
                     ]
                 }
             }
+
+        The difference between description and descriptionRuns is that description is just the raw text of the description and does not have any knowledge of the hyperlinks in the description.
+        Whereas descriptionRuns is a list of dictionaries which contains the text runs of the description that is aware of the hyperlinks in the description. There are two types of text runs.
+            1. PlainText: which has format {"text": string}
+            2. HyperLink: which has format {"text": string, "url": string}
         """
-        if channelId.startswith("MPLA"):
-            channelId = channelId[4:]
+        channelId = channelId.removeprefix("MPLA")
         body = {"browseId": channelId}
         endpoint = "browse"
         response = self._send_request(endpoint, body)
-        results = nav(response, SINGLE_COLUMN_TAB + SECTION_LIST)
+        # some artist pages use twoColumnBrowseResultsRenderer instead of singleColumn (#929)
+        results = nav(response, SINGLE_COLUMN_TAB + SECTION_LIST, True)
+        if results is None:
+            results = nav(response, [*TWO_COLUMN_RENDERER, *TAB_CONTENT, *SECTION_LIST])
 
-        artist: JsonDict = {"description": None, "views": None}
+        artist: JsonDict = {"description": None, "descriptionRuns": [], "views": None}
         header = response["header"]["musicImmersiveHeaderRenderer"]
         artist["name"] = nav(header, TITLE_TEXT)
         descriptionShelf = find_object_by_key(results, DESCRIPTION_SHELF[0], is_key=True)
         if descriptionShelf:
-            artist["description"] = nav(descriptionShelf, DESCRIPTION)
+            # DESCRIPTION_RUN_LIST isn't defined in this fork's navigation.py yet;
+            # inline the equivalent path (mirrors upstream's DESCRIPTION_RUN_LIST = ["description", "runs"]).
+            description, description_runs = parse_description_runs(nav(descriptionShelf, ["description", "runs"], True))
+            artist["description"] = description
+            artist["descriptionRuns"] = description_runs
             raw_views = (
                 None
                 if "subheader" not in descriptionShelf
@@ -526,6 +543,9 @@ class BrowsingMixin(MixinProtocol):
               "type": "Album",
               "thumbnails": [],
               "description": "Revival is the...",
+              "descriptionRuns": [
+                  {"text": "Revival is the..."},
+              ],
               "artists": [
                 {
                   "name": "Eminem",
@@ -564,6 +584,7 @@ class BrowsingMixin(MixinProtocol):
                     "pin": "AB9zfpJ...",
                     "unpin": "AB9zfpL..."
                   },
+                  "creditsBrowseId": "MPTCiKLU7z_xdYQ"
                 }
               ],
               "other_versions": [
@@ -577,6 +598,8 @@ class BrowsingMixin(MixinProtocol):
               ],
               "duration_seconds": 4657
             }
+
+        For the distinction between description and descriptionRuns. Please refer to get_artist.
         """
         if not browseId or not browseId.startswith("MPRE"):
             raise YTMusicUserError("Invalid album browseId provided, must start with MPRE.")
@@ -619,6 +642,46 @@ class BrowsingMixin(MixinProtocol):
 
         :param browseId: browseId for the credits of a song, for example returned as ``creditsBrowseId`` in the tracks of :py:func:`get_album`
         :return: Dictionary with credit sections.
+
+        Example::
+
+            {
+              "performed_by": {
+                "localized_title": "Performed by"
+                "data": [
+                  "Eminem",
+                  "Beyoncé"
+                ]
+              },
+              "written_by": {
+                "localized_title": "Written by",
+                "data": [
+                  "Marshall Mathers",
+                  "Beyoncé Knowles",
+                  "Holly Hafermann"
+                ]
+              },
+              "produced_by": {
+                "localized_title": "Produced by",
+                "data": [
+                  "Rick Rubin"
+                ]
+              },
+              "music_metadata_provided_by": {
+                "localized_title": "Music metadata provided by"
+                "data": [
+                  "Eminem Catalog PS"
+                ]
+              },
+              "other_sections": [
+                {
+                  "localized_title": "Piano",
+                  "data": [
+                    "Skylar Grey"
+                  ]
+                }
+              ]
+            }
         """
         if not browseId or not browseId.startswith("MPTC"):
             raise YTMusicUserError("Invalid song credits browseId provided, must start with MPTC.")

@@ -70,9 +70,8 @@ class OAuthToken(Token):
 
     @classmethod
     def from_json(cls, file_path: Path) -> "OAuthToken":
-        if file_path.is_file():
-            with open(file_path) as json_file:
-                file_pack = json.load(json_file)
+        with open(file_path, encoding="utf-8") as json_file:
+            file_pack = json.load(json_file)
 
         return cls(**file_pack)
 
@@ -128,8 +127,16 @@ class RefreshingToken(OAuthToken):
             webbrowser.open(url)
         input(f"Go to {url} , finish the login flow and press Enter when done, Ctrl-C to abort")
         raw_token = credentials.token_from_code(code["device_code"])
-        ref_token = cls(credentials=credentials, **raw_token)
-        ref_token.update(ref_token.as_dict())
+        refresh_token_expires_in = raw_token.get("refresh_token_expires_in", raw_token["expires_in"])
+        ref_token = cls(
+            credentials=credentials,
+            access_token=raw_token["access_token"],
+            refresh_token=raw_token["refresh_token"],
+            scope=raw_token["scope"],
+            token_type=raw_token["token_type"],
+            expires_in=refresh_token_expires_in,
+        )
+        ref_token.update(raw_token)
         if to_file:
             ref_token.local_cache = Path(to_file)
         return ref_token

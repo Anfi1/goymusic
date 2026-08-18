@@ -26,14 +26,14 @@ def parse_menu_tokens(result: JsonDict) -> tuple:
                 token = nav(renderer, ['serviceEndpoint', 'feedbackEndpoint', 'feedbackToken'], True)
                 if icon == 'NOT_INTERESTED':
                     tokens['notInterested'] = token
-            
+
             # 2. Check for Toggles (Pin/Unpin and Like)
             elif 'toggleMenuServiceItemRenderer' in item:
                 renderer = item['toggleMenuServiceItemRenderer']
                 default_icon = nav(renderer, ['defaultIcon', 'iconType'], True)
                 toggled_icon = nav(renderer, ['toggledIcon', 'iconType'], True)
                 is_toggled = nav(renderer, ['isToggled'], True)
-                
+
                 # --- LIKE STATUS HEURISTIC ---
                 # A. Songs/Videos (Primary)
                 if default_icon == 'UNFAVORITE' or (default_icon == 'FAVORITE' and is_toggled):
@@ -85,7 +85,10 @@ def parse_mixed_content(
             results = next(iter(row.values()))
             if "contents" not in results:
                 continue
-            title = nav(results, [*CAROUSEL_TITLE, "text"])
+            # some carousel headers only carry a strapline (e.g. "MORE FROM") instead of a title
+            title = nav(results, [*CAROUSEL_TITLE, "text"], True) or nav(
+                results, [*CAROUSEL_STRAPLINE, "text"], True
+            )
             contents = []
             for result in results["contents"]:
                 data = nav(result, [MTRIR], True)
@@ -105,24 +108,24 @@ def parse_mixed_content(
                         content = parse_playlist(data)
                     elif page_type == "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE":
                         content = parse_podcast(data)
-                    
+
                     if content:
                         tokens, pinned, home_like, m_album_id, m_playlist_id = parse_menu_tokens(data)
                         content['menu_tokens'] = tokens
                         content['isPinned'] = pinned
-                        
+
                         if home_like and not content.get('likeStatus'):
                             content['likeStatus'] = home_like
-                        
+
                         # Use IDs from menu if they are missing in core object
                         if m_album_id:
                             content['albumId'] = m_album_id
                         if m_playlist_id:
                             content['playlistId'] = m_playlist_id
-                        
+
                         subtitle_runs = nav(data, ["subtitle", "runs"], True) or []
                         content['description'] = "".join([r['text'] for r in subtitle_runs])
-                        
+
                         if not content.get('artists'):
                             for r in subtitle_runs:
                                 t = r['text'].strip()
@@ -156,36 +159,52 @@ def parse_mixed_content(
 def parse_content_list(results: JsonList, parse_func: ParseFuncDictType, key: str = MTRIR) -> JsonList:
     contents = []
     for result in results:
-        if key in result:
-            contents.append(parse_func(result[key]))
+        # carousels can mix renderer types (e.g. songs/videos alongside playlists),
+        # so skip anything that isn't the renderer parse_func expects
+        if key not in result:
+            continue
+
+        contents.append(parse_func(result[key]))
 
     return contents
+
+
+def _parse_album_single_subtitle(result: JsonDict, album_or_single: JsonDict) -> JsonDict:
+    if type_or_year := nav(result, SUBTITLE, True):
+        if type_or_year.isnumeric():
+            album_or_single["year"] = type_or_year
+        else:
+            album_or_single["type"] = type_or_year
+            if (year := nav(result, SUBTITLE2, True)) and year.isnumeric():
+                album_or_single["year"] = year
+    return album_or_single
 
 
 def parse_album(result: JsonDict) -> JsonDict:
     album = {
         "title": nav(result, TITLE_TEXT),
-        "type": nav(result, SUBTITLE),
-        "artists": [parse_id_name(x) for x in nav(result, ["subtitle", "runs"]) if "navigationEndpoint" in x],
+        "artists": [
+            parse_id_name(x)
+            for x in (nav(result, ["subtitle", "runs"], True) or [])
+            if "navigationEndpoint" in x
+        ],
         "browseId": nav(result, TITLE + NAVIGATION_BROWSE_ID),
         "audioPlaylistId": parse_album_playlistid_if_exists(nav(result, THUMBNAIL_OVERLAY_NAVIGATION, True)),
         "thumbnails": nav(result, THUMBNAIL_RENDERER),
         "isExplicit": nav(result, SUBTITLE_BADGE_LABEL, True) is not None,
     }
 
-    if (year := nav(result, SUBTITLE2, True)) and year.isnumeric():
-        album["year"] = year
-
-    return album
+    return _parse_album_single_subtitle(result, album)
 
 
 def parse_single(result: JsonDict) -> JsonDict:
-    return {
+    single = {
         "title": nav(result, TITLE_TEXT),
-        "year": nav(result, SUBTITLE, True),
         "browseId": nav(result, TITLE + NAVIGATION_BROWSE_ID),
         "thumbnails": nav(result, THUMBNAIL_RENDERER),
     }
+
+    return _parse_album_single_subtitle(result, single)
 
 
 def parse_song(result: JsonDict) -> JsonDict:
@@ -200,7 +219,7 @@ def parse_song(result: JsonDict) -> JsonDict:
 
 
 def parse_song_flat(data: JsonDict, with_playlist_id: bool = False) -> JsonDict:
-    columns = [get_flex_column_item(data, i) for i in range(0, len(data["flexColumns"]))]
+    columns = [get_flex_column_item(data, i) for i in range(len(data["flexColumns"]))]
     song = {
         "title": nav(columns[0], TEXT_RUN_TEXT),
         "videoId": nav(columns[0], TEXT_RUN + NAVIGATION_VIDEO_ID, True),
@@ -245,14 +264,30 @@ def parse_video(result: JsonDict) -> JsonDict:
 
 
 def parse_playlist(data: JsonDict) -> JsonDict:
+    playlist_id = nav(data, TITLE + NAVIGATION_BROWSE_ID)[2:]
+    menu_items = nav(data, ["menu", "menuRenderer", "items"], True) or []
     playlist = {
         "title": nav(
             data,
             TITLE_TEXT,
             none_if_absent=True,  # rare but possible for playlist title to be missing
         ),
-        "playlistId": nav(data, TITLE + NAVIGATION_BROWSE_ID)[2:],
-        "thumbnails": nav(data, THUMBNAIL_RENDERER),
+        "playlistId": playlist_id,
+        "thumbnails": nav(data, THUMBNAIL_RENDERER, True),
+        "owned": any(
+            nav(
+                item,
+                [
+                    "menuNavigationItemRenderer",
+                    "navigationEndpoint",
+                    "playlistEditorEndpoint",
+                    "playlistId",
+                ],
+                True,
+            )
+            == playlist_id
+            for item in menu_items
+        ),
     }
     subtitle = data["subtitle"]
     if "runs" in subtitle:

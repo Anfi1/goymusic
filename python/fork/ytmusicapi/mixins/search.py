@@ -1,16 +1,34 @@
+from typing import Literal
+
 from ytmusicapi.continuations import get_continuations
 from ytmusicapi.exceptions import YTMusicUserError
 from ytmusicapi.mixins._protocol import MixinProtocol
+from ytmusicapi.navigation import MRLIR
 from ytmusicapi.parsers.search import *
-from ytmusicapi.type_alias import JsonList, ParseFuncType, RequestFuncType
+from ytmusicapi.type_alias import JsonList, RequestFuncType
+
+_SearchFilterType = Literal[
+    "songs",
+    "videos",
+    "albums",
+    "artists",
+    "playlists",
+    "community_playlists",
+    "featured_playlists",
+    "profiles",
+    "podcasts",
+    "episodes",
+]
+
+_SearchScopeType = Literal["uploads", "library"]
 
 
 class SearchMixin(MixinProtocol):
     def search(
         self,
         query: str,
-        filter: str | None = None,
-        scope: str | None = None,
+        filter: _SearchFilterType | None = None,
+        scope: _SearchScopeType | None = None,
         limit: int = 20,
         ignore_spelling: bool = False,
     ) -> JsonList:
@@ -19,7 +37,7 @@ class SearchMixin(MixinProtocol):
         Returns results within the provided category.
 
         :param query: Query string, i.e. 'Oasis Wonderwall'
-        :param filter: Filter for item types. Allowed values: ``songs``, ``videos``, ``albums``, ``artists``, ``playlists``, ``community_playlists``, ``featured_playlists``, ``uploads``.
+        :param filter: Filter for item types. Allowed values: ``songs``, ``videos``, ``albums``, ``artists``, ``playlists``, ``community_playlists``, ``featured_playlists``, ``profiles``, ``podcasts``, ``episodes``.
           Default: Default search, including all types of items.
         :param scope: Search scope. Allowed values: ``library``, ``uploads``.
             Default: Search the public YouTube Music catalogue.
@@ -104,7 +122,9 @@ class SearchMixin(MixinProtocol):
                 "title": "Wonderwall - Oasis",
                 "author": "Tate Henderson",
                 "itemCount": "174"
-              },
+              }
+            itemCount of a playlist can be None as youtube music does not expose that information for search filtered to community playlist.
+              ,
               {
                 "category": "Videos",
                 "resultType": "video",
@@ -137,7 +157,6 @@ class SearchMixin(MixinProtocol):
                 "thumbnails": ...
               }
             ]
-
 
         """
         body = {"query": query}
@@ -232,11 +251,12 @@ class SearchMixin(MixinProtocol):
             return get_search_results(search_results, correction)
 
         # set filter for parser
+        internal_filter: str | None = filter
         result_type = None
-        if filter and "playlists" in filter:
-            filter = "playlists"
+        if internal_filter and "playlists" in internal_filter:
+            internal_filter = "playlists"
         elif scope == scopes[1]:  # uploads
-            filter = scopes[1]
+            internal_filter = scopes[1]
             result_type = scopes[1][:-1]
 
         for res in section_list:
@@ -257,24 +277,40 @@ class SearchMixin(MixinProtocol):
                 shelf_contents = res["musicShelfRenderer"]["contents"]
                 category = nav(res, MUSIC_SHELF + TITLE_TEXT, True)
 
-                # if we know the filter it's easy to set the result type
-                # unfortunately uploads is modeled as a filter (historical reasons),
-                #  so we take care to not set the result type for that scope
-                if filter and not scope == scopes[1]:
-                    result_type = filter[:-1].lower()
-
+            elif "itemSectionRenderer" in res:
+                shelf_contents = res["itemSectionRenderer"]["contents"]
+                if MRLIR not in shelf_contents[0]:
+                    continue
             else:
                 continue
 
+            # if we know the filter it's easy to set the result type
+            # unfortunately uploads is modeled as a filter (historical reasons),
+            #  so we take care to not set the result type for that scope
+            if (
+                ("musicShelfRenderer" in res or "itemSectionRenderer" in res)
+                and internal_filter
+                and scope != scopes[1]
+            ):
+                # YTM sometimes pads results with a differently-categorized shelf
+                # (e.g. a "Songs" shelf when filtering by featured_playlists) - skip
+                # it rather than mislabeling its contents as the requested type
+                if category and internal_filter[:-1].lower() not in category.lower():
+                    continue
+                result_type = internal_filter[:-1].lower()
+
             search_results.extend(parse_search_results(shelf_contents, result_type, category))
 
-            if filter:  # if filter is set, there are continuations
+            if internal_filter:  # if filter is set, there are continuations
                 request_func: RequestFuncType = lambda additionalParams: self._send_request(
                     endpoint, body, additionalParams
                 )
-                parse_func: ParseFuncType = lambda contents: parse_search_results(
-                    contents, result_type, category
-                )
+
+                def parse_func(
+                    contents: JsonList, result_type: str | None = result_type, category: str | None = category
+                ) -> JsonList:
+                    return parse_search_results(contents, result_type, category)
+
                 if len(search_results) < limit:
                     search_results.extend(
                         get_continuations(

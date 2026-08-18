@@ -537,9 +537,10 @@ class PlayerStore {
                 }
             });
 
-            audio.addEventListener('error', (e) => {
+            audio.addEventListener('error', () => {
                 if (this.activePlayer !== playerLabel) return;
-                console.error(`Audio player ${playerLabel} error:`, e);
+                const err = audio.error;
+                console.error(`Audio player ${playerLabel} error: code=${err?.code} message=${err?.message} src=${audio.currentSrc}`);
                 // During loading, onMediaError in startPlayback handles the error.
                 // Only intervene for mid-playback errors (after stream loaded).
                 if (!this.isStreamLoading) {

@@ -1506,6 +1506,39 @@ def _yt_dlp_js_runtime_opts() -> dict:
     return {'js_runtimes': {'node': {}}}
 
 
+_yt_cookiefile_path = None
+_yt_cookiefile_cookie = None
+
+
+def _youtube_cookiefile(cookie_header: str):
+    """Конвертирует Cookie-заголовок из browser.json в Netscape cookie-файл для yt-dlp.
+    yt-dlp считает передачу cookies HTTP-заголовком небезопасной (могут утечь на сторонние
+    домены при редиректах) и требует --cookies file вместо этого."""
+    global _yt_cookiefile_path, _yt_cookiefile_cookie
+    if not cookie_header:
+        return None
+    if _yt_cookiefile_path and _yt_cookiefile_cookie == cookie_header and os.path.exists(_yt_cookiefile_path):
+        return _yt_cookiefile_path
+    expiry = int(time.time()) + 365 * 24 * 3600
+    lines = ["# Netscape HTTP Cookie File"]
+    for part in cookie_header.split(';'):
+        name, sep, value = part.strip().partition('=')
+        name = name.strip()
+        if not sep or not name:
+            continue
+        lines.append(f".youtube.com\tTRUE\t/\tTRUE\t{expiry}\t{name}\t{value.strip()}")
+    path = os.path.join(USER_DATA_DIR, 'yt_cookies.txt')
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+    except Exception as e:
+        print(f"[warn] failed to write yt cookiefile: {e}", file=sys.stderr)
+        return None
+    _yt_cookiefile_path = path
+    _yt_cookiefile_cookie = cookie_header
+    return path
+
+
 def handle_request(request):
     global _auth_data, _auth_type
     command = request.get('command')
@@ -2645,12 +2678,9 @@ def handle_request(request):
             # 2. ФОЛБЕК: yt-dlp (Надежность)
             if not stream_url:
                 try:
-                    # Silence the cookie warning by providing a no-op logger
                     class MyLogger:
                         def debug(self, msg): pass
-                        def warning(self, msg): 
-                            if "Passing cookies as a header" not in msg:
-                                print(f"YT-DLP Warning: {msg}", file=sys.stderr)
+                        def warning(self, msg): print(f"YT-DLP Warning: {msg}", file=sys.stderr)
                         def error(self, msg): print(f"YT-DLP Error: {msg}", file=sys.stderr)
 
                     ydl_opts = {
@@ -2662,14 +2692,14 @@ def handle_request(request):
                         'extractor_timeout': 15, 'socket_timeout': 15,
                         **_yt_dlp_js_runtime_opts(),
                     }
-                    # Если есть куки, добавляем их
+                    # Если есть куки, добавляем их через cookiefile (не header — см. _youtube_cookiefile)
                     if _auth_type == 'browser' and _auth_data:
-                        headers = {}
                         cookie = _auth_data.get('Cookie')
-                        if cookie: headers['Cookie'] = cookie
+                        if cookie:
+                            cookiefile = _youtube_cookiefile(cookie)
+                            if cookiefile: ydl_opts['cookiefile'] = cookiefile
                         ua = _auth_data.get('User-Agent')
                         if ua: ydl_opts['user_agent'] = ua
-                        if headers: ydl_opts['http_headers'] = headers
 
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
@@ -4037,8 +4067,7 @@ def main():
     print(f"Python API starting... PID: {os.getpid()}", file=sys.stderr)
     print(f"Python Version: {sys.version}", file=sys.stderr)
     print(f"Base Dir: {BASE_DIR}", file=sys.stderr)
-    print("NOTE: yt-dlp 'Passing cookies as a header' warning is SILENCED in get_stream_url logic.", file=sys.stderr)
-    
+
     # Verify critical dependencies
     deps = ['ytmusicapi', 'yt_dlp', 'requests']
     missing = []

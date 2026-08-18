@@ -8,11 +8,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from functools import cached_property, partial
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING
 
 import requests
 from requests import Response
 from requests.structures import CaseInsensitiveDict
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 from ytmusicapi.helpers import (
     SUPPORTED_LANGUAGES,
@@ -94,7 +98,7 @@ class YTMusicBase:
         self._session = self._prepare_session(requests_session)
         self.proxies: dict[str, str] | None = proxies  #: params for session modification
         # see google cookie docs: https://policies.google.com/technologies/cookies
-        # value from https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/youtube.py#L502
+        # value from https://github.com/yt-dlp/yt-dlp/blob/2023.09.24/yt_dlp/extractor/youtube.py#L502
         self.cookies = {"SOCS": "CAI"}
 
         self._auth_headers: CaseInsensitiveDict[str] = CaseInsensitiveDict[str]()
@@ -110,11 +114,14 @@ class YTMusicBase:
                         "oauth JSON provided via auth argument, but oauth_credentials not provided."
                         "Please provide oauth_credentials as specified in the OAuth setup documentation."
                     )
+                # Filter unknown keys (e.g. ``refresh_token_expires_in`` from Google's
+                # device flow) so previously saved oauth.json files load cleanly. See #921.
+                token_kwargs = {k: self._auth_headers[k] for k in Token.members() if k in self._auth_headers}
                 #: OAuth credential handler
                 self._token = RefreshingToken(
                     credentials=oauth_credentials,
                     _local_cache=auth_path,
-                    **self._auth_headers,  # type: ignore[arg-type]
+                    **token_kwargs,  # type: ignore[arg-type]
                 )
 
         # prepare context
@@ -266,14 +273,14 @@ class YTMusicBase:
         if self.auth_type == AuthType.UNAUTHORIZED:
             raise YTMusicUserError("Please provide authentication before using this function")
 
-    def __enter__(self) -> YTMusicBase:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: Any | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         pass
 
