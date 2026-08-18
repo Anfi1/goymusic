@@ -14,6 +14,7 @@ import {
   YTMUser
 } from '../../api/yt';
 import { player } from '../../api/player';
+import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import { getAlbumLink } from '../../api/trackLink';
 import { usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
 import { likedManager } from '../../api/likedManager';
@@ -152,28 +153,38 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
   
   const index = props['data-index'];
   const isAvailable = track?.isAvailable !== false;
-  
+
+  const handleMouseEnter = useCallback(() => {
+    if (track?.id && isAvailable && !isActive) requestPrefetch(track.id);
+  }, [track?.id, isAvailable, isActive]);
+
+  const handleMouseLeave = useCallback(() => {
+    cancelPrefetchRequest();
+  }, []);
+
   return (
-    <tr 
+    <tr
       {...rest}
       ref={ref}
-      className={`${trackStyles.row} ${isActive ? trackStyles.active : ''} ${!isAvailable ? trackStyles.unavailable : ''} ${context.draggedIdx === index ? styles.draggingRow : ''} ${context.dragOverIdx === index ? styles.dropTarget : ''}`} 
+      className={`${trackStyles.row} ${isActive ? trackStyles.active : ''} ${!isAvailable ? trackStyles.unavailable : ''} ${context.draggedIdx === index ? styles.draggingRow : ''} ${context.dragOverIdx === index ? styles.dropTarget : ''}`}
       onClick={isAvailable ? () => context.onPlay(index) : undefined}
       onContextMenu={(e) => { e.preventDefault(); context.onContextMenu(e, track); }}
       draggable={context.isEditable}
       onDragStart={() => context.onDragStart(index)}
-      onDragOver={(e) => { 
-        e.preventDefault(); 
+      onDragOver={(e) => {
+        e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         context.onDragOverItem?.(index);
       }}
       onDragLeave={() => context.onDragOverItem?.(null)}
-      onDragEnd={() => { 
-        context.onDragStart(null); 
+      onDragEnd={() => {
+        context.onDragStart(null);
         context.onDragOverItem?.(null);
         context.stopAutoScroll();
       }}
       onDrop={() => context.onDrop(index)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       style={{ ...rest.style, cursor: context.isEditable ? 'grab' : (isAvailable ? 'pointer' : 'default') }}
     />
   );

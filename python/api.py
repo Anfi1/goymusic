@@ -19,8 +19,8 @@ import html as html_lib
 from urllib.parse import urlparse, urlunparse
 
 from ytmusicapi import YTMusic, OAuthCredentials
-from pytubefix import YouTube
 from ytmusicapi.navigation import nav, SINGLE_COLUMN_TAB, SECTION_LIST, TITLE_TEXT, CAROUSEL_TITLE, TITLE, NAVIGATION_BROWSE_ID, RUN_TEXT
+from ytmusicapi.mixins._utils import get_datestamp
 SECTION_LIST_ITEM = ['sectionListRenderer', 'contents', 0]
 
 # Force UTF-8 for communication to handle Russian text on Windows
@@ -46,6 +46,10 @@ _auth_data = None
 _auth_type = None # 'browser' or 'oauth'
 ytm_lock = threading.Lock()
 stdout_lock = threading.Lock()
+
+# dataSyncId аккаунта для GVS PO Token (см. _fetch_stream_meta) — стабилен на весь сеанс,
+# достаём один раз из первого успешного player-ответа и переиспользуем.
+_yt_data_sync_id = None
 
 # Кеш данных аккаунта и блокировка для предотвращения двойных запросов
 _ACCOUNT_CACHE = None
@@ -337,11 +341,11 @@ def sanitize(s):
     return result or 'Unknown'
 
 def extract_loudness(obj):
-    """Deep search for loudnessDb in a dictionary or list."""
+    """Глубокий поиск loudnessDb в словаре/списке (streamingData.formats[]/adaptiveFormats[])."""
     if isinstance(obj, str):
         try: obj = json.loads(obj)
-        except: return None
-        
+        except Exception: return None
+
     if isinstance(obj, dict):
         if 'loudnessDb' in obj:
             return obj['loudnessDb']
@@ -354,10 +358,25 @@ def extract_loudness(obj):
             if res is not None: return res
     return None
 
+_ffmpeg_exe_path = None
+
+def get_ffmpeg_exe():
+    """Путь к ffmpeg: сначала статический бинарник из imageio-ffmpeg (не требует
+    системной установки), иначе 'ffmpeg' из PATH как запасной вариант."""
+    global _ffmpeg_exe_path
+    if _ffmpeg_exe_path is None:
+        try:
+            import imageio_ffmpeg
+            _ffmpeg_exe_path = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as e:
+            print(f"[warn] imageio-ffmpeg unavailable, falling back to PATH ffmpeg: {e}", file=sys.stderr)
+            _ffmpeg_exe_path = 'ffmpeg'
+    return _ffmpeg_exe_path
+
 def _ffmpeg_loudnorm_i(stream_url, ss=None, t=None):
     """input_i (интегрированная громкость, LUFS) для среза стрима через ffmpeg loudnorm. None при провале."""
     import subprocess
-    cmd = ['ffmpeg', '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0']
+    cmd = [get_ffmpeg_exe(), '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0']
     if ss is not None: cmd += ['-ss', str(int(ss))]
     cmd += ['-i', stream_url]
     if t is not None: cmd += ['-t', str(int(t))]
@@ -2653,29 +2672,44 @@ def handle_request(request):
             loudness = 0.0
             watchtime_url = None
             method = "None"
-            
-            # 1. ПРИОРИТЕТ: pytubefix (0.3с)
-            try:
-                tube = YouTube(url, use_oauth=False, allow_oauth_cache=True)
-                stream_url = tube.streams.get_audio_only().url
 
-                # Извлекаем громкость (Content Loudness)
-                raw_loudness = extract_loudness(tube.vid_info)
-                if raw_loudness is None:
-                    raw_loudness = extract_loudness(tube.streaming_data)
+            # yt-dlp напрямую: pytubefix у YouTube почти всегда ловит бот-детект
+            # на этом контенте (не связано с PO Token — сама сессия помечена как
+            # подозрительная), так что первая попытка через него — гарантированная
+            # трата 2-4с на каждый трек. 'mweb' тоже убран из player_client: он
+            # всегда требует GVS PO Token, которого у нас нет, и просто съедает
+            # время на клиент, чьи форматы всё равно потом отбрасываются.
+            # player_skip=webpage,configs — не тянем HTML страницы и конфиги,
+            # только сам API-запрос форматов (~2x быстрее по замерам).
 
-                if raw_loudness is not None:
-                    loudness = float(raw_loudness)
+            # loudnessDb и watchtimeUrl достаём через player-эндпоинт параллельно с yt-dlp —
+            # это отдельный лёгкий запрос metadata, не упирается в GVS PO Token (тот нужен
+            # только для самих URL закачки), так что не тормозит резолв. Используем сырой
+            # _send_request вместо get_song(), т.к. get_song() обрезает ответ и выкидывает
+            # responseContext, откуда мы заодно достаём account dataSyncId (см. ниже) —
+            # без него yt-dlp на авторизованной сессии не может даже попытаться получить
+            # GVS PO Token и просто пишет warning на каждый трек.
+            def _fetch_meta():
+                try:
+                    api = get_api()
+                    params = {
+                        'playbackContext': {'contentPlaybackContext': {'signatureTimestamp': get_datestamp() - 1}},
+                        'video_id': video_id,
+                    }
+                    song = api._send_request('player', params)
+                    wt = nav(song, ['playbackTracking', 'videostatsWatchtimeUrl', 'baseUrl'], True)
+                    dsid = nav(song, ['responseContext', 'mainAppWebResponseContext', 'datasyncId'], True)
+                    if dsid:
+                        global _yt_data_sync_id
+                        _yt_data_sync_id = dsid
+                    return extract_loudness(song), wt
+                except Exception as e:
+                    print(f"[warn] player meta fetch failed for {video_id}: {e}", file=sys.stderr)
+                    return None, None
 
-                pt = (tube.vid_info or {}).get('playbackTracking', {})
-                watchtime_url = pt.get('videostatsWatchtimeUrl', {}).get('baseUrl') or None
-                print(f"[watchtime] got watchtimeUrl for {video_id}: {'YES' if watchtime_url else 'NO'}", file=sys.stderr)
+            meta_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            meta_future = meta_pool.submit(_fetch_meta)
 
-                method = "pytubefix"
-            except Exception as e:
-                print(f"[debug] pytubefix failed for {video_id}: {e}", file=sys.stderr)
-
-            # 2. ФОЛБЕК: yt-dlp (Надежность)
             if not stream_url:
                 try:
                     class MyLogger:
@@ -2688,7 +2722,11 @@ def handle_request(request):
                         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
                         'logger': MyLogger(),
                         'youtube_include_dash_manifest': False, 'cachedir': False,
-                        'extractor_args': {'youtube': {'player_client': ['web', 'mweb'], 'skip': ['hls']}},
+                        'extractor_args': {'youtube': {
+                            'player_client': ['web'], 'skip': ['hls', 'dash'],
+                            'player_skip': ['webpage', 'configs'],
+                            **({'data_sync_id': [_yt_data_sync_id]} if _yt_data_sync_id else {}),
+                        }},
                         'extractor_timeout': 15, 'socket_timeout': 15,
                         **_yt_dlp_js_runtime_opts(),
                     }
@@ -2707,6 +2745,16 @@ def handle_request(request):
                         method = "yt-dlp"
                 except Exception as e:
                     print(f"[error] Both methods failed for {video_id}: {e}", file=sys.stderr)
+
+            try:
+                ld, wt = meta_future.result(timeout=10)
+                if ld is not None:
+                    loudness = ld
+                watchtime_url = wt
+            except Exception as e:
+                print(f"[warn] meta fetch timeout for {video_id}: {e}", file=sys.stderr)
+            finally:
+                meta_pool.shutdown(wait=False)
 
             total_time = time.time() - start_time
             print(f"[perf] get_stream_url ({method}) for {video_id}: {total_time:.3f}s (loudness: {loudness})", file=sys.stderr)
@@ -3558,7 +3606,7 @@ def handle_request(request):
                         # Use subprocess.PIPE to avoid deadlocks on Windows and hide stdout
                         ffmpeg_proc = subprocess.run(
                             [
-                                'ffmpeg',
+                                get_ffmpeg_exe(),
                                 '-hide_banner',
                                 '-nostats',
                                 # Speed up input probing to reduce "hang before processing"
@@ -3607,7 +3655,7 @@ def handle_request(request):
                             })
                             vd_proc = subprocess.run(
                                 [
-                                    'ffmpeg',
+                                    get_ffmpeg_exe(),
                                     '-hide_banner',
                                     '-nostats',
                                     '-vn', '-sn', '-dn',
@@ -3804,7 +3852,7 @@ def handle_request(request):
                     # Use subprocess.PIPE to avoid deadlocks on Windows
                     ffmpeg_proc = subprocess.run(
                         [
-                            'ffmpeg',
+                            get_ffmpeg_exe(),
                             '-hide_banner',
                             '-nostats',
                             '-probesize', '32k',
@@ -3837,7 +3885,7 @@ def handle_request(request):
                     try:
                         vd_proc = subprocess.run(
                             [
-                                'ffmpeg',
+                                get_ffmpeg_exe(),
                                 '-hide_banner',
                                 '-nostats',
                                 '-vn', '-sn', '-dn',

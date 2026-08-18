@@ -5,6 +5,7 @@ import { Visualizer } from '../atoms/Visualizer';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
+import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import styles from './QueueItem.module.css';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { resolveSource } from '../../api/source';
@@ -173,6 +174,14 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
     onDragStart?.(e, index);
   }, [onDragStart, index]);
 
+  const handleMouseEnter = useCallback(() => {
+    if (id && !isActive) requestPrefetch(id);
+  }, [id, isActive]);
+
+  const handleMouseLeave = useCallback(() => {
+    cancelPrefetchRequest();
+  }, []);
+
   return (
     <div
       className={`${styles.item} ${isActive ? styles.active : ''} ${className || ''}`}
@@ -180,6 +189,8 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
       onContextMenu={handleContext}
       draggable={draggable}
       onDragStart={handleDragStartInternal}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className={styles.coverWrapper} style={{ position: 'relative' }}>
         {thumbUrl && !imgError ? (

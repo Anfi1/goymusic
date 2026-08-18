@@ -2,7 +2,7 @@ import React, { useState, forwardRef, Fragment, useEffect, memo, useCallback } f
 import { Play, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
-import { prefetchStreamUrl, cancelPrefetchRequest } from '../../api/stream';
+import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { likedManager } from '../../api/likedManager';
@@ -241,7 +241,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
   }, [id, externalIsActive]);
 
   const handleMouseEnter = useCallback(() => {
-    if (id && isAvailable) prefetchStreamUrl(id);
+    if (id && isAvailable) requestPrefetch(id);
   }, [id, isAvailable]);
 
   const handleMouseLeave = useCallback(() => {

@@ -3,6 +3,7 @@ import { Play, Pin, Loader2, CheckCircle } from 'lucide-react';
 import { LazyImage } from '../atoms/LazyImage';
 import { Visualizer } from '../atoms/Visualizer';
 import { player } from '../../api/player';
+import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import styles from './MediaCard.module.css';
 
 export interface MediaCardProps {
@@ -82,6 +83,15 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
 
   const isLoading = propIsLoading || isLocalLoading;
   const isActive = propIsActive !== undefined ? propIsActive : isActiveState;
+  const isSong = type?.toLowerCase() === 'song';
+
+  const handleMouseEnter = () => {
+    if (isSong && id && !isActive) requestPrefetch(id);
+  };
+
+  const handleMouseLeave = () => {
+    if (isSong) cancelPrefetchRequest();
+  };
 
   const handlePlayAction = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -155,9 +165,11 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
 
   return (
     <div 
-      className={`${styles.card} ${styles[variant]} ${isActive ? styles.active : ''} ${isLoading ? styles.loading : ''} ${className}`} 
+      className={`${styles.card} ${styles[variant]} ${isActive ? styles.active : ''} ${isLoading ? styles.loading : ''} ${className}`}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className={`${styles.thumbWrapper} ${isArtist ? styles.round : ''}`}>
         <LazyImage 
