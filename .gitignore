@@ -16,3 +16,5 @@ browser.json
 release/
 docs/superpowers/
 .claude/
+yt_cookies.txt
+*.tsbuildinfo
