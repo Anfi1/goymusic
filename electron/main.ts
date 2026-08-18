@@ -298,7 +298,17 @@ function setupPyHandlers(usedPath: string) {
   pyProc.on('error', (err) => {
     logToFile(`Process error (${usedPath}): ${err.message}`);
   })
+
+  // Первый минтинг PO Token - с задержкой, чтобы python успел прочитать
+  // browser.json (persist:google-auth сессия должна быть уже залогинена заранее
+  // через auth:start, иначе минтинг просто ничего не поймает и это не страшно -
+  // резолв продолжит работать по старой схеме pytubefix/yt-dlp).
+  setTimeout(() => { refreshPoToken(); }, 5000);
 }
+
+// TTL GVS PO Token не документирован и не проверен на практике - берём
+// консервативный интервал, чтобы не гонять токен впустую и не словить протухший.
+setInterval(() => { refreshPoToken(); }, 1000 * 60 * 60 * 3); // Every 3 hours
 
 function exitPyProc() {
   if (pyProc != null) {
@@ -469,9 +479,16 @@ function createWindow() {
   }
 
   // Handle outgoing headers
+  // Дефолтный User-Agent Electron содержит "Electron/x.x.x" прямым текстом - для
+  // CDN googlevideo.com это явный сигнал не-браузерного клиента, из-за которого
+  // <audio> внутри приложения ловит 403/Format error там, где та же ссылка,
+  // открытая в настоящем браузере, играет нормально. Подчищаем так же, как уже
+  // сделано для auth- и SoundCloud-сессий (см. ниже).
+  const cleanChromeUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
   session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     details.requestHeaders['Referer'] = 'https://music.youtube.com/'
     details.requestHeaders['Origin'] = 'https://music.youtube.com'
+    details.requestHeaders['User-Agent'] = cleanChromeUA
     callback({ requestHeaders: details.requestHeaders })
   })
 
@@ -576,15 +593,16 @@ ipcMain.on('rpc:clear', () => {
   }
 })
 
-// IPC bridge for Python
-ipcMain.handle('py:call', async (event, command, args = {}) => {
+// Тот же механизм, что и IPC 'py:call', но вызываемый напрямую из main-процесса
+// (например, для отправки свежего PO Token без похода через renderer).
+function callPython(command: string, args: any = {}): Promise<any> {
   return new Promise((resolve, reject) => {
     if (!pyProc || !pyProc.stdin || !pyProc.stdout) {
       reject('Python process not available')
       return
     }
 
-    const callId = (args as any).callId || randomUUID();
+    const callId = args.callId || randomUUID();
 
     const LONG_RUNNING = new Set(['yandex_import_streaming'])
     const timeoutMs = LONG_RUNNING.has(command) ? 7_200_000 : 300000 // 2h for import, 5min otherwise
@@ -596,6 +614,11 @@ ipcMain.handle('py:call', async (event, command, args = {}) => {
     pendingCalls.set(callId, { resolve, reject, timeout })
     pyProc.stdin.write(JSON.stringify({ command, ...args, callId }) + '\n')
   })
+}
+
+// IPC bridge for Python
+ipcMain.handle('py:call', async (event, command, args = {}) => {
+  return callPython(command, args)
 })
 
 ipcMain.handle('py:cancel', async (event, callId) => {
@@ -703,6 +726,119 @@ ipcMain.handle('auth:start', async () => {
     });
   });
 });
+
+// --- PO Token: минтинг через скрытое окно на РЕАЛЬНОЙ залогиненной сессии ---
+// Вместо отдельного Node-сервера (bgutil) или реверс-инжиниренного JS-солвера
+// (pytubefix) используем уже имеющийся у нас настоящий Chromium: открываем скрытое
+// окно на той же сессии persist:google-auth, что и логин, даём реальной странице
+// music.youtube.com самой сделать то, что она обычно делает, и ловим готовый токен
+// из сетевого запроса. Оттуда же снимаем dataSyncId, который иначе недоступен.
+//
+// ВАЖНО, чтобы не строить ложных ожиданий: ранний спайк показал, что этот токен
+// открывает web_music adaptive-форматы (opus 251) - это оказалось НЕВЕРНО. Такие
+// URL стабильно дают code=4 Format error в реальном <audio>, а позже выяснилось,
+// что всё семейство web вообще SABR-only и форматов не отдаёт. Сейчас токен и
+// dataSyncId уходят только в авторизованную попытку tv/web/mweb в python
+// (_try_yt_dlp_cookies) - единственный реально работающий путь резолва.
+// Помогают ли они там - не проверено: изолировать эффект не получилось.
+interface PoTokenResult { token: string | null; dataSyncId: string | null }
+
+let poTokenMintInFlight: Promise<PoTokenResult> | null = null;
+
+function mintPoToken(): Promise<PoTokenResult> {
+  if (poTokenMintInFlight) return poTokenMintInFlight;
+
+  poTokenMintInFlight = (async () => {
+    let win: BrowserWindow | null = null;
+    try {
+      const sess = session.fromPartition('persist:google-auth', { cache: false });
+
+      // Обёртка-объект вместо голого let - TS иначе слишком агрессивно сужает
+      // тип переменной, мутируемой из вложенного колбэка, до `never`.
+      const box: { pot: string | null } = { pot: null };
+      const filter = { urls: ['*://*.googlevideo.com/videoplayback*'] };
+      sess.webRequest.onBeforeRequest(filter, (details, callback) => {
+        if (!box.pot) {
+          const m = details.url.match(/[?&]pot=([^&]+)/);
+          if (m) box.pot = decodeURIComponent(m[1]);
+        }
+        // Сам медиафайл нам не нужен - экономим трафик и не грузим реальное аудио.
+        callback({ cancel: true });
+      });
+
+      win = new BrowserWindow({
+        width: 900,
+        height: 700,
+        show: false,
+        webPreferences: {
+          session: sess,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        }
+      });
+      // Скрытое окно НЕ значит беззвучное - блокировка videoplayback-запроса не ловит
+      // всё (например SABR-чанки идут по другому пути), так что глушим звук явно на
+      // уровне Electron, а не полагаемся только на webRequest-фильтр.
+      win.webContents.setAudioMuted(true);
+
+      win.loadURL('https://music.youtube.com/watch?v=dQw4w9WgXcQ');
+
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 15000);
+        const check = setInterval(() => {
+          if (box.pot) { clearTimeout(timer); clearInterval(check); resolve(); }
+        }, 250);
+      });
+
+      // Снимаем перехватчик, чтобы не мешать возможному параллельному логину
+      // через тот же partition.
+      sess.webRequest.onBeforeRequest(filter, null as any);
+
+      // dataSyncId недоступен через голый API-запрос (ytmusicapi) - он кладётся
+      // в ytcfg только настоящей отрендеренной страницей. Без него GVS PO Token
+      // принимается CDN только для маленького "пробного" запроса, а на реальном
+      // проигрывании (большой Range/без Range) сервер отдаёт 403 - см. warning
+      // yt-dlp "missing Data Sync ID for account. Formats may not work."
+      let dataSyncId: string | null = null;
+      if (win && !win.isDestroyed()) {
+        try {
+          dataSyncId = await win.webContents.executeJavaScript(
+            "(function(){ try { return (window.ytcfg && window.ytcfg.get && window.ytcfg.get('DATASYNC_ID')) || null; } catch(e) { return null; } })()"
+          );
+        } catch (e) {
+          logToFile(`Failed to read DATASYNC_ID from page: ${e}`);
+        }
+      }
+
+      if (box.pot) {
+        logToFile(`PO Token minted (${box.pot.length} chars), dataSyncId ${dataSyncId ? 'present' : 'MISSING'}`);
+      } else {
+        logToFile('PO Token mint: timed out without capturing a token');
+      }
+      return { token: box.pot, dataSyncId };
+    } catch (e: any) {
+      logToFile(`PO Token mint failed: ${e?.message || e}`);
+      return { token: null, dataSyncId: null };
+    } finally {
+      if (win && !win.isDestroyed()) win.close();
+      poTokenMintInFlight = null;
+    }
+  })();
+
+  return poTokenMintInFlight;
+}
+
+async function refreshPoToken() {
+  const { token, dataSyncId } = await mintPoToken();
+  if (token && pyProc) {
+    try {
+      await callPython('set_po_token', { token, dataSyncId });
+    } catch (e) {
+      logToFile(`Failed to send PO Token to Python: ${e}`);
+    }
+  }
+}
 
 // --- SoundCloud webview: надёжный лайк в обход DataDome (write из реального контекста soundcloud.com) ---
 const SC_PARTITION = 'persist:soundcloud'

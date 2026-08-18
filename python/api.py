@@ -21,6 +21,7 @@ from urllib.parse import urlparse, urlunparse
 from ytmusicapi import YTMusic, OAuthCredentials
 from ytmusicapi.navigation import nav, SINGLE_COLUMN_TAB, SECTION_LIST, TITLE_TEXT, CAROUSEL_TITLE, TITLE, NAVIGATION_BROWSE_ID, RUN_TEXT
 from ytmusicapi.mixins._utils import get_datestamp
+from pytubefix import YouTube
 SECTION_LIST_ITEM = ['sectionListRenderer', 'contents', 0]
 
 # Force UTF-8 for communication to handle Russian text on Windows
@@ -50,6 +51,11 @@ stdout_lock = threading.Lock()
 # dataSyncId аккаунта для GVS PO Token (см. _fetch_stream_meta) — стабилен на весь сеанс,
 # достаём один раз из первого успешного player-ответа и переиспользуем.
 _yt_data_sync_id = None
+
+# PO Token, добытый Electron'ом из настоящего скрытого браузерного окна (см.
+# команду 'set_po_token') — открывает web_music-клиенту адаптивные (opus/aac)
+# форматы вместо legacy itag18. Не вечен, Electron периодически перевыпускает.
+_yt_po_token = None
 
 # Кеш данных аккаунта и блокировка для предотвращения двойных запросов
 _ACCOUNT_CACHE = None
@@ -2663,6 +2669,20 @@ def handle_request(request):
                 'callId': call_id
             })
 
+        elif command == 'set_po_token':
+            global _yt_po_token, _yt_data_sync_id
+            token = request.get('token')
+            dsid = request.get('dataSyncId')
+            if token:
+                _yt_po_token = token
+                print(f"[po_token] cached new token ({len(token)} chars)", file=sys.stderr)
+            if dsid:
+                _yt_data_sync_id = dsid
+                print(f"[po_token] cached dataSyncId from real browser session", file=sys.stderr)
+            else:
+                print(f"[po_token] WARNING: no dataSyncId from mint - web_music formats may 403 on real fetch", file=sys.stderr)
+            safe_print({'status': 'ok', 'callId': call_id})
+
         elif command == 'get_stream_url':
             start_time = time.time()
             video_id = request.get('videoId')
@@ -2673,14 +2693,17 @@ def handle_request(request):
             watchtime_url = None
             method = "None"
 
-            # yt-dlp напрямую: pytubefix у YouTube почти всегда ловит бот-детект
-            # на этом контенте (не связано с PO Token — сама сессия помечена как
-            # подозрительная), так что первая попытка через него — гарантированная
-            # трата 2-4с на каждый трек. 'mweb' тоже убран из player_client: он
-            # всегда требует GVS PO Token, которого у нас нет, и просто съедает
-            # время на клиент, чьи форматы всё равно потом отбрасываются.
-            # player_skip=webpage,configs — не тянем HTML страницы и конфиги,
-            # только сам API-запрос форматов (~2x быстрее по замерам).
+            # pytubefix и yt-dlp запускаются ПАРАЛЛЕЛЬНО (гонка), а не по очереди:
+            # pytubefix быстрый (~0.3с), когда работает, но стабильно ловит
+            # бот-детект на непопулярном контенте (проверено эмпирически — не связано
+            # с PO Token, сама форма запроса подозрительна для Google). yt-dlp медленнее
+            # (~2-2.5с), но надёжнее на таком контенте. Гонка даёт лучшее из двух: если
+            # pytubefix успел первым - используем его и не ждём yt-dlp; если он упал -
+            # время не потеряно, yt-dlp уже параллельно резолвился с самого начала.
+            # 'mweb' не используется в player_client: он всегда требует GVS PO Token,
+            # которого у нас нет, и просто съедает время на клиент, чьи форматы всё
+            # равно потом отбрасываются. player_skip=webpage,configs — не тянем HTML
+            # страницы и конфиги, только сам API-запрос форматов (~2x быстрее по замерам).
 
             # loudnessDb и watchtimeUrl достаём через player-эндпоинт параллельно с yt-dlp —
             # это отдельный лёгкий запрос metadata, не упирается в GVS PO Token (тот нужен
@@ -2710,12 +2733,30 @@ def handle_request(request):
             meta_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             meta_future = meta_pool.submit(_fetch_meta)
 
-            if not stream_url:
+            def _try_pytubefix():
+                # ANDROID_VR, а не WEB. Замер по всем клиентам yt-dlp показал, что всё
+                # семейство web (web/web_safari/web_music/web_creator), а также tv/mweb/ios
+                # не отдают форматов ВООБЩЕ - ни с куками, ни без (SABR-only). Живых
+                # клиента ровно два: visionos и android_vr, и оба не переносят куки.
+                # ANDROID_VR к тому же не требует ни po_token, ни JS-плеера.
+                try:
+                    tube = YouTube(url, client='ANDROID_VR', use_oauth=False, allow_oauth_cache=True)
+                    stream = tube.streams.get_audio_only()
+                    return stream.url if stream else None
+                except Exception as e:
+                    print(f"[debug] pytubefix failed for {video_id}: {e}", file=sys.stderr)
+                    return None
+
+            def _try_yt_dlp():
+                # android_vr, а не web: клиент 'web' не отдаёт форматов вообще (SABR-only),
+                # проверено и с куками, и без - он был мёртвым грузом в гонке. android_vr
+                # отдаёт itag18 (progressive m4a) за ~1.3с и служит запасным для visionos.
+                # Куки не передаются: SUPPORTS_COOKIES=False, с ними yt-dlp выкинет клиент.
                 try:
                     class MyLogger:
                         def debug(self, msg): pass
-                        def warning(self, msg): print(f"YT-DLP Warning: {msg}", file=sys.stderr)
-                        def error(self, msg): print(f"YT-DLP Error: {msg}", file=sys.stderr)
+                        def warning(self, msg): pass
+                        def error(self, msg): print(f"YT-DLP(android_vr) Error: {msg}", file=sys.stderr)
 
                     ydl_opts = {
                         'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
@@ -2723,28 +2764,167 @@ def handle_request(request):
                         'logger': MyLogger(),
                         'youtube_include_dash_manifest': False, 'cachedir': False,
                         'extractor_args': {'youtube': {
-                            'player_client': ['web'], 'skip': ['hls', 'dash'],
+                            'player_client': ['android_vr'], 'skip': ['hls', 'dash'],
                             'player_skip': ['webpage', 'configs'],
-                            **({'data_sync_id': [_yt_data_sync_id]} if _yt_data_sync_id else {}),
                         }},
                         'extractor_timeout': 15, 'socket_timeout': 15,
                         **_yt_dlp_js_runtime_opts(),
                     }
-                    # Если есть куки, добавляем их через cookiefile (не header — см. _youtube_cookiefile)
-                    if _auth_type == 'browser' and _auth_data:
-                        cookie = _auth_data.get('Cookie')
-                        if cookie:
-                            cookiefile = _youtube_cookiefile(cookie)
-                            if cookiefile: ydl_opts['cookiefile'] = cookiefile
-                        ua = _auth_data.get('User-Agent')
-                        if ua: ydl_opts['user_agent'] = ua
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        return info['url']
+                except Exception as e:
+                    print(f"[error] yt-dlp(android_vr) failed for {video_id}: {e}", file=sys.stderr)
+                    return None
+
+            def _try_yt_dlp_cookies():
+                # Единственный авторизованный путь - и, вопреки первоначальным ожиданиям,
+                # основной рабочий: cookie-less клиенты (visionos/android_vr/pytubefix)
+                # ловят бот-детект почти на всём реальном контенте, а этот проходит.
+                # Отдаёт progressive itag18 с c=TVHTML5, ~4с.
+                #
+                # ВАЖНО: здесь НЕ ставится player_skip=webpage. С ним tv возвращает
+                # "Requested format is not available" (0 форматов) - ему нужен ytcfg
+                # авторизованной сессии со страницы. Именно из-за player_skip в ранних
+                # замерах казалось, что tv мёртв, как и всё семейство web.
+                if not (_auth_type == 'browser' and _auth_data):
+                    return None
+                cookie = _auth_data.get('Cookie')
+                if not cookie:
+                    return None
+                cookiefile = _youtube_cookiefile(cookie)
+                if not cookiefile:
+                    return None
+                try:
+                    class MyLogger:
+                        def debug(self, msg): pass
+                        def warning(self, msg): pass
+                        def error(self, msg): pass
+
+                    yt_args = {
+                        'player_client': ['tv', 'web', 'mweb'],
+                        'skip': ['dash'],
+                    }
+                    if _yt_data_sync_id:
+                        yt_args['data_sync_id'] = [_yt_data_sync_id]
+                    if _yt_po_token:
+                        yt_args['po_token'] = ['web.gvs+' + _yt_po_token]
+
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
+                        'logger': MyLogger(),
+                        'youtube_include_dash_manifest': False, 'cachedir': False,
+                        'cookiefile': cookiefile,
+                        'extractor_args': {'youtube': yt_args},
+                        'extractor_timeout': 20, 'socket_timeout': 20,
+                        **_yt_dlp_js_runtime_opts(),
+                    }
+                    ua = _auth_data.get('User-Agent')
+                    if ua:
+                        ydl_opts['user_agent'] = ua
 
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
-                        stream_url = info['url']
-                        method = "yt-dlp"
+                        return info['url']
                 except Exception as e:
-                    print(f"[error] Both methods failed for {video_id}: {e}", file=sys.stderr)
+                    print(f"[debug] yt-dlp(cookies/age-gate) failed for {video_id}: {e}", file=sys.stderr)
+                    return None
+
+            def _try_yt_dlp_visionos():
+                # VISIONOS - единственный клиент, отдающий настоящие adaptive-форматы
+                # (opus/251) вообще без GVS PO Token и без JS-плеера: у него
+                # REQUIRE_JS_PLAYER=False и GvsPoTokenPolicy(required=False) по всем
+                # протоколам, и он не входит в захардкоженный SABR-форс (там только
+                # web/web_safari). Появился в yt-dlp начиная с nightly - отсюда пин
+                # версии в requirements.txt. Минус: заметно медленнее (~5с против ~1.5с
+                # у android_vr), поэтому в гонке ему даётся фора, а не голая скорость.
+                # Оговорка апстрима: "made for kids" видео этому клиенту недоступны -
+                # на них он вернёт None и выиграют остальные.
+                try:
+                    class MyLogger:
+                        def debug(self, msg): pass
+                        def warning(self, msg): pass
+                        def error(self, msg): print(f"YT-DLP(visionos) Error: {msg}", file=sys.stderr)
+
+                    ydl_opts = {
+                        'format': 'bestaudio[ext=webm]/bestaudio/best',
+                        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
+                        'logger': MyLogger(),
+                        'youtube_include_dash_manifest': False, 'cachedir': False,
+                        'extractor_args': {'youtube': {
+                            'player_client': ['visionos'], 'skip': ['hls', 'dash'],
+                            'player_skip': ['webpage', 'configs'],
+                        }},
+                        'extractor_timeout': 15, 'socket_timeout': 15,
+                        **_yt_dlp_js_runtime_opts(),
+                    }
+                    # КУКИ СЮДА НЕ ПЕРЕДАЮТСЯ СОЗНАТЕЛЬНО. У visionos SUPPORTS_COOKIES=False,
+                    # и при наличии кук yt-dlp молча выкидывает клиент целиком
+                    # ("Skipping client visionos since it does not support cookies"),
+                    # после чего падает с "Failed to extract any player response".
+                    # Проверено: с куками 0/4 треков, без кук тот же трек - 1.4с и opus 251.
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        return info['url']
+                except Exception as e:
+                    print(f"[debug] yt-dlp(visionos) failed for {video_id}: {e}", file=sys.stderr)
+                    return None
+
+            if not stream_url:
+                # Все три racer'а ходят БЕЗ КУК - это не упущение, а необходимость:
+                # живы только visionos и android_vr, у обоих SUPPORTS_COOKIES=False, и при
+                # наличии кук yt-dlp выбрасывает клиент целиком. Всё семейство web
+                # (включая web_music, вокруг которого была прошлая попытка) не отдаёт
+                # форматов вообще - SABR-only, проверено по всем клиентам.
+                #
+                # tv+cookies бежит В ГОНКЕ, а не после неё. Изначально он стоял
+                # фолбеком «на случай age-restricted», но на практике оказалось, что
+                # именно он вывозит основной контент: cookie-less клиенты ловят
+                # бот-детект почти на всём (кроме dQw4w9WgXcQ, который у Google
+                # фактически в белом списке). Последовательный запуск стоил ~4с
+                # сверху на каждый трек - параллельный не стоит ничего.
+                #
+                # Гонка приоритетная, а не «кто первый»: visionos даёт adaptive-opus,
+                # остальные - progressive itag18, и брать первого попавшегося значит
+                # систематически терять качество. По замерам visionos не медленнее
+                # (~1.3-1.4с против ~1.3с у android_vr, pytubefix ~0.3с), поэтому фора
+                # ему не нужна - хватает того, что при равном финише выбирается он.
+                PRIORITY = ['visionos', 'pytubefix', 'android_vr', 'tv+cookies']
+                racer_fns = {
+                    'visionos': _try_yt_dlp_visionos,
+                    'pytubefix': _try_pytubefix,
+                    'android_vr': _try_yt_dlp,
+                    'tv+cookies': _try_yt_dlp_cookies,
+                }
+
+                stream_pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(racer_fns))
+                racers = {stream_pool.submit(fn): name for name, fn in racer_fns.items()}
+                pending = set(racers.keys())
+                results = {}
+                while pending:
+                    done, pending = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for fut in done:
+                        try:
+                            results[racers[fut]] = fut.result()
+                        except Exception:
+                            results[racers[fut]] = None
+                    if results.get('visionos'):
+                        break  # лучший вариант готов, остальных ждать незачем
+                    if 'visionos' in results and any(results.get(n) for n in PRIORITY):
+                        break  # visionos отпал, запасной уже есть
+
+                for name in PRIORITY:
+                    if results.get(name):
+                        stream_url = results[name]
+                        method = name
+                        break
+
+                # Проигравший (если ещё бежит) доигрывает в фоне и результат просто
+                # отбрасывается - поток демонический (main() стартует его так же),
+                # ждать его незачем.
+                stream_pool.shutdown(wait=False)
 
             try:
                 ld, wt = meta_future.result(timeout=10)

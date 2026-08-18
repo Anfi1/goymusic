@@ -1,4 +1,7 @@
-yt-dlp>=2025.1.15
-yt-dlp-ejs>=0.8.0
+# Dev-зависимости (venv). Для СБОРКИ используется python/requirements.txt —
+# именно его ставит GitHub Actions в бандленный питон, держать в синхроне.
 requests>=2.32.3
+yt-dlp==2026.8.18.122307.dev0
+yt-dlp-ejs>=0.8.0
+pytubefix>=10.3.8
 imageio-ffmpeg>=0.5.1

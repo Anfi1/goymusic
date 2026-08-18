@@ -1,5 +1,12 @@
 requests==2.32.5
-yt-dlp==2026.7.4
+# Пин на nightly: клиент visionos (единственный, отдающий adaptive-аудио opus без
+# GVS PO Token и без JS-плеера) есть только в nightly-канале, в stable его нет.
+# Точный == пин на pre-release pip ставит и без --pre.
+yt-dlp==2026.8.18.122307.dev0
+yt-dlp-ejs>=0.8.0
 pytubefix==10.3.8
+# Без imageio-ffmpeg нормализация громкости SoundCloud молча падает в WinError 2:
+# в собранном билде системного ffmpeg нет, get_ffmpeg_exe() берёт бандленный.
+imageio-ffmpeg>=0.5.1
 nodriver
 syncedlyrics>=1.0.1
