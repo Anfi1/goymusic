@@ -352,23 +352,37 @@ def sanitize(s):
         result = result.replace('..', '-')
     return result or 'Unknown'
 
-def extract_loudness(obj):
-    """Глубокий поиск loudnessDb в словаре/списке (streamingData.formats[]/adaptiveFormats[])."""
+def _deep_find(obj, key):
+    """Первое значение key в произвольно вложенном ответе плеера."""
     if isinstance(obj, str):
         try: obj = json.loads(obj)
         except Exception: return None
 
     if isinstance(obj, dict):
-        if 'loudnessDb' in obj:
-            return obj['loudnessDb']
+        if key in obj:
+            return obj[key]
         for v in obj.values():
-            res = extract_loudness(v)
+            res = _deep_find(v, key)
             if res is not None: return res
     elif isinstance(obj, list):
         for item in obj:
-            res = extract_loudness(item)
+            res = _deep_find(item, key)
             if res is not None: return res
     return None
+
+
+# Шкала loudnessDb у YouTube целится в -7 LUFS, а не в -14. Замер на 6 треках
+# (python/test_loudness.py): после гейна 10^(-loudnessDb/20) все шесть приезжают в
+# -7.03..-7.09, разброс 0.02 дБ. Наш SoundCloud-путь целится в -14, отсюда и было
+# расхождение источников на 7 дБ, и клиппинг на громких мастерингах (пики до +5.98 dBTP).
+# Поле perceptualLoudnessDb (= loudnessDb - 7) для этого НЕ подходит: оно смещает в
+# другую сторону, к ~0 LUFS.
+_YT_TARGET_OFFSET = 7.0
+
+def extract_loudness(obj):
+    """Поправка громкости до -14 LUFS в шкале плеера (gain = 10^(-loudness/20))."""
+    v = _deep_find(obj, 'loudnessDb')
+    return None if v is None else v + _YT_TARGET_OFFSET
 
 _ffmpeg_exe_path = None
 
@@ -385,8 +399,8 @@ def get_ffmpeg_exe():
             _ffmpeg_exe_path = 'ffmpeg'
     return _ffmpeg_exe_path
 
-def _ffmpeg_loudnorm_i(stream_url, ss=None, t=None):
-    """input_i (интегрированная громкость, LUFS) для среза стрима через ffmpeg loudnorm. None при провале."""
+def _ffmpeg_loudnorm(stream_url, ss=None, t=None, timeout=20):
+    """Разбор loudnorm=print_format=json для среза стрима. None при провале."""
     import subprocess
     cmd = [get_ffmpeg_exe(), '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0']
     if ss is not None: cmd += ['-ss', str(int(ss))]
@@ -394,41 +408,42 @@ def _ffmpeg_loudnorm_i(stream_url, ss=None, t=None):
     if t is not None: cmd += ['-t', str(int(t))]
     cmd += ['-vn', '-sn', '-dn', '-af', 'loudnorm=print_format=json', '-f', 'null', '-']
     r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                       text=True, timeout=20, encoding='utf-8', errors='ignore')
+                       text=True, timeout=timeout, encoding='utf-8', errors='ignore')
     st = r.stderr or ''
     j0, j1 = st.rfind('{'), st.rfind('}') + 1
     if j0 != -1 and j1 > j0:
-        return float(json.loads(st[j0:j1]).get('input_i', -14.0))
+        return json.loads(st[j0:j1])
     return None
 
-def sc_measure_loudness(stream_url, duration=None):
-    """Громкость SC-трека для нормализации до -14 LUFS (возвращает gain в шкале loudness YT:
-    gain_db = input_i + 14). Берём 3 точки в ТЕЛЕ трека (минуя интро/аутро) и усредняем в
-    энергетической области — иначе нерепрезентативное интро перекашивает результат."""
-    import math
-    dur = 0.0
-    try: dur = float(duration or 0)
-    except (TypeError, ValueError): dur = 0.0
+def _ffmpeg_loudnorm_i(stream_url, ss=None, t=None):
+    """input_i (интегрированная громкость, LUFS) для среза стрима. None при провале."""
+    d = _ffmpeg_loudnorm(stream_url, ss=ss, t=t)
+    return None if d is None else float(d.get('input_i', -14.0))
 
-    if dur > 45:
-        windows = [(dur * 0.15, 10), (dur * 0.5, 10), (dur * 0.8, 10)]
-    else:
-        # короткий трек / длительность неизвестна — один проход, минуя самое начало
-        windows = [(5 if dur > 15 else 0, None)]
+def measure_loudness_full(stream_url):
+    """Поправка до -14 LUFS для стрима без готовых метаданных (SoundCloud и YT-треки,
+    у которых YouTube не отдал громкость). Меряем ТРЕК ЦЕЛИКОМ: раньше брали 3 окна по
+    10с ради скорости, но замер показал промах до 2.56 дБ, а с уходом замера в фон
+    экономить время больше незачем.
 
-    energies = []
-    for ss, t in windows:
-        try:
-            li = _ffmpeg_loudnorm_i(stream_url, ss=ss, t=t)
-            if li is not None and li > -70:  # -inf/тишину игнорируем
-                energies.append(10 ** (li / 10.0))
-        except Exception as _e:
-            print(f"[warn] SC loudnorm window @{ss:.0f}s failed: {_e}", file=sys.stderr)
+    Возвращает (loudness, true_peak) или (None, None)."""
+    d = _ffmpeg_loudnorm(stream_url, timeout=300)
+    if not d:
+        return None, None
+    try:
+        i = float(d['input_i'])
+        tp = float(d['input_tp'])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+    if i <= -70:  # тишина / -inf
+        return None, None
 
-    if not energies:
-        return 0.0
-    integrated = 10 * math.log10(sum(energies) / len(energies))
-    return integrated + 14.0
+    loudness = i + 14.0
+    # При усилении (loudness < 0) не даём пикам вылезти выше -1 dBTP: пик после гейна
+    # равен tp - loudness, значит loudness не должен опускаться ниже tp + 1.
+    if loudness < 0:
+        loudness = max(loudness, tp + 1.0)
+    return loudness, tp
 
 def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playlist_id=None):
     try:
@@ -1666,7 +1681,8 @@ def _resolve_fast(video_id):
     tv+cookies. Формат лучший из всех -- opus itag251 (145-168kbps) против itag140
     (m4a 128k) у pytubefix и itag18 (склейка с видео, 96k) у tv.
 
-    Возвращает None на любой осечке -- дальше отработает обычная гонка."""
+    Возвращает (url, loudness) или (None, None) на любой осечке -- дальше отработает
+    обычная гонка. Громкость берём из этого же ответа: отдельный запрос за ней не нужен."""
     try:
         visitor_data, js, js_url, sig_ts = _pytubefix_state(video_id)
         _, po_token = _pytubefix_pot(video_id)
@@ -1684,14 +1700,14 @@ def _resolve_fast(video_id):
         ptf_extract.apply_po_token(manifest, resp, po_token)
         audio = [f for f in manifest if str(f.get('mimeType', '')).startswith('audio/')]
         if not audio:
-            return None
+            return None, None
         best = [max(audio, key=lambda f: f.get('bitrate', 0))]
         ptf_extract.apply_signature(best, resp, js, js_url)
-        return best[0].get('url')
+        return best[0].get('url'), extract_loudness(resp)
     except Exception as e:
         _invalidate_pytubefix_state()
         print(f"[debug] fast-path failed for {video_id}: {e}", file=sys.stderr)
-        return None
+        return None, None
 
 
 def handle_request(request):
@@ -2819,7 +2835,7 @@ def handle_request(request):
             url = f"https://www.youtube.com/watch?v={video_id}"
             
             stream_url = None
-            loudness = 0.0
+            loudness = None  # None = не знаем; 0.0 = трек ровно на цели. Раньше это было одно и то же
             watchtime_url = None
             method = "None"
 
@@ -3035,9 +3051,11 @@ def handle_request(request):
                 # Быстрый путь идёт ПЕРЕД гонкой, а не в ней: он выигрывает почти всегда
                 # (~0.3с), и запускать ради этого ещё четыре запроса значит зря светить IP
                 # флагнутыми клиентами. Осечка стоит 0.3с, после неё отрабатывает гонка.
-                stream_url = _resolve_fast(video_id)
+                stream_url, fast_loudness = _resolve_fast(video_id)
                 if stream_url:
                     method = 'fast'
+                    if fast_loudness is not None:
+                        loudness = fast_loudness
 
             if not stream_url:
                 # Три racer'а из четырёх ходят БЕЗ КУК, и это необходимость, а не упущение:
@@ -3094,8 +3112,8 @@ def handle_request(request):
 
             try:
                 ld, wt = meta_future.result(timeout=10)
-                if ld is not None:
-                    loudness = ld
+                if loudness is None and ld is not None:
+                    loudness = ld  # запасной вариант: быстрый путь не отработал
                 watchtime_url = wt
             except Exception as e:
                 print(f"[warn] meta fetch timeout for {video_id}: {e}", file=sys.stderr)
@@ -3110,6 +3128,18 @@ def handle_request(request):
                             'watchtimeUrl': watchtime_url, 'callId': call_id})
             else:
                 safe_print({'status': 'error', 'message': 'Failed to obtain stream URL', 'callId': call_id})
+
+        elif command == 'measure_loudness':
+            # Фоновый замер для стримов без метаданных громкости (SoundCloud и редкие
+            # YT-треки, где YouTube не отдал perceptualLoudnessDb). Каждый запрос и так
+            # обрабатывается в своём потоке, воспроизведение не ждёт.
+            t0 = time.time()
+            loud, tp = measure_loudness_full(request.get('url'))
+            print(f"[perf] measure_loudness: {time.time() - t0:.1f}s (loudness: {loud}, tp: {tp})", file=sys.stderr)
+            if loud is None:
+                safe_print({'status': 'error', 'message': 'loudnorm failed', 'callId': call_id})
+            else:
+                safe_print({'status': 'ok', 'loudness': loud, 'truePeak': tp, 'callId': call_id})
 
         elif command == 'send_watchtime':
             wt_url = request.get('watchtimeUrl')
@@ -3812,18 +3842,13 @@ def handle_request(request):
                 thumbs = info.get('thumbnails') or []
                 thumb_url = thumbs[-1].get('url', '') if thumbs else ''
 
-                # Нормализация до -14 LUFS: 3 точки в теле трека, усреднённые в энергетике
-                # (минует нерепрезентативное интро). gain в шкале loudness YT: gain = 10^(-loudness/20).
-                loudness = 0.0
-                try:
-                    loudness = sc_measure_loudness(stream_url, info.get('duration'))
-                except Exception as _e:
-                    print(f"[warn] SC loudnorm failed: {_e}", file=sys.stderr)
-
+                # Громкость здесь НЕ меряем: ffmpeg по сетевому стриму стоил 3-6с и стоял
+                # ровно между резолвом и выдачей ссылки. Отдаём null, рендерер догоняет
+                # фоновым measure_loudness и применяет гейн плавным рампом.
                 safe_print({
                     'status': 'ok',
                     'streamUrl': stream_url,
-                    'loudness': loudness,
+                    'loudness': None,
                     'title': info.get('title', ''),
                     'artist': info.get('uploader') or info.get('artist', ''),
                     'duration': info.get('duration'),

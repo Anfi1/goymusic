@@ -1,25 +1,31 @@
 export interface CacheEntry {
     url: string;
     expires: number;
-    loudness?: number;
+    loudness?: number | null;   // null = не знаем; 0 = трек ровно на -14 LUFS
     watchtimeUrl?: string;
 }
 
 class DbCache {
     private dbName = 'ytm-cache';
     private storeName = 'streams';
+    // Громкость -- свойство самого аудио, а не подписанной ссылки: та меняется каждые
+    // несколько часов, указывая на тот же файл. Поэтому отдельное хранилище без expires.
+    private loudnessStore = 'loudness';
     private db: IDBDatabase | null = null;
 
     async init() {
         if (this.db) return;
         return new Promise<void>((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 6); // Increased version
+            const request = indexedDB.open(this.dbName, 7); // Increased version
             request.onupgradeneeded = () => {
                 const db = request.result;
                 if (db.objectStoreNames.contains(this.storeName)) {
                     db.deleteObjectStore(this.storeName);
                 }
                 db.createObjectStore(this.storeName);
+                if (!db.objectStoreNames.contains(this.loudnessStore)) {
+                    db.createObjectStore(this.loudnessStore);
+                }
             };
             request.onsuccess = () => {
                 this.db = request.result;
@@ -62,7 +68,21 @@ class DbCache {
         });
     }
 
-    async set(id: string, url: string, expires: number, loudness: number = 0, watchtimeUrl?: string) {
+    async getLoudness(id: string): Promise<number | null> {
+        if (!this.db || !id) return null;
+        return new Promise((resolve) => {
+            const request = this.db!.transaction(this.loudnessStore, 'readonly').objectStore(this.loudnessStore).get(id);
+            request.onsuccess = () => resolve(typeof request.result === 'number' ? request.result : null);
+            request.onerror = () => resolve(null);
+        });
+    }
+
+    async setLoudness(id: string, loudness: number) {
+        if (!this.db || !id) return;
+        this.db.transaction(this.loudnessStore, 'readwrite').objectStore(this.loudnessStore).put(loudness, id);
+    }
+
+    async set(id: string, url: string, expires: number, loudness: number | null = null, watchtimeUrl?: string) {
         if (!this.db || !id || !url) return;
         const transaction = this.db.transaction(this.storeName, 'readwrite');
         transaction.objectStore(this.storeName).put({ url, expires, loudness, watchtimeUrl }, id);

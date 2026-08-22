@@ -33,7 +33,7 @@ async function fetchSoundCloudStream(id: string, scUrl: string): Promise<CacheEn
             const res = await (window as any).bridge.pyCall('get_preview_url', { url: scUrl, callId });
             if (res.status === 'ok' && res.streamUrl) {
                 const expires = getExpirationFromUrl(res.streamUrl);
-                const loudness = res.loudness || 0;
+                const loudness = res.loudness ?? null;
                 await streamCache.set(id, res.streamUrl, expires, loudness);
                 console.log(`[stream] SoundCloud fetch: ${id} -> Done (loudness: ${loudness})`);
                 return { url: res.streamUrl, expires, loudness };
@@ -47,6 +47,41 @@ async function fetchSoundCloudStream(id: string, scUrl: string): Promise<CacheEn
         return null;
     })();
     pendingRequests.set(id, requestPromise);
+    return requestPromise;
+}
+
+const pendingLoudness = new Map<string, Promise<number | null>>();
+
+/**
+ * Громкость для стримов, у которых источник её не отдал: SoundCloud (всегда) и редкие
+ * YouTube-треки, для которых YouTube не отдал loudnessDb. Меряется в питоне через
+ * ffmpeg loudnorm уже ПОСЛЕ старта воспроизведения, трек этого не ждёт. Кэш по id, без срока
+ * годности -- переизмерять при каждом протухании ссылки незачем.
+ */
+export async function ensureLoudness(id: string, url: string): Promise<number | null> {
+    await streamCache.init();
+    const cached = await streamCache.getLoudness(id);
+    if (cached !== null) return cached;
+    if (pendingLoudness.has(id)) return pendingLoudness.get(id)!;
+
+    const requestPromise = (async () => {
+        try {
+            const res = await (window as any).bridge.pyCall('measure_loudness', { url, callId: createCallId() });
+            if (res.status === 'ok' && typeof res.loudness === 'number') {
+                await streamCache.setLoudness(id, res.loudness);
+                console.log(`[stream] Loudness measured: ${id} -> ${res.loudness.toFixed(2)}dB (peak ${res.truePeak})`);
+                return res.loudness as number;
+            }
+            console.warn(`[stream] Loudness measure failed: ${id}`, res);
+        } catch (e) {
+            console.error(`[stream] Loudness measure error: ${id}`, e);
+        } finally {
+            pendingLoudness.delete(id);
+        }
+        return null;
+    })();
+
+    pendingLoudness.set(id, requestPromise);
     return requestPromise;
 }
 
@@ -116,7 +151,7 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Pro
             const res = await (window as any).bridge.pyCall('get_stream_url', { videoId, callId });
             if (res.status === 'ok' && res.url) {
                 const expires = getExpirationFromUrl(res.url);
-                const loudness = res.loudness || 0;
+                const loudness = res.loudness ?? null;
                 const watchtimeUrl = res.watchtimeUrl as string | undefined;
                 await streamCache.set(videoId, res.url, expires, loudness, watchtimeUrl);
                 console.log(`[stream] Python fetch: ${videoId} -> Done (loudness: ${loudness})`);

@@ -1,6 +1,6 @@
 import { YTMTrack, getQueueRecommendations, rateSong, searchMore } from './yt';
-import { streamCache } from './cache';
-import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack } from './stream';
+import { streamCache, CacheEntry } from './cache';
+import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, ensureLoudness } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveTracks, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
@@ -439,13 +439,13 @@ class PlayerStore {
         this.notify('state');
     }
 
-    private currentLoudness: number = 0;
-    private applyNormalization(loudness: number) {
+    private currentLoudness: number | null = null;
+    private applyNormalization(loudness: number | null) {
         this.currentLoudness = loudness;
         if (!this.normalizationGain || !this.audioContext) return;
 
         let gainValue = 1.0;
-        if (this.normalizationEnabled && loudness !== 0) {
+        if (this.normalizationEnabled && loudness != null && loudness !== 0) {
             const targetGain = Math.pow(10, -loudness / 20);
             gainValue = Math.min(targetGain, 2.0); 
             
@@ -463,6 +463,15 @@ class PlayerStore {
         const now = this.audioContext.currentTime;
         this.normalizationGain.gain.cancelScheduledValues(now);
         this.normalizationGain.gain.linearRampToValueAtTime(gainValue, now + 0.5);
+    }
+
+    /** Догоняет громкость для стрима, у которого её не отдал источник. */
+    private ensureLoudnessFor(trackId: string, entry: CacheEntry | null) {
+        if (!entry || entry.loudness != null || entry.url.startsWith('file:///')) return;
+        ensureLoudness(trackId, entry.url).then(l => {
+            // трек мог смениться, пока мерили -- гейн применяем только если он всё ещё играет
+            if (l != null && this.currentTrack?.id === trackId) this.applyNormalization(l);
+        });
     }
 
     private lastBufferNotify: number = 0;
@@ -963,17 +972,20 @@ class PlayerStore {
             if (track.source === 'soundcloud' && track.scUrl) {
                 registerSoundCloudTrack(track.id, track.scUrl);
             }
+            const tUrl = performance.now();
             const entry = await getStreamUrl(track.id, isRetry);
             
             if (currentPlaybackId !== this.playbackId) return;
 
             if (entry) {
+                const tUrlDone = performance.now();
                 this.isCurrentTrackLocal = entry.url.startsWith('file:///');
                 this.audioA.src = entry.url;
                 this.audioA.volume = this.volume / 100;
                 this.audioB.volume = this.volume / 100;
 
-                this.applyNormalization(entry.loudness || 0);
+                this.applyNormalization(entry.loudness ?? null);
+                this.ensureLoudnessFor(track.id, entry);
 
                 const onMediaError = async () => {
                     this.audioA.removeEventListener('error', onMediaError);
@@ -997,6 +1009,7 @@ class PlayerStore {
                     this.isStreamLoading = false;
                     this.consecutiveErrors = 0;
                     this.errorSkipCount = 0;
+                    console.log(`[perf] ${track.id}: ссылка ${(tUrlDone - tUrl).toFixed(0)}мс, аудио до canplay ${(performance.now() - tUrlDone).toFixed(0)}мс`);
                     console.log(`[watchtime] onCanPlay: isPlaying=${this.isPlaying} watchtimeUrl=${entry.watchtimeUrl ? 'YES' : 'NO'}`);
                     if (!this.isPlaying) { this.notify('state'); return; }
                     try {
@@ -1354,7 +1367,8 @@ class PlayerStore {
 
             nextAudio.volume = this.volume / 100;
             const entry = await streamCache.get(nextTrack.id);
-            this.applyNormalization(entry?.loudness || 0);
+            this.applyNormalization(entry?.loudness ?? null);
+            this.ensureLoudnessFor(nextTrack.id, entry);
 
             try {
                 await nextAudio.play();
