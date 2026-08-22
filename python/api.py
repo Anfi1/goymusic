@@ -166,7 +166,6 @@ def is_cancelled():
 _SC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 # app_version шлёт веб-клиент SoundCloud вместе с write-запросами (лайк). Может устаревать.
 _SC_APP_VERSION = '1782399945'  # fallback; реальная версия тянется живьём из versions.json
-_SC_FF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
 _sc_client_id = None
 _sc_app_version = None
 
@@ -245,25 +244,6 @@ def _sc_iso_to_ms(value):
         return int(dt.timestamp() * 1000)
     except Exception:
         return 0
-
-def _sc_api_modify(method, path, oauth_token, datadome=None):
-    """PUT/DELETE к api-v2 (лайк/анлайк). datadome — кука для обхода анти-бота. (ok, http_status)."""
-    cid = get_sc_client_id()
-    if not cid:
-        return False, 0
-    params = {'client_id': cid, 'app_version': get_sc_app_version(), 'app_locale': 'en'}
-    # Минимальный набор заголовков как в рабочей soundcloud-py (Firefox UA, без Origin/Referer).
-    headers = {
-        'Accept': 'application/json, text/javascript, */*; q=0.1',
-        'User-Agent': _SC_FF_UA,
-    }
-    if oauth_token:
-        headers['Authorization'] = f'OAuth {oauth_token}'
-    if datadome:
-        headers['Cookie'] = f'datadome={datadome}'
-    r = requests.request(method, f'https://api-v2.soundcloud.com{path}',
-                         params=params, timeout=12, headers=headers)
-    return (r.status_code in (200, 201, 204)), r.status_code
 
 def _sc_extract_track_id(url):
     """Числовой id трека из URL вида .../tracks/2342 или soundcloud:tracks:2342 (вкл. url-encoded)."""
@@ -3498,33 +3478,6 @@ def handle_request(request):
                 print(f"[error] sc_me: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
-        elif command == 'sc_like' or command == 'sc_unlike':
-            # Лайк/анлайк трека на SoundCloud (нужен oauth_token).
-            token = request.get('token', '')
-            track_url = request.get('url', '')
-            sc_id = request.get('scId', '')
-            datadome = request.get('datadome', '')
-            try:
-                me = _sc_api_get('/me', {}, oauth_token=token) if token else None
-                uid = (me or {}).get('id')
-                tid = sc_id or _sc_extract_track_id(track_url)
-                if uid and not tid and track_url:
-                    resolved = _sc_api_get('/resolve', {'url': track_url}, oauth_token=token)
-                    tid = (resolved or {}).get('id')
-                if uid and tid:
-                    method = 'PUT' if command == 'sc_like' else 'DELETE'
-                    endpoint = f'/users/{uid}/track_likes/{tid}'
-                    ok, code = _sc_api_modify(method, endpoint, token, datadome)
-                    print(f"[debug] {command}: uid={uid} tid={tid} datadome={'yes' if datadome else 'no'} -> {code}", file=sys.stderr)
-                    safe_print({'status': 'ok' if ok else 'error', 'liked': command == 'sc_like',
-                                'httpStatus': code, 'uid': uid, 'trackId': str(tid), 'callId': call_id})
-                else:
-                    safe_print({'status': 'error', 'message': 'not authed or track not resolved',
-                                'uid': uid, 'tid': tid, 'callId': call_id})
-            except Exception as e:
-                print(f"[error] {command}: {e}", file=sys.stderr)
-                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
-
         elif command == 'sc_like_nodriver':
             sc_id = request.get('scId', '')
             url = request.get('url', '')
@@ -4224,12 +4177,6 @@ def handle_request(request):
             except Exception as e:
                 print(f"[error] download_direct: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
-
-        elif command == 'check_file':
-            filename = request.get('filename', '')
-            songs_path = request.get('songsPath', '')
-            filepath = os.path.join(songs_path, filename)
-            safe_print({'status': 'ok', 'exists': os.path.exists(filepath), 'callId': call_id})
 
         elif command == 'analyze_file':
             filename = request.get('filename', '')
