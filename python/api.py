@@ -6,7 +6,9 @@ import io
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, 'python', 'fork'))
 
+import copy
 import json
+import logging
 import threading
 import concurrent.futures
 import time
@@ -21,7 +23,11 @@ from urllib.parse import urlparse, urlunparse
 from ytmusicapi import YTMusic, OAuthCredentials
 from ytmusicapi.navigation import nav, SINGLE_COLUMN_TAB, SECTION_LIST, TITLE_TEXT, CAROUSEL_TITLE, TITLE, NAVIGATION_BROWSE_ID, RUN_TEXT
 from ytmusicapi.mixins._utils import get_datestamp
-from pytubefix import YouTube
+from pytubefix import YouTube, extract as ptf_extract
+from pytubefix.botGuard import bot_guard as _ptf_bot_guard
+from pytubefix.cipher import Cipher as _PtfCipher
+from pytubefix.innertube import InnerTube as _PtfInnerTube
+from pytubefix.sig_nsig.node_runner import NodeRunner as _PtfNodeRunner
 SECTION_LIST_ITEM = ['sectionListRenderer', 'contents', 0]
 
 # Force UTF-8 for communication to handle Russian text on Windows
@@ -1564,6 +1570,130 @@ def _youtube_cookiefile(cookie_header: str):
     return path
 
 
+_ptf_state = None  # (visitor_data, js, js_url, signature_timestamp, warmed_at)
+_ptf_pot_cache = {}  # video_id -> (po_token, minted_at)
+_ptf_pot_lock = threading.Lock()
+_ptf_state_lock = threading.Lock()
+_PTF_TOKEN_FILE = os.path.join(USER_DATA_DIR, 'ptf_pot.json')
+_ptf_cipher = None  # (js_url, Cipher) -- живой, вместе со своими node-процессами
+_ptf_node_close = _PtfNodeRunner.close
+
+# pytubefix ругается на каждый вызов, что use_po_token/po_token_verifier устарели.
+# Замены у них пока нет, а лог засоряется на каждый трек.
+logging.getLogger('pytubefix').setLevel(logging.ERROR)
+
+
+def _cipher_for(js, js_url):
+    """Cipher.__init__ спавнит ДВА node-процесса и грузит в каждый 2MB base.js, а
+    extract.apply_signature в finally их убивает -- на каждый трек. По замеру 2026-08-22
+    это ~0.9с из ~1.2с резолва: не вычисление подписи, а холодный старт node. base.js между
+    треками один и тот же, поэтому держим ровно одну пару процессов живой -- с ней
+    расшифровка занимает 0.00-0.01с.
+
+    Апстрим закрывает их не зря: при новой паре на каждый вызов утечка дескрипторов
+    накапливается. У нас пара одна и меняется только при ротации base.js, где старую мы
+    закрываем сами."""
+    global _ptf_cipher
+    if _ptf_cipher and _ptf_cipher[0] == js_url:
+        return _ptf_cipher[1]
+    if _ptf_cipher:
+        old = _ptf_cipher[1]
+        for runner in (old.runner_sig, old.runner_nsig):
+            try:
+                _ptf_node_close(runner)
+            except Exception:
+                pass
+    _ptf_cipher = (js_url, _PtfCipher(js=js, js_url=js_url))
+    return _ptf_cipher[1]
+
+
+ptf_extract.Cipher = lambda js, js_url: _cipher_for(js, js_url)
+_PtfNodeRunner.close = lambda self: None
+
+
+def _pytubefix_state(video_id):
+    """Сессионное состояние: visitor_data, base.js, signatureTimestamp. От трека не зависит,
+    стоит ~1.5с и платится один раз на процесс."""
+    global _ptf_state
+    with _ptf_state_lock:
+        if _ptf_state and time.time() - _ptf_state[4] < 3 * 3600:
+            return _ptf_state[:4]
+        yt = YouTube(f'https://www.youtube.com/watch?v={video_id}', client='WEB_MUSIC')
+        _ptf_state = (yt.visitor_data, yt.js, yt.js_url, yt.signature_timestamp, time.time())
+        return _ptf_state[:4]
+
+
+def _pytubefix_pot(video_id):
+    """PO-токен минтится НА КАЖДЫЙ video_id -- переиспользовать его между треками нельзя.
+
+    Проверено в самом приложении (не в тестах -- они этого не ловят):
+      * identifier=video_id  -> играет ровно тот ролик, для которого намолот, остальные
+        падают в MEDIA_ELEMENT_ERROR Format error;
+      * identifier=visitor_data -> не играет ни один.
+    То есть googlevideo сверяет pot с video_id. Цена -- ~0.5с на трек (spawn node +
+    botGuard VM), и она неустранима: без валидного pot ссылка выдаётся, но не
+    воспроизводится. Кэш по video_id нужен для повторного резолва того же трека
+    (prefetch, перезаход, сброс кэша ссылок в renderer)."""
+    visitor_data = _pytubefix_state(video_id)[0]
+    with _ptf_pot_lock:
+        hit = _ptf_pot_cache.get(video_id)
+        if hit and time.time() - hit[1] < 3 * 3600:
+            return visitor_data, hit[0]
+    po_token = _ptf_bot_guard.generate_po_token(video_id=video_id)
+    with _ptf_pot_lock:
+        if len(_ptf_pot_cache) > 256:
+            # ponytail: примитивная эвикция вместо LRU -- список на 256 треков живёт минуты,
+            # завести OrderedDict, если попаданий станет заметно меньше
+            _ptf_pot_cache.clear()
+        _ptf_pot_cache[video_id] = (po_token, time.time())
+    return visitor_data, po_token
+
+
+def _invalidate_pytubefix_state():
+    """base.js ротируется примерно раз в сутки, PO-токен живёт часами -- после этого
+    прогретое состояние врёт. Сбрасываем, следующий трек прогреется заново."""
+    global _ptf_state
+    with _ptf_state_lock:
+        _ptf_state = None
+    with _ptf_pot_lock:
+        _ptf_pot_cache.clear()
+
+
+def _resolve_fast(video_id):
+    """Самый быстрый путь: один innertube player-запрос + локальная расшифровка на
+    прогретом node. Замеры 2026-08-22: сам player-запрос ~0.3с, расшифровка 0.00-0.01с на
+    прогретом node, botGuard ~0.5с -- итого ~0.8с против ~1.9с у pytubefix и ~4с у
+    tv+cookies. Формат лучший из всех -- opus itag251 (145-168kbps) против itag140
+    (m4a 128k) у pytubefix и itag18 (склейка с видео, 96k) у tv.
+
+    Возвращает None на любой осечке -- дальше отработает обычная гонка."""
+    try:
+        visitor_data, js, js_url, sig_ts = _pytubefix_state(video_id)
+        _, po_token = _pytubefix_pot(video_id)
+
+        it = _PtfInnerTube('WEB_MUSIC')
+        # innertube_context у pytubefix -- ОБЩИЙ изменяемый словарь из _default_clients,
+        # а не копия. Гонка потом мутирует его из нескольких потоков, поэтому работаем со своей.
+        it.innertube_context = copy.deepcopy(it.innertube_context)
+        # без signatureTimestamp часть треков приходит с playabilityStatus=UNPLAYABLE
+        it.innertube_context.update(sig_ts)
+        it.insert_po_token(visitor_data=visitor_data, po_token=po_token)
+        resp = it.player(video_id)
+
+        manifest = ptf_extract.apply_descrambler(resp['streamingData'])
+        ptf_extract.apply_po_token(manifest, resp, po_token)
+        audio = [f for f in manifest if str(f.get('mimeType', '')).startswith('audio/')]
+        if not audio:
+            return None
+        best = [max(audio, key=lambda f: f.get('bitrate', 0))]
+        ptf_extract.apply_signature(best, resp, js, js_url)
+        return best[0].get('url')
+    except Exception as e:
+        _invalidate_pytubefix_state()
+        print(f"[debug] fast-path failed for {video_id}: {e}", file=sys.stderr)
+        return None
+
+
 def handle_request(request):
     global _auth_data, _auth_type
     command = request.get('command')
@@ -2734,29 +2864,58 @@ def handle_request(request):
             meta_future = meta_pool.submit(_fetch_meta)
 
             def _try_pytubefix():
-                # ANDROID_VR, а не WEB. Замер по всем клиентам yt-dlp показал, что всё
-                # семейство web (web/web_safari/web_music/web_creator), а также tv/mweb/ios
-                # не отдают форматов ВООБЩЕ - ни с куками, ни без (SABR-only). Живых
-                # клиента ровно два: visionos и android_vr, и оба не переносят куки.
-                # ANDROID_VR к тому же не требует ни po_token, ни JS-плеера.
+                # WEB_MUSIC, а не ANDROID_VR. Замер 2026-08-22 (python/test_pytube.py, реальный
+                # домашний IP): ANDROID_VR ловит бот-детект на 100% треков за 0.3с, то есть в
+                # гонке был гарантированным балластом. WEB_MUSIC отдаёт itag140 (чистое аудио
+                # m4a 128kbps) за ~1.9с БЕЗ КУК -- вдвое быстрее tv+cookies, и без склейки с
+                # видеодорожкой, как в itag18 у tv.
+                #
+                # Почему у pytubefix web-клиенты живы, а у yt-dlp то же семейство даёт ноль
+                # форматов: pytubefix сам минтит PO-токен через botGuard (PR #209/#408), yt-dlp
+                # так не умеет. Расшифровки подписи здесь нет вообще (nsig=0.00с по замеру) --
+                # URL приходят уже подписанными, медленный jsinterp не задействован.
+                #
+                # Известный дефект: ~8% вызовов падают в RegexMatchError
+                # (get_throttling_function_name) на свежем base.js, который YouTube раздаёт по
+                # A/B, и стоят ~5с. Терпимо только потому, что это racer -- остальные бегут
+                # параллельно. Единственным путём этот клиент делать нельзя.
                 try:
-                    tube = YouTube(url, client='ANDROID_VR', use_oauth=False, allow_oauth_cache=True)
+                    pot = _pytubefix_pot(video_id)
+                    tube = YouTube(url, client='WEB_MUSIC', use_po_token=True,
+                                   po_token_verifier=lambda: pot, token_file=_PTF_TOKEN_FILE)
                     stream = tube.streams.get_audio_only()
                     return stream.url if stream else None
                 except Exception as e:
                     print(f"[debug] pytubefix failed for {video_id}: {e}", file=sys.stderr)
                     return None
 
-            def _try_yt_dlp():
-                # android_vr, а не web: клиент 'web' не отдаёт форматов вообще (SABR-only),
-                # проверено и с куками, и без - он был мёртвым грузом в гонке. android_vr
-                # отдаёт itag18 (progressive m4a) за ~1.3с и служит запасным для visionos.
-                # Куки не передаются: SUPPORTS_COOKIES=False, с ними yt-dlp выкинет клиент.
+            def _try_yt_dlp_web():
+                # web, а не android_vr. Замер 2026-08-22 с домашнего IP: клиент ANDROID_VR
+                # ловит бот-детект на 100% треков, так что этот racer был гарантированным
+                # балластом и лишним флагнутым запросом на каждый трек.
+                #
+                # Голый web тоже мёртв, но по другой причине: у него GVS_PO_TOKEN_POLICY
+                # required=True (yt_dlp/extractor/youtube/_base.py), без токена -- ноль
+                # форматов. Прежний вывод «yt-dlp хардкодит SABR для web» был неточен: в
+                # _video.py это лишь диагностическое сообщение о поведении YouTube.
+                #
+                # Токен у нас есть -- тот же, что мы минтим botGuard'ом для pytubefix, он
+                # привязан к visitor_data, а не к video_id (проверено переиспользованием на
+                # трёх треках). Прокидываем пару в yt-dlp и получаем рабочий web.
+                #
+                # Смысл держать его рядом с pytubefix-racer'ом на том же клиенте: pytubefix
+                # в ~8% вызовов давится свежим base.js (RegexMatchError), парсер yt-dlp
+                # заметно устойчивее и закрывает именно этот отказ.
+                #
+                # Куки не передаются сознательно: с ними content binding токена
+                # переключается на datasync_id, и наш visitor_data-токен станет невалиден.
                 try:
+                    visitor_data, po_token = _pytubefix_pot(video_id)
+
                     class MyLogger:
                         def debug(self, msg): pass
                         def warning(self, msg): pass
-                        def error(self, msg): print(f"YT-DLP(android_vr) Error: {msg}", file=sys.stderr)
+                        def error(self, msg): pass
 
                     ydl_opts = {
                         'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
@@ -2764,8 +2923,9 @@ def handle_request(request):
                         'logger': MyLogger(),
                         'youtube_include_dash_manifest': False, 'cachedir': False,
                         'extractor_args': {'youtube': {
-                            'player_client': ['android_vr'], 'skip': ['hls', 'dash'],
-                            'player_skip': ['webpage', 'configs'],
+                            'player_client': ['web'], 'skip': ['hls', 'dash'],
+                            'visitor_data': [visitor_data],
+                            'po_token': ['web.gvs+' + po_token],
                         }},
                         'extractor_timeout': 15, 'socket_timeout': 15,
                         **_yt_dlp_js_runtime_opts(),
@@ -2774,7 +2934,7 @@ def handle_request(request):
                         info = ydl.extract_info(url, download=False)
                         return info['url']
                 except Exception as e:
-                    print(f"[error] yt-dlp(android_vr) failed for {video_id}: {e}", file=sys.stderr)
+                    print(f"[debug] yt-dlp(web) failed for {video_id}: {e}", file=sys.stderr)
                     return None
 
             def _try_yt_dlp_cookies():
@@ -2845,7 +3005,7 @@ def handle_request(request):
                     class MyLogger:
                         def debug(self, msg): pass
                         def warning(self, msg): pass
-                        def error(self, msg): print(f"YT-DLP(visionos) Error: {msg}", file=sys.stderr)
+                        def error(self, msg): pass
 
                     ydl_opts = {
                         'format': 'bestaudio[ext=webm]/bestaudio/best',
@@ -2872,29 +3032,34 @@ def handle_request(request):
                     return None
 
             if not stream_url:
-                # Все три racer'а ходят БЕЗ КУК - это не упущение, а необходимость:
-                # живы только visionos и android_vr, у обоих SUPPORTS_COOKIES=False, и при
-                # наличии кук yt-dlp выбрасывает клиент целиком. Всё семейство web
-                # (включая web_music, вокруг которого была прошлая попытка) не отдаёт
-                # форматов вообще - SABR-only, проверено по всем клиентам.
+                # Быстрый путь идёт ПЕРЕД гонкой, а не в ней: он выигрывает почти всегда
+                # (~0.3с), и запускать ради этого ещё четыре запроса значит зря светить IP
+                # флагнутыми клиентами. Осечка стоит 0.3с, после неё отрабатывает гонка.
+                stream_url = _resolve_fast(video_id)
+                if stream_url:
+                    method = 'fast'
+
+            if not stream_url:
+                # Три racer'а из четырёх ходят БЕЗ КУК, и это необходимость, а не упущение:
+                # у visionos SUPPORTS_COOKIES=False (с куками yt-dlp выбрасывает клиент), а у
+                # pytubefix/web куки переключили бы content binding PO-токена на datasync_id,
+                # и наш visitor_data-токен стал бы невалиден.
                 #
-                # tv+cookies бежит В ГОНКЕ, а не после неё. Изначально он стоял
-                # фолбеком «на случай age-restricted», но на практике оказалось, что
-                # именно он вывозит основной контент: cookie-less клиенты ловят
-                # бот-детект почти на всём (кроме dQw4w9WgXcQ, который у Google
-                # фактически в белом списке). Последовательный запуск стоил ~4с
-                # сверху на каждый трек - параллельный не стоит ничего.
+                # tv+cookies бежит В ГОНКЕ, а не после неё. Долго был единственным рабочим
+                # путём, теперь -- самый медленный (~4с) и худший по формату (itag18 = склейка
+                # видео+аудио 96k). Оставлен как страховка на age-restricted.
                 #
-                # Гонка приоритетная, а не «кто первый»: visionos даёт adaptive-opus,
-                # остальные - progressive itag18, и брать первого попавшегося значит
-                # систематически терять качество. По замерам visionos не медленнее
-                # (~1.3-1.4с против ~1.3с у android_vr, pytubefix ~0.3с), поэтому фора
-                # ему не нужна - хватает того, что при равном финише выбирается он.
-                PRIORITY = ['visionos', 'pytubefix', 'android_vr', 'tv+cookies']
+                # Гонка приоритетная, а не «кто первый»: форматы у racer'ов разные, и брать
+                # первого попавшегося значит систематически терять качество. Порядок по
+                # качеству: visionos (opus 251) > pytubefix/web (itag140, чистое аудио m4a
+                # 128k, ~1.9-2.3с) > tv+cookies (itag18). pytubefix и web ходят на одном и том
+                # же клиенте разными библиотеками намеренно -- pytubefix быстрее стартует, но
+                # в ~8% случаев давится свежим base.js, yt-dlp устойчивее.
+                PRIORITY = ['visionos', 'pytubefix', 'web', 'tv+cookies']
                 racer_fns = {
                     'visionos': _try_yt_dlp_visionos,
                     'pytubefix': _try_pytubefix,
-                    'android_vr': _try_yt_dlp,
+                    'web': _try_yt_dlp_web,
                     'tv+cookies': _try_yt_dlp_cookies,
                 }
 
@@ -2910,10 +3075,11 @@ def handle_request(request):
                             results[racers[fut]] = fut.result()
                         except Exception:
                             results[racers[fut]] = None
-                    if results.get('visionos'):
+                    best_name = PRIORITY[0]
+                    if results.get(best_name):
                         break  # лучший вариант готов, остальных ждать незачем
-                    if 'visionos' in results and any(results.get(n) for n in PRIORITY):
-                        break  # visionos отпал, запасной уже есть
+                    if best_name in results and any(results.get(n) for n in PRIORITY):
+                        break  # лучший отпал, запасной уже есть
 
                 for name in PRIORITY:
                     if results.get(name):

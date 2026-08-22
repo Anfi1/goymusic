@@ -18,3 +18,5 @@ docs/superpowers/
 .claude/
 yt_cookies.txt
 *.tsbuildinfo
+python/.pot_cache.json
+ptf_pot.json
