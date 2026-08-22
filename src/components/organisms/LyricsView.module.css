@@ -5,6 +5,8 @@
     overflow: hidden;
     position: relative;
     background: transparent;
+    /* панель резиновая: размеры текста считаем от её ширины, а не от окна */
+    container-type: inline-size;
 }
 
 /* waveMode — мягкий glow и приглушённые контролы */
@@ -115,10 +117,13 @@
 .container {
     flex: 1;
     overflow-y: auto;
-    padding: 18rem 2.5rem; 
+    /* position: relative -- чтобы offsetTop строки считался от контейнера, а не от wrapper:
+       иначе центрирование промахивается на высоту кнопок Synced/Static */
+    position: relative;
+    padding: 18rem clamp(1rem, 8cqi, 2.5rem);
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: clamp(0.7rem, 3cqi, 1.5rem);
     scroll-behavior: smooth;
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -129,7 +134,7 @@
 }
 
 .container.staticMode {
-    padding: 2rem 2.5rem;
+    padding: 2rem clamp(1rem, 8cqi, 2.5rem);
     gap: 0.8rem;
 }
 
@@ -180,13 +185,14 @@
 }
 
 .line {
-    font-size: 1.35rem;
+    /* в узкой панели 1.35rem жирным переносилось по 4-5 раз — считаем от ширины панели */
+    font-size: clamp(0.95rem, 5.5cqi, 1.5rem);
     font-weight: 700;
     color: white;
     cursor: pointer;
-    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), 
-                color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-                filter 0.2s ease;
+    transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                filter 0.4s ease;
     opacity: 0.15;
     text-align: left;
     padding: 0.4rem 0;

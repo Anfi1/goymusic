@@ -59,15 +59,18 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
       const durParts = track.duration.split(':').map(Number);
       const duration = durParts.length === 2 ? durParts[0] * 60 + durParts[1] : undefined;
       
-      const res = await getLyrics(artist, title, duration);
-      
-      if (!res) return { notFound: true };
+      // videoId нужен для текстов самого YT Music — у SoundCloud-треков id чужой
+      const videoId = track.source === 'soundcloud' ? undefined : track.id;
+      const res = await getLyrics(artist, title, duration, videoId);
+
+      if (!res) return { notFound: true, instrumental: false };
 
       const synced = res.syncedLyrics ? parseLRC(res.syncedLyrics) : [];
       return {
         synced,
         plain: res.plainLyrics || null,
         hasSynced: synced.length > 0,
+        instrumental: !!res.instrumental,
         notFound: false
       };
     },
@@ -131,7 +134,10 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
     }
   }, [activeIndex, userIsScrolling, viewMode, data?.synced?.length]);
 
-  const handleScroll = () => {
+  // Ловим именно жест пользователя. Раньше висел onScroll, но его же дёргает наша
+  // собственная плавная прокрутка и сброс scrollTop при смене трека: автоскролл замирал
+  // на 3 секунды, а потом одним рывком догонял уехавшую строку.
+  const handleUserScroll = () => {
     if (viewMode !== 'synced') return;
     setUserIsScrolling(true);
     if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
@@ -154,6 +160,16 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
       <div className={styles.empty}>
         <Loader2 className={styles.loaderIcon} size={32} />
         <p>Searching for lyrics...</p>
+      </div>
+    );
+  }
+
+  // Источник знает трек и говорит, что вокала в нём нет — это ответ, а не осечка поиска.
+  if (data?.instrumental) {
+    return (
+      <div className={styles.empty}>
+        <Music size={32} opacity={0.3} />
+        <p>This track is instrumental</p>
       </div>
     );
   }
@@ -197,7 +213,8 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
       <div
         className={`${styles.container} ${viewMode === 'static' ? styles.staticMode : ''}`}
         ref={containerRef}
-        onScroll={handleScroll}
+        onWheel={handleUserScroll}
+        onTouchMove={handleUserScroll}
       >
         {viewMode === 'synced' && data?.hasSynced ? (
           data.synced.map((line, i) => (

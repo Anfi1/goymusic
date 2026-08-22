@@ -2603,6 +2603,7 @@ def handle_request(request):
             artist = _clean_artist(request.get('artist'))
             title = _normalize_lyric_title(request.get('title'))
             duration = request.get('duration')
+            video_id = request.get('videoId')
 
             def _lrclib_exact():
                 if not (artist and title):
@@ -2615,6 +2616,10 @@ def handle_request(request):
                         d = r.json()
                         if d.get('plainLyrics') or d.get('syncedLyrics'):
                             return {'plainLyrics': d.get('plainLyrics'), 'syncedLyrics': d.get('syncedLyrics'), 'source': 'lrclib'}
+                        # У трека без вокала lrclib отдаёт instrumental: true и пустые поля.
+                        # Это не "не нашли", а "текста нет" -- в UI это разные экраны.
+                        if d.get('instrumental'):
+                            return {'instrumental': True, 'source': 'lrclib'}
                 except: pass
                 return None
 
@@ -2651,29 +2656,57 @@ def handle_request(request):
                 except: pass
                 return None
 
-            # ПулLRCLIB exact + LRCLIB search + NetEase — параллельно.
-            # Как только один вернул synced — берём его и отменяем остальные.
+            def _ytmusic():
+                """Тексты самого YT Music (Musixmatch) -- часто с таймкодами там, где lrclib пуст.
+                browseId лежит в watch-плейлисте трека, отдельный поиск не нужен."""
+                if not video_id:
+                    return None
+                try:
+                    yt = get_api()
+                    browse_id = (yt.get_watch_playlist(videoId=video_id, limit=1) or {}).get('lyrics')
+                    if not browse_id:
+                        return None
+                    ly = yt.get_lyrics(browse_id, timestamps=True)
+                    if not ly:
+                        return None
+                    if not ly.get('hasTimestamps'):
+                        text = (ly.get('lyrics') or '').strip()
+                        return {'plainLyrics': text, 'syncedLyrics': None, 'source': 'ytmusic'} if text else None
+                    lines = ly.get('lyrics') or []
+                    plain = [l.text for l in lines if l.text.strip() and l.text.strip() != '♪']
+                    if not plain:
+                        return {'instrumental': True, 'source': 'ytmusic'}
+                    lrc = '\n'.join(
+                        f'[{l.start_time // 60000:02d}:{l.start_time // 1000 % 60:02d}.{l.start_time % 1000 // 10:02d}]{l.text}'
+                        for l in lines)
+                    return {'plainLyrics': '\n'.join(plain), 'syncedLyrics': lrc, 'source': 'ytmusic'}
+                except: pass
+                return None
+
+            # LRCLIB (точный + поиск), NetEase и YT Music -- параллельно.
+            # Как только один вернул synced -- берём его и отменяем остальные.
             result = None
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
                 futures = {
                     pool.submit(_lrclib_exact): 'lrclib_exact',
                     pool.submit(_lrclib_search): 'lrclib_search',
                     pool.submit(_netease): 'netease',
+                    pool.submit(_ytmusic): 'ytmusic',
                 }
-                for future in concurrent.futures.as_completed(futures, timeout=12):
+                for future in concurrent.futures.as_completed(futures, timeout=15):
                     try:
                         r = future.result(timeout=0)
                     except: continue
                     if not r: continue
-                    # Приоритет: synced > plain
+                    # Приоритет: synced > plain > instrumental
                     if r.get('syncedLyrics'):
                         result = r
                         for f in futures: f.cancel()
                         break
-                    if not result:
+                    if result is None or (result.get('instrumental') and r.get('plainLyrics')):
                         result = r
 
-            if result:
+            if result and not result.get('instrumental'):
                 safe_print({'status': 'ok', **result, 'callId': call_id})
                 return
 
@@ -2701,6 +2734,12 @@ def handle_request(request):
                         'callId': call_id
                     })
                     return
+
+            # Текста нет не потому что не нашли, а потому что его нет.
+            if result and result.get('instrumental'):
+                safe_print({'status': 'ok', 'instrumental': True, 'plainLyrics': None,
+                            'syncedLyrics': None, 'source': result.get('source'), 'callId': call_id})
+                return
 
             safe_print({'status': 'error', 'message': 'Lyrics not found', 'callId': call_id})
 

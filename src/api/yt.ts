@@ -453,12 +453,13 @@ export async function getTrackInfo(videoId: string): Promise<any> {
     return null;
 }
 
-export async function getLyrics(artist: string, title: string, duration?: number): Promise<{ plainLyrics?: string, syncedLyrics?: string } | null> {
-    const res = await pyCall('get_lyrics', { artist, title, duration });
+export async function getLyrics(artist: string, title: string, duration?: number, videoId?: string): Promise<{ plainLyrics?: string, syncedLyrics?: string, instrumental?: boolean } | null> {
+    const res = await pyCall('get_lyrics', { artist, title, duration, videoId });
     if (res.status === 'ok') {
         return {
             plainLyrics: res.plainLyrics,
-            syncedLyrics: res.syncedLyrics
+            syncedLyrics: res.syncedLyrics,
+            instrumental: !!res.instrumental
         };
     }
     return null;
