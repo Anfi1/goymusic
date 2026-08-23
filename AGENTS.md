@@ -15,7 +15,7 @@
 **GoyMusic** — десктопный плеер для YouTube Music с собственным аудио-движком, построенный на Electron + React + TypeScript + Python. Поддерживает аутентификацию Google, плейлисты, лайки, историю, поиск, радио, тексты песен, Discord Rich Presence, автообновление и SoundCloud-гибрид.
 
 - **Название:** `goymusic`
-- **Версия:** `6.5.1` (из [`package.json`](./package.json))
+- **Версия:** `6.5.2` (из [`package.json`](./package.json))
 - **Репозиторий:** `https://github.com/Anfi1/goymusic.git`
 - **Платформа:** Windows (NSIS-установщик)
 - **Лицензия:** `ISC`

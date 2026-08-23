@@ -101,6 +101,23 @@ class DbCache {
         });
     }
 
+    /**
+     * Сброс всех ссылок на стримы. Громкость НЕ трогаем: она свойство самого аудио,
+     * замеряется ffmpeg'ом целиком и стоит дорого, а ссылки протухают сами.
+     * Нужен, когда закэширована ссылка не на ту запись (подмена клипа на альбомную
+     * версию меняет то, что лежит под тем же id).
+     */
+    async clearStreams(): Promise<void> {
+        await this.init();
+        if (!this.db) return;
+        return new Promise((resolve) => {
+            const transaction = this.db!.transaction(this.storeName, 'readwrite');
+            const request = transaction.objectStore(this.storeName).clear();
+            request.onsuccess = () => resolve();
+            request.onerror = () => resolve();
+        });
+    }
+
     async clearExpired() {
         if (!this.db) return;
         const transaction = this.db.transaction(this.storeName, 'readwrite');

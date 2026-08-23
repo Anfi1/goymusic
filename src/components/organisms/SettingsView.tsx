@@ -6,6 +6,7 @@ import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
+import { streamCache } from '../../api/cache';
 import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath } from '../../api/soundcloud';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
@@ -66,11 +67,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         setPathWarning(false);
     };
 
-    const clearCache = () => {
+    const clearCache = async () => {
         player.reset();
-        (window as any).bridge.clearCache().then(() => {
-            alert('Local player cache and logs cleared.');
-        });
+        // Ссылки на стримы лежат в IndexedDB и живут часами -- сессионный кэш Electron
+        // их не задевает. Без этого закэшированная ссылка не на ту запись переживает
+        // и сброс, и обновление приложения.
+        await streamCache.clearStreams();
+        await (window as any).bridge.clearCache();
+        alert('Local player cache, stream links and logs cleared.');
     };
 
     const handleToggleRPC = () => {
@@ -524,7 +528,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 <div className={styles.row}>
                     <div className={styles.col}>
                         <span>Clear App Cache</span>
-                        <span className={styles.subtitle}>Frees up local queue and session state variables.</span>
+                        <span className={styles.subtitle}>Frees up local queue, session state and cached stream links.</span>
                     </div>
                     <button className={styles.btnSecondary} onClick={clearCache}>Clear</button>
                 </div>
