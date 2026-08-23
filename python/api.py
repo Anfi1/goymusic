@@ -1654,15 +1654,80 @@ def _invalidate_pytubefix_state():
         _ptf_pot_cache.clear()
 
 
-def _resolve_fast(video_id):
+_atv_twin_cache = {}   # video_id клипа -> video_id альбомной версии (или None, если нет)
+_atv_twin_lock = threading.Lock()
+
+
+def _norm_title(s):
+    """Для сверки названий: регистр, пунктуация и служебные хвосты вида
+    (Официальный клип) / (Премьера 2021) / [Official Video] только мешают."""
+    s = re.sub(r'[\(\[].*?[\)\]]', ' ', str(s or '').lower())
+    return re.sub(r'[^a-zа-яё0-9]+', '', s)
+
+
+def _find_atv_twin(video_id, details):
+    """У клипа (OMV) аудиодорожка часто не студийная -- в ней сведение со сцены,
+    другая длительность, иногда склейка нескольких треков. Ищем альбомную версию
+    (ATV) того же трека и играем её.
+
+    Стоит один поиск и только для клипов; на обычных треках не вызывается вовсе.
+    Результат кэшируется, в том числе отрицательный -- у части клипов альбомной
+    версии просто нет, и повторно искать её бессмысленно."""
+    with _atv_twin_lock:
+        if video_id in _atv_twin_cache:
+            return _atv_twin_cache[video_id]
+
+    title = details.get('title') or ''
+    author = details.get('author') or ''
+    twin = None
+    try:
+        api = get_api()
+        # filter='songs' отдаёт только ATV -- ровно то, что нужно. До фикса локали
+        # в форке он возвращал ноль на любой запрос (см. mixins/search.py).
+        for cand in api.search(f"{author} {title}".strip(), filter='songs', limit=5):
+            cid = cand.get('videoId')
+            if not cid or cid == video_id:
+                continue
+            if _norm_title(cand.get('title')) != _norm_title(title):
+                continue
+            names = [a.get('name', '') for a in (cand.get('artists') or [])]
+            if author and not any(_norm_title(n) == _norm_title(author) for n in names):
+                continue
+            twin = cid
+            break
+    except Exception as e:
+        print(f"[atv] twin lookup failed for {video_id}: {e}", file=sys.stderr)
+
+    with _atv_twin_lock:
+        if len(_atv_twin_cache) > 512:
+            _atv_twin_cache.clear()  # ponytail: сброс целиком вместо LRU, записей мало
+        _atv_twin_cache[video_id] = twin
+    if twin:
+        print(f"[atv] {video_id} (клип) -> {twin} (альбомная версия)", file=sys.stderr)
+    return twin
+
+
+def _resolve_fast(video_id, _swapped=False):
     """Самый быстрый путь: один innertube player-запрос + локальная расшифровка на
     прогретом node. Замеры 2026-08-22: сам player-запрос ~0.3с, расшифровка 0.00-0.01с на
     прогретом node, botGuard ~0.5с -- итого ~0.8с против ~1.9с у pytubefix и ~4с у
     tv+cookies. Формат лучший из всех -- opus itag251 (145-168kbps) против itag140
     (m4a 128k) у pytubefix и itag18 (склейка с видео, 96k) у tv.
 
-    Возвращает (url, loudness) или (None, None) на любой осечке -- дальше отработает
-    обычная гонка. Громкость берём из этого же ответа: отдельный запрос за ней не нужен."""
+    Возвращает (url, loudness, video_id) -- третий элемент это ФАКТИЧЕСКИ сыгранный id:
+    у клипа он отличается от запрошенного, см. подмену на альбомную версию ниже. На любой
+    осечке (None, None, video_id) -- дальше отработает обычная гонка. Громкость берём из
+    этого же ответа: отдельный запрос за ней не нужен."""
+    # Если этот клип уже разбирали, идём сразу к альбомной версии: тип лежит в
+    # player-ответе, но делать ради него лишний запрос на каждом повторе незачем.
+    if not _swapped:
+        with _atv_twin_lock:
+            known = _atv_twin_cache.get(video_id)
+        if known:
+            url, loudness, eff = _resolve_fast(known, _swapped=True)
+            if url:
+                return url, loudness, eff
+
     try:
         visitor_data, js, js_url, sig_ts = _pytubefix_state(video_id)
         _, po_token = _pytubefix_pot(video_id)
@@ -1676,18 +1741,28 @@ def _resolve_fast(video_id):
         it.insert_po_token(visitor_data=visitor_data, po_token=po_token)
         resp = it.player(video_id)
 
+        # Клип вместо альбомной версии: musicVideoType лежит в этом же ответе, так что
+        # проверка бесплатна. _swapped страхует от петли, если у близнеца тип тоже не ATV.
+        details = resp.get('videoDetails') or {}
+        if not _swapped and details.get('musicVideoType') == 'MUSIC_VIDEO_TYPE_OMV':
+            twin = _find_atv_twin(video_id, details)
+            if twin:
+                url, loudness, eff = _resolve_fast(twin, _swapped=True)
+                if url:
+                    return url, loudness, eff
+
         manifest = ptf_extract.apply_descrambler(resp['streamingData'])
         ptf_extract.apply_po_token(manifest, resp, po_token)
         audio = [f for f in manifest if str(f.get('mimeType', '')).startswith('audio/')]
         if not audio:
-            return None, None
+            return None, None, video_id
         best = [max(audio, key=lambda f: f.get('bitrate', 0))]
         ptf_extract.apply_signature(best, resp, js, js_url)
-        return best[0].get('url'), extract_loudness(resp)
+        return best[0].get('url'), extract_loudness(resp), video_id
     except Exception as e:
         _invalidate_pytubefix_state()
         print(f"[debug] fast-path failed for {video_id}: {e}", file=sys.stderr)
-        return None, None
+        return None, None, video_id
 
 
 def handle_request(request):
@@ -2857,6 +2932,9 @@ def handle_request(request):
             loudness = None  # None = не знаем; 0.0 = трек ровно на цели. Раньше это было одно и то же
             watchtime_url = None
             method = "None"
+            # если трек окажется клипом, резолв подменит его на альбомную версию --
+            # фронту нужен фактический id, иначе он покажет длительность клипа
+            effective_id = video_id
 
             # pytubefix и yt-dlp запускаются ПАРАЛЛЕЛЬНО (гонка), а не по очереди:
             # pytubefix быстрый (~0.3с), когда работает, но стабильно ловит
@@ -2934,16 +3012,19 @@ def handle_request(request):
                 # форматов. Прежний вывод «yt-dlp хардкодит SABR для web» был неточен: в
                 # _video.py это лишь диагностическое сообщение о поведении YouTube.
                 #
-                # Токен у нас есть -- тот же, что мы минтим botGuard'ом для pytubefix, он
-                # привязан к visitor_data, а не к video_id (проверено переиспользованием на
-                # трёх треках). Прокидываем пару в yt-dlp и получаем рабочий web.
+                # Токен у нас есть -- тот же, что минтит botGuard для pytubefix (_pytubefix_pot),
+                # и он привязан к video_id, а не к сессии: минтится заново на каждый трек,
+                # кэш там только для повторного резолва ТОГО ЖЕ трека. Здесь раньше стояло
+                # обратное утверждение («привязан к visitor_data, переиспользуется между треками») --
+                # оно неверно и противоречило коду ниже; см. докстроку _pytubefix_pot, где привязка
+                # проверена реальным воспроизведением. Прокидываем пару в yt-dlp и получаем рабочий web.
                 #
                 # Смысл держать его рядом с pytubefix-racer'ом на том же клиенте: pytubefix
                 # в ~8% вызовов давится свежим base.js (RegexMatchError), парсер yt-dlp
                 # заметно устойчивее и закрывает именно этот отказ.
                 #
                 # Куки не передаются сознательно: с ними content binding токена
-                # переключается на datasync_id, и наш visitor_data-токен станет невалиден.
+                # переключается на datasync_id, и наш токен станет невалиден.
                 try:
                     visitor_data, po_token = _pytubefix_pot(video_id)
 
@@ -3070,7 +3151,7 @@ def handle_request(request):
                 # Быстрый путь идёт ПЕРЕД гонкой, а не в ней: он выигрывает почти всегда
                 # (~0.3с), и запускать ради этого ещё четыре запроса значит зря светить IP
                 # флагнутыми клиентами. Осечка стоит 0.3с, после неё отрабатывает гонка.
-                stream_url, fast_loudness = _resolve_fast(video_id)
+                stream_url, fast_loudness, effective_id = _resolve_fast(video_id)
                 if stream_url:
                     method = 'fast'
                     if fast_loudness is not None:
@@ -3144,7 +3225,8 @@ def handle_request(request):
 
             if stream_url:
                 safe_print({'status': 'ok', 'url': stream_url, 'loudness': loudness,
-                            'watchtimeUrl': watchtime_url, 'callId': call_id})
+                            'watchtimeUrl': watchtime_url, 'videoId': effective_id,
+                            'callId': call_id})
             else:
                 safe_print({'status': 'error', 'message': 'Failed to obtain stream URL', 'callId': call_id})
 
