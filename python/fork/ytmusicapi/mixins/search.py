@@ -259,6 +259,7 @@ class SearchMixin(MixinProtocol):
             internal_filter = scopes[1]
             result_type = scopes[1][:-1]
 
+        first_category = None  # заголовок первой полки -- эталон для отсева добивки
         for res in section_list:
             category = None
 
@@ -294,9 +295,19 @@ class SearchMixin(MixinProtocol):
             ):
                 # YTM sometimes pads results with a differently-categorized shelf
                 # (e.g. a "Songs" shelf when filtering by featured_playlists) - skip
-                # it rather than mislabeling its contents as the requested type
-                if category and internal_filter[:-1].lower() not in category.lower():
-                    continue
+                # it rather than mislabeling its contents as the requested type.
+                #
+                # Сравнивать заголовок полки с английским internal_filter НЕЛЬЗЯ: он
+                # локализован (hl='ru' -> "Треки"), совпадений не бывает никогда, и
+                # тогда пропускаются ВСЕ полки, а фильтрованный поиск возвращает ноль
+                # на любой запрос. Ровно так это и было сломано при HL='ru' в api.py.
+                # Опознаём добивку по заголовку ПЕРВОЙ полки: запрошенный фильтр YTM
+                # кладёт первым, а полку другого типа - после неё.
+                if category:
+                    if first_category is None:
+                        first_category = category
+                    elif category != first_category:
+                        continue
                 result_type = internal_filter[:-1].lower()
 
             search_results.extend(parse_search_results(shelf_contents, result_type, category))
