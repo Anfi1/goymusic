@@ -3,5 +3,5 @@
 requests>=2.32.3
 yt-dlp==2026.8.18.122307.dev0
 yt-dlp-ejs>=0.8.0
-pytubefix>=10.3.8
+pytubefix>=10.11.0
 imageio-ffmpeg>=0.5.1

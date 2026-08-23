@@ -4,7 +4,11 @@ requests==2.32.5
 # Точный == пин на pre-release pip ставит и без --pre.
 yt-dlp==2026.8.18.122307.dev0
 yt-dlp-ejs>=0.8.0
-pytubefix==10.3.8
+# НЕ пинить жёстко: YouTube ротирует base.js, и парсер cipher'а в старой версии
+# перестаёт его разбирать (RegexMatchError -> fast-path падает на 100% треков,
+# всё уезжает в tv+cookies за 5с и itag18 96k). Пин ==10.3.8 ровно так и выстрелил
+# на плеере 2574220e: в dev-venv стояла 10.11.0 и всё работало, в релизе — нет.
+pytubefix>=10.11.0
 # Без imageio-ffmpeg нормализация громкости SoundCloud молча падает в WinError 2:
 # в собранном билде системного ffmpeg нет, get_ffmpeg_exe() берёт бандленный.
 imageio-ffmpeg>=0.5.1
