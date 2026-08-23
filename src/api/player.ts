@@ -672,7 +672,7 @@ class PlayerStore {
             this.ensureScRegistered(nextTrack);
             let entry = await streamCache.get(nextTrack.id);
             if (!entry) {
-                await prefetchStreamUrl(nextTrack.id);
+                await prefetchStreamUrl(nextTrack.id, this.parseDuration(nextTrack.duration) || undefined);
                 entry = await streamCache.get(nextTrack.id);
             }
             if (entry) {
@@ -926,7 +926,7 @@ class PlayerStore {
         for (const t of targets) {
             if (!t?.id) continue;
             this.ensureScRegistered(t);
-            await prefetchStreamUrl(t.id);
+            await prefetchStreamUrl(t.id, this.parseDuration(t.duration) || undefined);
         }
     }
 
@@ -973,7 +973,9 @@ class PlayerStore {
                 registerSoundCloudTrack(track.id, track.scUrl);
             }
             const tUrl = performance.now();
-            const entry = await getStreamUrl(track.id, isRetry);
+            // длительность из строки трека -- эталон, по которому бэкенд отличает клип
+            // с чужой записью от нормального и при расхождении ищет версию нужной длины
+            const entry = await getStreamUrl(track.id, isRetry, this.parseDuration(track.duration) || undefined);
             
             if (currentPlaybackId !== this.playbackId) return;
 

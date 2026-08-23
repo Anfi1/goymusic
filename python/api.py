@@ -1665,17 +1665,42 @@ def _norm_title(s):
     return re.sub(r'[^a-zа-яё0-9]+', '', s)
 
 
-def _find_atv_twin(video_id, details):
-    """У клипа (OMV) аудиодорожка часто не студийная -- в ней сведение со сцены,
-    другая длительность, иногда склейка нескольких треков. Ищем альбомную версию
-    (ATV) того же трека и играем её.
+def _cand_seconds(cand):
+    """У песен из поиска длительность приходит либо числом, либо строкой 'м:сс'."""
+    sec = cand.get('duration_seconds')
+    if isinstance(sec, int) and sec > 0:
+        return sec
+    parts = str(cand.get('duration') or '').split(':')
+    try:
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    except ValueError:
+        pass
+    return None
 
-    Стоит один поиск и только для клипов; на обычных треках не вызывается вовсе.
-    Результат кэшируется, в том числе отрицательный -- у части клипов альбомной
-    версии просто нет, и повторно искать её бессмысленно."""
+
+def _find_atv_twin(video_id, details, expected_sec):
+    """Ищем ту запись, чья длительность совпадает с ОЖИДАЕМОЙ -- той, что показана в
+    альбоме/списке, откуда трек запустили.
+
+    Длительность здесь главный признак, и это выучено дорого. Первая версия сверяла
+    только название и исполнителя и брала первого подошедшего -- на 'Everlasting Summer'
+    (Sergey Eybog) она подменила альбомные 2:37 на другую запись того же автора на 6:25.
+    Ровно то, что фикс должен был предотвращать.
+
+    Исполнитель НЕ жёсткий фильтр по той же причине: в той выдаче правильный кандидат был
+    записан как 'Сергей Ейбог' против 'Sergey Eybog' в клипе, и строгая сверка его
+    выбрасывала. При совпавшей длительности и названии транслитерация роли не играет,
+    а совпадение исполнителя используется как приоритет между равными кандидатами.
+
+    Стоит один поиск и только для клипов с расхождением длительности. Результат
+    кэшируется, в том числе отрицательный -- у части клипов альбомной версии нет."""
+    key = (video_id, expected_sec)
     with _atv_twin_lock:
-        if video_id in _atv_twin_cache:
-            return _atv_twin_cache[video_id]
+        if key in _atv_twin_cache:
+            return _atv_twin_cache[key]
 
     title = details.get('title') or ''
     author = details.get('author') or ''
@@ -1684,30 +1709,38 @@ def _find_atv_twin(video_id, details):
         api = get_api()
         # filter='songs' отдаёт только ATV -- ровно то, что нужно. До фикса локали
         # в форке он возвращал ноль на любой запрос (см. mixins/search.py).
-        for cand in api.search(f"{author} {title}".strip(), filter='songs', limit=5):
+        matches = []
+        for cand in api.search(f"{author} {title}".strip(), filter='songs', limit=20):
             cid = cand.get('videoId')
             if not cid or cid == video_id:
                 continue
             if _norm_title(cand.get('title')) != _norm_title(title):
                 continue
-            names = [a.get('name', '') for a in (cand.get('artists') or [])]
-            if author and not any(_norm_title(n) == _norm_title(author) for n in names):
+            sec = _cand_seconds(cand)
+            if sec is None or abs(sec - expected_sec) > 2:
                 continue
-            twin = cid
-            break
+            names = [a.get('name', '') for a in (cand.get('artists') or [])]
+            same_artist = any(_norm_title(n) == _norm_title(author) for n in names)
+            matches.append((0 if same_artist else 1, abs(sec - expected_sec), cid))
+        if matches:
+            twin = min(matches)[2]
     except Exception as e:
         print(f"[atv] twin lookup failed for {video_id}: {e}", file=sys.stderr)
 
     with _atv_twin_lock:
         if len(_atv_twin_cache) > 512:
             _atv_twin_cache.clear()  # ponytail: сброс целиком вместо LRU, записей мало
-        _atv_twin_cache[video_id] = twin
+        _atv_twin_cache[key] = twin
     if twin:
-        print(f"[atv] {video_id} (клип) -> {twin} (альбомная версия)", file=sys.stderr)
+        print(f"[atv] {video_id} (клип) -> {twin} (совпал по длительности {expected_sec}с)",
+              file=sys.stderr)
+    else:
+        print(f"[atv] {video_id}: записи на {expected_sec}с не нашлось, играем как есть",
+              file=sys.stderr)
     return twin
 
 
-def _resolve_fast(video_id, _swapped=False):
+def _resolve_fast(video_id, expected_sec=None, _swapped=False):
     """Самый быстрый путь: один innertube player-запрос + локальная расшифровка на
     прогретом node. Замеры 2026-08-22: сам player-запрос ~0.3с, расшифровка 0.00-0.01с на
     прогретом node, botGuard ~0.5с -- итого ~0.8с против ~1.9с у pytubefix и ~4с у
@@ -1718,11 +1751,11 @@ def _resolve_fast(video_id, _swapped=False):
     у клипа он отличается от запрошенного, см. подмену на альбомную версию ниже. На любой
     осечке (None, None, video_id) -- дальше отработает обычная гонка. Громкость берём из
     этого же ответа: отдельный запрос за ней не нужен."""
-    # Если этот клип уже разбирали, идём сразу к альбомной версии: тип лежит в
+    # Если этот клип уже разбирали, идём сразу к найденной записи: тип лежит в
     # player-ответе, но делать ради него лишний запрос на каждом повторе незачем.
-    if not _swapped:
+    if not _swapped and expected_sec:
         with _atv_twin_lock:
-            known = _atv_twin_cache.get(video_id)
+            known = _atv_twin_cache.get((video_id, expected_sec))
         if known:
             url, loudness, eff = _resolve_fast(known, _swapped=True)
             if url:
@@ -1741,15 +1774,21 @@ def _resolve_fast(video_id, _swapped=False):
         it.insert_po_token(visitor_data=visitor_data, po_token=po_token)
         resp = it.player(video_id)
 
-        # Клип вместо альбомной версии: musicVideoType лежит в этом же ответе, так что
-        # проверка бесплатна. _swapped страхует от петли, если у близнеца тип тоже не ATV.
+        # Клип вместо альбомной версии. Тип и длительность лежат в этом же ответе, так
+        # что проверка бесплатна. Меняем ТОЛЬКО при расхождении с ожидаемой длительностью:
+        # сам по себе OMV не признак беды -- у 'Everlasting Summer' клип и есть альбомные
+        # 2:37, и подмена там всё портила. Без expected_sec (фронт не прислал, SC-трек и
+        # т.п.) не трогаем ничего: угадывать вслепую хуже, чем не делать. _swapped
+        # страхует от петли.
         details = resp.get('videoDetails') or {}
-        if not _swapped and details.get('musicVideoType') == 'MUSIC_VIDEO_TYPE_OMV':
-            twin = _find_atv_twin(video_id, details)
-            if twin:
-                url, loudness, eff = _resolve_fast(twin, _swapped=True)
-                if url:
-                    return url, loudness, eff
+        if not _swapped and expected_sec and details.get('musicVideoType') == 'MUSIC_VIDEO_TYPE_OMV':
+            actual = int(details.get('lengthSeconds') or 0)
+            if actual and abs(actual - expected_sec) > 3:
+                twin = _find_atv_twin(video_id, details, expected_sec)
+                if twin:
+                    url, loudness, eff = _resolve_fast(twin, _swapped=True)
+                    if url:
+                        return url, loudness, eff
 
         manifest = ptf_extract.apply_descrambler(resp['streamingData'])
         ptf_extract.apply_po_token(manifest, resp, po_token)
@@ -2932,9 +2971,16 @@ def handle_request(request):
             loudness = None  # None = не знаем; 0.0 = трек ровно на цели. Раньше это было одно и то же
             watchtime_url = None
             method = "None"
-            # если трек окажется клипом, резолв подменит его на альбомную версию --
-            # фронту нужен фактический id, иначе он покажет длительность клипа
+            # если трек окажется клипом с чужой длительностью, резолв подменит его на
+            # запись нужной длины -- фронту нужен фактический id
             effective_id = video_id
+            # длительность из строки, которую видит пользователь (альбом/плейлист/поиск).
+            # Это единственный доступный эталон: сам YouTube про «правильную» версию
+            # ничего не сообщает.
+            try:
+                expected_sec = int(request.get('expectedDuration') or 0) or None
+            except (TypeError, ValueError):
+                expected_sec = None
 
             # pytubefix и yt-dlp запускаются ПАРАЛЛЕЛЬНО (гонка), а не по очереди:
             # pytubefix быстрый (~0.3с), когда работает, но стабильно ловит
@@ -3151,7 +3197,7 @@ def handle_request(request):
                 # Быстрый путь идёт ПЕРЕД гонкой, а не в ней: он выигрывает почти всегда
                 # (~0.3с), и запускать ради этого ещё четыре запроса значит зря светить IP
                 # флагнутыми клиентами. Осечка стоит 0.3с, после неё отрабатывает гонка.
-                stream_url, fast_loudness, effective_id = _resolve_fast(video_id)
+                stream_url, fast_loudness, effective_id = _resolve_fast(video_id, expected_sec)
                 if stream_url:
                     method = 'fast'
                     if fast_loudness is not None:

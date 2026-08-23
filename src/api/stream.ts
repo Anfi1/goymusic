@@ -125,7 +125,7 @@ export function getExpirationFromUrl(url: string): number {
 /**
  * Выполняет реальный вызов к Python-мосту с защитой от дублей и поддержкой отмены.
  */
-async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Promise<CacheEntry | null> {
+async function fetchStreamFromPython(videoId: string, signal?: AbortSignal, expectedSec?: number): Promise<CacheEntry | null> {
     // SoundCloud/URL-shaped ids must never reach the YouTube get_stream_url path
     if (videoId.includes('://')) return null;
 
@@ -148,7 +148,7 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Pro
     console.log(`[stream] Python fetch: ${videoId}`);
     const requestPromise = (async () => {
         try {
-            const res = await (window as any).bridge.pyCall('get_stream_url', { videoId, callId });
+            const res = await (window as any).bridge.pyCall('get_stream_url', { videoId, callId, expectedDuration: expectedSec });
             if (res.status === 'ok' && res.url) {
                 const expires = getExpirationFromUrl(res.url);
                 const loudness = res.loudness ?? null;
@@ -177,7 +177,7 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal): Pro
  * Прямой запрос URL. Сначала база, потом Python.
  * Применяется при нажатии кнопки Play.
  */
-export async function getStreamUrl(videoId: string, forceBypassCache: boolean = false): Promise<CacheEntry | null> {
+export async function getStreamUrl(videoId: string, forceBypassCache: boolean = false, expectedSec?: number): Promise<CacheEntry | null> {
     await streamCache.init();
 
     // Приоритет 1: локальный файл — проверяем ПЕРВЫМ делом
@@ -245,7 +245,7 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
     currentAbortController = new AbortController();
 
     console.log(`[stream] SOURCE: youtube-fetch (${videoId})`);
-    const entry = await fetchStreamFromPython(videoId, currentAbortController.signal);
+    const entry = await fetchStreamFromPython(videoId, currentAbortController.signal, expectedSec);
     if (entry) console.log(`[stream] SOURCE: youtube-stream (${videoId})`);
     
     return entry;
@@ -254,7 +254,7 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
 /**
  * Мгновенный префетч. Используется плеером для подгрузки очереди.
  */
-export async function prefetchStreamUrl(videoId: string) {
+export async function prefetchStreamUrl(videoId: string, expectedSec?: number) {
     await streamCache.init();
 
     const scUrlPrefetch = scRegistry.get(videoId);
@@ -277,7 +277,7 @@ export async function prefetchStreamUrl(videoId: string) {
     }
 
     console.log(`[stream] Prefetch started: ${videoId}`);
-    const entry = await fetchStreamFromPython(videoId);
+    const entry = await fetchStreamFromPython(videoId, undefined, expectedSec);
     if (entry) {
         console.log(`[stream] Prefetch finished successfully: ${videoId}`);
     }

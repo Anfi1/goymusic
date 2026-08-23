@@ -215,6 +215,25 @@ def selfcheck():
     assert n('Иная') != n('Иные')
     # пустые значения не роняют
     assert n(None) == '' and n('') == ''
+
+    # разбор длительности кандидата из поиска
+    cs = goyapi._cand_seconds
+    assert cs({'duration_seconds': 107}) == 107
+    assert cs({'duration': '1:47'}) == 107
+    assert cs({'duration': '1:02:03'}) == 3723
+    assert cs({'duration': None}) is None and cs({}) is None
+    assert cs({'duration': 'ерунда'}) is None
+
+    # правило подмены: меняем только при расхождении с ожидаемой длительностью.
+    # 157/157 -- 'Everlasting Summer', где клип и есть альбомная запись: не трогать.
+    # 146/107 -- 'Парад Смерти', где клип на 39с длиннее альбомного: менять.
+    def swaps(actual, expected):
+        return bool(expected) and bool(actual) and abs(actual - expected) > 3
+    assert not swaps(157, 157)
+    assert not swaps(157, 155)     # округление в строке трека
+    assert swaps(146, 107)
+    assert not swaps(146, None)    # без эталона не угадываем
+
     print("selfcheck OK")
 
 
