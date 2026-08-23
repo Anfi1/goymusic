@@ -20,3 +20,6 @@ yt_cookies.txt
 *.tsbuildinfo
 python/.pot_cache.json
 ptf_pot.json
+
+# Скачанные версии треков для прослушивания (python/download_versions.py)
+versions/
