@@ -122,15 +122,12 @@ def try_load_auth(force=False):
         _auth_type = None
         return False
 
-def get_api():
-    """Create a fresh YTMusic instance for the current task. 
-    This avoids blocking other threads with ytm_lock during long requests."""
-    if not _auth_data:
-        try_load_auth()
-    
+_api_cache = None  # (auth_data, auth_type, YTMusic)
+
+def _build_api():
     if not _auth_data:
         return YTMusic(language=HL, location=GL)
-    
+
     if _auth_type == 'browser':
         return YTMusic(auth=_auth_data, language=HL, location=GL)
     else:
@@ -139,6 +136,23 @@ def get_api():
             creds = OAuthCredentials(client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
             return YTMusic(auth=token_dict, oauth_credentials=creds, language=HL, location=GL)
         return YTMusic(auth=token_dict, language=HL, location=GL)
+
+def get_api():
+    """YTMusic для текущей задачи. Инстанс кэшируется: его конструктор ходит в сеть
+    за context (~0.7с), а раньше это платилось на КАЖДУЮ команду. Сам объект после
+    __init__ иммутабелен и делит thread-safe requests.Session, шарить между потоками
+    можно. Сверка `is _auth_data` сбрасывает кэш на любой перезагрузке авторизации."""
+    global _api_cache
+    if not _auth_data:
+        try_load_auth()
+
+    cached = _api_cache
+    if cached and cached[0] is _auth_data and cached[1] == _auth_type:
+        return cached[2]
+
+    api = _build_api()
+    _api_cache = (_auth_data, _auth_type, api)
+    return api
 
 def safe_print(data):
     call_id = data.get('callId')
@@ -2632,10 +2646,14 @@ def handle_request(request):
 
             try:
                 print(f"[DEBUG] Fetching recommendations using playlistId: {target_playlist_id}", file=sys.stderr)
+                # Радио по одному треку: первый ответ отдаёт ~50 позиций, limit=100 гнал
+                # ещё две continuation-страницы (+1.3с) ради хвоста, до которого очередь
+                # не доигрывает. Сидинг альбома/плейлиста хвост использует — там 100.
+                limit = 100 if playlist_id else 50
                 watch_data = api.get_watch_playlist(
                     videoId=video_id, 
                     playlistId=target_playlist_id, 
-                    limit=100, 
+                    limit=limit, 
                     radio=True
                 )
                 

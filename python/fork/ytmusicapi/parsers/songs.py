@@ -93,6 +93,13 @@ def parse_song_runs(runs: JsonList, skip_type_spec: bool = False) -> JsonDict:
     ):
         runs = runs[2:]
 
+    # Байлайн всегда идёт «артисты -> метаданные»: артист после альбома/просмотров/
+    # года не встречается. parse_song_run же зовёт артистом всё, что не опознал, и у
+    # чужих заливок (UGC) в artists падают локализованные лайки: байлайн там
+    # «Автор • 1 млн просмотров • Отметок "Нравится": 25 тыс.». Ссылочные ранны
+    # пропускаем в любом случае -- у них есть browseId, гадать не о чем.
+    seen_meta = False
+
     for i, run in list(enumerate(runs)):
         if i % 2:  # uneven items are always separators
             continue
@@ -102,18 +109,24 @@ def parse_song_runs(runs: JsonList, skip_type_spec: bool = False) -> JsonDict:
         match parsed_run["type"]:
             case "album":
                 parsed["album"] = data
+                seen_meta = True
             case "artist":
+                if seen_meta and "navigationEndpoint" not in run:
+                    continue
                 parsed["artists"] = parsed.get("artists", [])
                 name = data.get("name", "")
                 browse_id = data.get("id")
                 parsed["artists"].extend(resolve_artists(name, browse_id))
             case "views":
                 parsed["views"] = data
+                seen_meta = True
             case "duration":
                 parsed["duration"] = data
                 parsed["duration_seconds"] = parse_duration(data)
+                seen_meta = True
             case "year":
                 parsed["year"] = data
+                seen_meta = True
 
     return parsed
 

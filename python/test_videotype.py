@@ -234,6 +234,42 @@ def selfcheck():
     assert swaps(146, 107)
     assert not swaps(146, None)    # без эталона не угадываем
 
+    # кэш YTMusic в get_api: инстанс переиспользуется, но сбрасывается,
+    # как только try_load_auth перезаписал _auth_data новым объектом
+    built = []
+    goyapi._build_api = lambda: built.append(1) or object()
+    goyapi._api_cache = None
+    goyapi._auth_data, goyapi._auth_type = {'SAPISID': 'x'}, 'browser'
+    first = goyapi.get_api()
+    assert goyapi.get_api() is first and len(built) == 1
+    goyapi._auth_data = {'SAPISID': 'x'}          # перелогин: тот же контент, новый dict
+    assert goyapi.get_api() is not first and len(built) == 2
+    goyapi._auth_type = 'oauth'                   # смена типа авторизации тоже сбрасывает
+    assert len(built) == 2 and goyapi.get_api() and len(built) == 3
+
+    # байлайн: лайки/просмотры чужих заливок не должны попадать в artists
+    from ytmusicapi.parsers.songs import parse_song_runs
+    def run(text, browse_id=None):
+        r = {"text": text}
+        if browse_id:
+            r["navigationEndpoint"] = {"browseEndpoint": {"browseId": browse_id}}
+        return r
+    SEP = run(" • ")
+
+    ugc = parse_song_runs([run("Lucas Pucas", "UCxxx"), SEP,
+                           run("1 млн просмотров"), SEP,
+                           run('Отметок "Нравится": 25 тыс.')])
+    assert [a["name"] for a in ugc["artists"]] == ["Lucas Pucas"], ugc["artists"]
+
+    atv = parse_song_runs([run("Toby Fox", "UCyyy"), SEP,
+                           run("DELTARUNE Chapter 2", "MPREb_zzz"), SEP, run("2021")])
+    assert [a["name"] for a in atv["artists"]] == ["Toby Fox"]
+    assert atv["album"]["name"] == "DELTARUNE Chapter 2" and atv["year"] == "2021"
+
+    # артист без ссылки, но ДО метаданных, остаётся артистом
+    plain = parse_song_runs([run("Some Artist"), SEP, run("2020")])
+    assert [a["name"] for a in plain["artists"]] == ["Some Artist"]
+
     print("selfcheck OK")
 
 

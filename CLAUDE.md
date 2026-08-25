@@ -98,4 +98,4 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 
 ## Релизы
 
-Push в `main` запускает workflow `Build & Release`: версия = max(последний Release + 1 патч, `version` из `package.json`), на выходе NSIS-установщик в GitHub Releases. Текущая — **6.5.2**.
+Push в `main` запускает workflow `Build & Release`: версия = max(последний Release + 1 патч, `version` из `package.json`), на выходе NSIS-установщик в GitHub Releases. Текущая — **6.5.3**.
