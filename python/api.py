@@ -458,12 +458,13 @@ def get_yandex_client(force=False):
             return None
         try:
             from yandex_music import Client as _YClient
+            from yandex_music.utils.request import Request as _YRequest
             with open(YANDEX_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             token = data.get('token')
             if not token:
                 return None
-            client = _YClient(token).init()
+            client = _YClient(token, request=_YRequest(timeout=15)).init()
             _yandex_client = client
             return client
         except Exception as e:
@@ -4463,7 +4464,8 @@ def handle_request(request):
             # OAuth Device Flow, шаг 1: код устройства + ссылка для подтверждения.
             try:
                 from yandex_music import Client as _YClient
-                code = _YClient().request_device_code()
+                from yandex_music.utils.request import Request as _YRequest
+                code = _YClient(request=_YRequest(timeout=15)).request_device_code()
                 safe_print({
                     'status': 'ok',
                     'deviceCode': code.device_code,
@@ -4482,7 +4484,8 @@ def handle_request(request):
             device_code = request.get('deviceCode', '')
             try:
                 from yandex_music import Client as _YClient
-                token = _YClient().poll_device_token(device_code)
+                from yandex_music.utils.request import Request as _YRequest
+                token = _YClient(request=_YRequest(timeout=15)).poll_device_token(device_code)
                 if token is None:
                     safe_print({'status': 'pending', 'callId': call_id})
                 else:
