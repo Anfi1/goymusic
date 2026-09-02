@@ -156,7 +156,7 @@ module.exports = async function handler(req, res) {
     <div class="buttons" id="buttons" style="display:none">
       <a class="btn btn-primary" href="${escapeHtml(protocolUrl)}">Open in GoyMusic</a>
       <a class="btn btn-secondary" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">${fallbackLabel}</a>
-      <a class="btn btn-download" id="downloadBtn" href="https://github.com/Anfi1/goymusic/releases/latest/download/GoyMusic-Setup.exe" target="_blank" rel="noopener" style="display:none">Download GoyMusic</a>
+      <a class="btn btn-download" id="downloadBtn" href="/download" target="_blank" rel="noopener" style="display:none">Download GoyMusic</a>
     </div>
     <div class="sub" id="sub"></div>
   </div>

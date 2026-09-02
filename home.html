@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GoyMusic — плеер поверх YouTube Music и SoundCloud</title>
+  <meta name="theme-color" content="#09090f" />
+  <meta name="description" content="GoyMusic. Десктоп-клиент для Windows: YouTube Music и SoundCloud в одной очереди, честный эквалайзер, синхронные тексты. Без браузера, без рекламы." />
+  <meta property="og:site_name" content="GoyMusic" />
+  <meta property="og:title" content="GoyMusic — музыка для настоящих гоев" />
+  <meta property="og:description" content="YouTube Music и SoundCloud в одном десктоп-клиенте для Windows." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #09090f;
+      --panel: rgba(17, 17, 27, 0.6);
+      --sidebar-bg: rgba(9, 9, 15, 0.5);
+      --ink: #cdd6f4;
+      --sub: #a6adc8;
+      --dim: rgba(205, 214, 244, 0.4);
+      --accent: #89b4fa;
+      --accent-soft: rgba(137, 180, 250, 0.12);
+      --border: rgba(255, 255, 255, 0.07);
+      --border-soft: rgba(255, 255, 255, 0.05);
+      --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+
+    html { background: var(--bg); }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font);
+      min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+    .shell { max-width: 960px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+    /* ---------------------------------- header ---------------------------------- */
+    header.shell {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-top: 28px; padding-bottom: 28px;
+    }
+    .wordmark { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .wordmark svg.mark { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; }
+    .wordmark span { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.3px; color: var(--ink); }
+    .gh-link {
+      display: flex; align-items: center; gap: 8px;
+      text-decoration: none; color: var(--sub);
+      font-size: 0.85rem; font-weight: 500;
+      padding: 8px 14px; border: 1px solid var(--border); border-radius: 20px;
+      background: var(--panel);
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .gh-link:hover { color: var(--ink); border-color: var(--accent); }
+    .gh-link svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+    /* ---------------------------------- glow backdrop ---------------------------------- */
+    .glow {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(38vw 38vw at 78% 8%, rgba(137, 180, 250, 0.16), transparent 60%),
+        radial-gradient(32vw 32vw at 8% 30%, rgba(203, 130, 246, 0.10), transparent 60%),
+        radial-gradient(40vw 40vw at 50% 100%, rgba(245, 158, 11, 0.06), transparent 60%);
+    }
+
+    /* ---------------------------------- hero ---------------------------------- */
+    .hero { padding: 56px 0 8px; text-align: center; }
+
+    h1 {
+      font-weight: 800; font-size: clamp(2.2rem, 6vw, 3.5rem);
+      letter-spacing: -1.5px; line-height: 1.1;
+      margin: 0 auto 20px; max-width: 14ch;
+    }
+
+    .hero p.sub {
+      font-size: 1.08rem; color: var(--sub); max-width: 46ch;
+      margin: 0 auto 34px;
+    }
+
+    .cta-row { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      font-weight: 700; font-size: 0.92rem;
+      padding: 14px 24px; border-radius: 30px; text-decoration: none;
+      border: 1px solid transparent; cursor: pointer;
+      transition: transform 0.12s ease, opacity 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn svg { width: 17px; height: 17px; }
+    .btn-primary { background: var(--accent); color: #0b1220; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-ghost { background: var(--panel); color: var(--ink); border-color: var(--border); }
+    .btn-ghost:hover { border-color: var(--accent); }
+    .cta-note { font-size: 0.8rem; color: var(--dim); text-align: center; }
+
+    /* ---------------------------------- app screenshot ---------------------------------- */
+    .shot-wrap { padding: 56px 0 24px; }
+    .shot-frame {
+      max-width: 900px; margin: 0 auto;
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+      box-shadow: 0 50px 100px -40px rgba(0,0,0,0.65);
+      overflow: hidden;
+      line-height: 0;
+    }
+    .shot-frame img { display: block; width: 100%; height: auto; }
+
+    /* ---------------------------------- features ---------------------------------- */
+    .features {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+      margin: 60px 0 60px;
+    }
+    .feature {
+      background: var(--panel); border: 1px solid var(--border-soft); border-radius: 16px;
+      padding: 20px;
+    }
+    .feature .icon {
+      width: 34px; height: 34px; border-radius: 9px; background: var(--accent-soft); color: var(--accent);
+      display: flex; align-items: center; justify-content: center; margin-bottom: 14px;
+    }
+    .feature .icon svg { width: 17px; height: 17px; }
+    .feature h3 { font-size: 0.92rem; font-weight: 600; margin-bottom: 6px; }
+    .feature p { font-size: 0.82rem; color: var(--sub); line-height: 1.5; }
+
+    /* ---------------------------------- footer ---------------------------------- */
+    footer.shell {
+      border-top: 1px solid var(--border-soft);
+      padding: 24px 0 44px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px;
+      font-size: 0.82rem; color: var(--dim);
+    }
+    footer a { text-decoration: none; }
+    footer a:hover { color: var(--sub); }
+
+    @media (max-width: 680px) {
+      .features { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 460px) {
+      .features { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <header class="shell">
+    <a class="wordmark" href="/">
+      <svg class="mark" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="512" cy="512" r="512" fill="#09090f"/>
+        <g transform="translate(512, 512) scale(0.85) translate(-512, -512)">
+          <path d="M 800 512 A 288 288 0 1 1 680 230" stroke="white" stroke-width="180" stroke-linecap="round"/>
+          <path d="M 430 322 L 780 512 L 430 702 Z" fill="url(#hdrGrad)" stroke="url(#hdrGrad)" stroke-width="20" stroke-linejoin="round"/>
+        </g>
+        <defs>
+          <linearGradient id="hdrGrad" x1="430" y1="322" x2="780" y2="702" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FF3333"/><stop offset="1" stop-color="#CC0000"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span>GoyMusic</span>
+    </a>
+    <a class="gh-link" href="https://github.com/Anfi1/goymusic" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.535-1.5.115-3.135 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405 1.02 0 2.04.135 3 .405 2.295-1.56 3.3-1.23 3.3-1.23.645 1.635.24 2.835.12 3.135.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      GitHub
+    </a>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <h1>Музыка для настоящих гоев.</h1>
+      <p class="sub">YouTube Music и SoundCloud в одном десктоп-плеере: гибридная очередь, «Моя волна», честный 6-полосный эквалайзер и синхронные тексты. Без браузера, без рекламы.</p>
+
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/download">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 3v10M5.5 9L10 13.5 14.5 9M4 16.5h12"/>
+          </svg>
+          Скачать для Windows
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/Anfi1/goymusic/releases" target="_blank" rel="noopener">Все релизы</a>
+      </div>
+      <p class="cta-note">ссылка всегда ведёт на последний релиз с GitHub</p>
+    </section>
+
+    <div class="shot-wrap">
+      <div class="shot-frame">
+        <img src="/screenshot-app.png" width="1024" height="700" alt="Интерфейс GoyMusic: библиотека, очередь и плеер" loading="eager" />
+      </div>
+    </div>
+
+    <section class="features">
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12c2-3 4-3 6 0s4 3 6 0 4-3 6 0"/><path d="M2 17c2-3 4-3 6 0s4 3 6 0 4-3 6 0"/></svg></div>
+        <h3>Гибридный источник</h3>
+        <p>YouTube и SoundCloud подмешиваются в одну очередь и «Мою волну», источник радио переключается на лету.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15V9M9 18V6M14 15V9M19 12V4"/></svg></div>
+        <h3>Синхронные тексты</h3>
+        <p>Четыре источника опрашиваются параллельно, побеждает первый с таймкодами. Почти всегда находится.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></div>
+        <h3>Эквалайзер и громкость</h3>
+        <p>6 полос EQ и нормализация до одного уровня, треки с разных площадок звучат одинаково.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
+        <h3>Нативный Windows</h3>
+        <p>Не вкладка браузера, а отдельное приложение с треем и хоткеями. Свой аудио-движок под капотом.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    <span>Десктоп-плеер для Windows.</span>
+    <a href="https://github.com/Anfi1/goymusic" target="_blank" rel="noopener">github.com/Anfi1/goymusic</a>
+  </footer>
+</body>
+</html>

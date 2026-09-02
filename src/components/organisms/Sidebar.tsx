@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Sparkles, Radio, AudioLines } from 'lucide-react';
+import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Zap, Radio, AudioLines } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
 import { YTMPlaylist, YTMUser, createPlaylist } from '../../api/yt';
@@ -362,7 +362,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           tooltip={collapsed ? 'Home' : undefined}
         />
         <NavLink
-          icon={Sparkles}
+          icon={Zap}
           label={collapsed ? '' : 'New Releases'}
           active={activeViewType === 'new-releases'}
           onClick={handleNavigateNewReleases}
