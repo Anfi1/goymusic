@@ -1,9 +1,11 @@
 import { YTMTrack, getQueueRecommendations, rateSong, searchMore } from './yt';
+import type { TrackSource } from './source';
 import { streamCache, CacheEntry } from './cache';
 import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, ensureLoudness } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
-import { searchSoundCloud, isSoundCloudEnabled, interleaveTracks, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
+import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
+import { searchYandex, isYandexEnabled, getYandexRecommendations } from './yandex';
 
 export type PlayerEventType = 'state' | 'tick' | 'buffer';
 type PlayerCallback = (event: PlayerEventType) => void;
@@ -29,7 +31,9 @@ class PlayerStore {
     shuffle: boolean = false;
     repeat: 'off' | 'all' | 'one' = 'off';
     autoplay: boolean = true;
-    radioMode: 'youtube' | 'soundcloud' | 'hybrid' = 'youtube';
+    // Источники для радио/рекомендаций в очереди -- набор, а не эксклюзивный режим:
+    // можно включить сразу YT+SC+Yandex, смешивание идёт автоматически при >1 активном.
+    radioSources: TrackSource[] = ['youtube'];
     rpcEnabled: boolean = true;
     normalizationEnabled: boolean = true;
     isCurrentTrackLocal: boolean = false;
@@ -65,6 +69,7 @@ class PlayerStore {
 
     // Треки, для которых уже пробовали SC-фолбэк в текущей попытке воспроизведения (защита от цикла).
     private scFallbackTried = new Set<string>();
+    private yandexFallbackTried = new Set<string>();
 
     constructor() {
         this.audioA = new Audio();
@@ -299,9 +304,20 @@ class PlayerStore {
                 this.autoplay = savedAutoplay === 'true';
             }
 
-            const savedRadioMode = localStorage.getItem('ytm-radio-mode');
-            if (savedRadioMode === 'youtube' || savedRadioMode === 'soundcloud' || savedRadioMode === 'hybrid') {
-                this.radioMode = savedRadioMode;
+            const savedRadioSources = localStorage.getItem('ytm-radio-sources');
+            if (savedRadioSources) {
+                try {
+                    const parsed = JSON.parse(savedRadioSources);
+                    if (Array.isArray(parsed)) {
+                        const clean = parsed.filter((s): s is TrackSource => s === 'youtube' || s === 'soundcloud' || s === 'yandex');
+                        if (clean.length > 0) this.radioSources = clean;
+                    }
+                } catch {}
+            } else {
+                // Миграция со старого эксклюзивного ytm-radio-mode.
+                const savedRadioMode = localStorage.getItem('ytm-radio-mode');
+                if (savedRadioMode === 'soundcloud') this.radioSources = ['soundcloud'];
+                else if (savedRadioMode === 'hybrid') this.radioSources = ['youtube', 'soundcloud'];
             }
 
             const savedRPC = localStorage.getItem('ytm-rpc-enabled');
@@ -353,7 +369,7 @@ class PlayerStore {
                 localStorage.setItem('ytm-shuffle', this.shuffle.toString());
                 localStorage.setItem('ytm-repeat', this.repeat);
                 localStorage.setItem('ytm-autoplay', this.autoplay.toString());
-                localStorage.setItem('ytm-radio-mode', this.radioMode);
+                localStorage.setItem('ytm-radio-sources', JSON.stringify(this.radioSources));
                 localStorage.setItem('ytm-rpc-enabled', this.rpcEnabled.toString());
                 localStorage.setItem('ytm-normalization-enabled', this.normalizationEnabled.toString());
                 localStorage.setItem('ytm-queue-source', this.queueSourceId || '');
@@ -933,8 +949,8 @@ class PlayerStore {
     private async startPlayback(track: YTMTrack, isRetry: boolean = false, startTime: number = 0) {
         const currentPlaybackId = ++this.playbackId;
 
-        // Свежий (не ретрай) запуск трека снова даёт право на SC-фолбэк.
-        if (!isRetry) this.scFallbackTried.delete(track.id);
+        // Свежий (не ретрай) запуск трека снова даёт право на SC/Yandex-фолбэк.
+        if (!isRetry) { this.scFallbackTried.delete(track.id); this.yandexFallbackTried.delete(track.id); }
 
         this.isStreamLoading = true;
         this.hasStreamError = false;
@@ -1001,7 +1017,7 @@ class PlayerStore {
                         return;
                     }
                     if (!isRetry) this.startPlayback(track, true, startTime);
-                    else if (!(await this.tryScFallback(track, startTime))) this.handleFinalError();
+                    else if (!(await this.tryScFallback(track, startTime)) && !(await this.tryYandexFallback(track, startTime))) this.handleFinalError();
                 };
 
                 const onCanPlay = async () => {
@@ -1032,12 +1048,12 @@ class PlayerStore {
                 this.audioA.addEventListener('canplay', onCanPlay);
             } else {
                 if (!isRetry) this.startPlayback(track, true, startTime);
-                else if (!(await this.tryScFallback(track, startTime))) this.handleFinalError();
+                else if (!(await this.tryScFallback(track, startTime)) && !(await this.tryYandexFallback(track, startTime))) this.handleFinalError();
             }
         } catch (e) {
             if (currentPlaybackId === this.playbackId) {
                 if (!isRetry) this.startPlayback(track, true, startTime);
-                else if (!(await this.tryScFallback(track, startTime))) this.handleFinalError();
+                else if (!(await this.tryScFallback(track, startTime)) && !(await this.tryYandexFallback(track, startTime))) this.handleFinalError();
             }
         }
     }
@@ -1072,6 +1088,39 @@ class PlayerStore {
         this.saveState();
 
         // isRetry=true: не сбрасываем scFallbackTried, чтобы при провале и SC не зациклиться.
+        await this.startPlayback(this.currentTrack ?? track, true, startTime);
+        return true;
+    }
+
+    /**
+     * Аналог tryScFallback для Yandex Music: если YT (и SC) недоступны, ищем трек
+     * в Yandex по «artist title» и играем оттуда.
+     */
+    private async tryYandexFallback(track: YTMTrack, startTime: number): Promise<boolean> {
+        if (!isYandexEnabled() || track.source === 'yandex') return false;
+        if (this.yandexFallbackTried.has(track.id)) return false;
+        this.yandexFallbackTried.add(track.id);
+
+        const query = [track.artists?.[0], track.title].filter(Boolean).join(' ').trim();
+        if (!query) return false;
+        console.log(`[player] YT/SC unavailable for ${track.id}, trying Yandex fallback: "${query}"`);
+
+        const results = await searchYandex(query);
+        const match = pickBestScMatch(results, this.parseDuration(track.duration));
+        if (!match?.yandexId) {
+            console.warn(`[player] Yandex fallback found no match for "${query}"`);
+            return false;
+        }
+
+        track.yandexId = match.yandexId;
+        track.yandexAlbumId = match.yandexAlbumId;
+        track.source = 'yandex';
+        if (this.currentTrack?.id === track.id) this.currentTrack = { ...track };
+        const qi = this.queue.findIndex(t => t.id === track.id);
+        if (qi !== -1) this.queue[qi] = { ...this.queue[qi], yandexId: match.yandexId, yandexAlbumId: match.yandexAlbumId, source: 'yandex' };
+        this.notify('state');
+        this.saveState();
+
         await this.startPlayback(this.currentTrack ?? track, true, startTime);
         return true;
     }
@@ -1124,20 +1173,35 @@ class PlayerStore {
         this.isRecommendationsLoading = true;
         this.notify('state');
         try {
-            // При выключенном SoundCloud режим = youtube. НО от SC-трека YT-радио построить нельзя
-            // (нет YT videoId — RDAMVM+<sc-url> невалиден), поэтому для SC-трека всегда SC-радио.
             const isMlct = this.queueSourceId === 'MLCT' || this.recommendationPlaylistId === 'MLCT';
             const seedTrack = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
             const seedIsSc = seedTrack?.source === 'soundcloud' || isSoundCloudId(videoId);
-            // SC-сид: в режиме «Гибрид» добираем YouTube через матч (как E3, но обратно); иначе SC-радио.
-            const mode = isMlct
-                ? 'youtube'
-                : (seedIsSc
-                    ? (isSoundCloudEnabled() && this.radioMode === 'hybrid' ? 'hybrid' : 'soundcloud')
-                    : (isSoundCloudEnabled() ? this.radioMode : 'youtube'));
-            if (mode === 'soundcloud') await this.fetchSoundCloudRadio(videoId, forceReplace);
-            else if (mode === 'hybrid') await this.fetchHybridRecommendations(videoId, forceReplace);
-            else await this.fetchYouTubeRecommendations(videoId, forceReplace);
+            const seedIsYandex = seedTrack?.source === 'yandex';
+
+            // Реально доступные источники = выбранные пользователем ∩ глобально включённые.
+            const globallyEnabled = new Set<TrackSource>(['youtube']);
+            if (isSoundCloudEnabled()) globallyEnabled.add('soundcloud');
+            if (isYandexEnabled()) globallyEnabled.add('yandex');
+            const sources = new Set(this.radioSources.filter(s => globallyEnabled.has(s)));
+            if (sources.size === 0) sources.add('youtube');
+
+            if (isMlct) {
+                sources.clear();
+                sources.add('youtube');
+            }
+            // От SC/Yandex-трека нельзя построить YT-радио (нет YT videoId) — платформа сида
+            // участвует всегда, даже если сейчас не выбрана в переключателе.
+            if (seedIsSc) sources.add('soundcloud');
+            if (seedIsYandex) sources.add('yandex');
+
+            if (sources.size === 1) {
+                const only = sources.values().next().value as TrackSource;
+                if (only === 'soundcloud') await this.fetchSoundCloudRadio(videoId, forceReplace);
+                else if (only === 'yandex') await this.fetchYandexRadio(videoId, forceReplace);
+                else await this.fetchYouTubeRecommendations(videoId, forceReplace);
+            } else {
+                await this.fetchMultiSourceRecommendations(videoId, forceReplace, sources);
+            }
         } catch (e) { console.error('[player] Failed to fetch recommendations:', e); }
         finally {
             this.isRecommendationsLoading = false;
@@ -1264,29 +1328,74 @@ class PlayerStore {
         this.applyRecommendations(fresh, forceReplace);
     }
 
-    private async fetchHybridRecommendations(videoId: string, forceReplace: boolean) {
+    // Yandex-радио от трека: related по yandexId, либо поиск по «artist title» как фолбэк/добор.
+    // Зеркалит scRadioTracks.
+    private async yandexRadioTracks(videoId: string): Promise<YTMTrack[]> {
+        const { track, query } = this.scRadioQuery(videoId);
+        let yandexTracks: YTMTrack[] = [];
+
+        if (!track?.yandexId && query) {
+            const match = await searchYandex(query, 3);
+            const best = pickBestScMatch(match, this.parseDuration(track?.duration || '0:00'));
+            if (best?.yandexId) yandexTracks = await getYandexRecommendations(best.yandexId);
+        }
+        if (yandexTracks.length === 0) {
+            yandexTracks = await getYandexRecommendations(track?.yandexId);
+        }
+        if (yandexTracks.length < 10 && query) {
+            const extra = await searchYandex(query, 25);
+            const ids = new Set(yandexTracks.map(t => t.id));
+            yandexTracks = [...yandexTracks, ...extra.filter(t => !ids.has(t.id))];
+        }
+        return yandexTracks;
+    }
+
+    private async fetchYandexRadio(videoId: string, forceReplace: boolean) {
+        const yandexTracks = await this.yandexRadioTracks(videoId);
+        const qIds = new Set(this.queue.map(t => t.id));
+        const fresh = yandexTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
+        this.applyRecommendations(fresh, forceReplace);
+    }
+
+    // 2+ источников одновременно (замена старого жёсткого fetchHybridRecommendations):
+    // тянем каждый активный источник параллельно, чистим кросс-платформенные дубли,
+    // чередуем round-robin через interleaveMany.
+    private async fetchMultiSourceRecommendations(videoId: string, forceReplace: boolean, sources: Set<TrackSource>) {
         const { track, query } = this.scRadioQuery(videoId);
         const seedIsSc = track?.source === 'soundcloud' || isSoundCloudId(videoId);
-        let ytSeedId: string | null = videoId;
-        let rid: string | null;
-        if (seedIsSc) {
-            // От SC-id YT-рекомендаций нет — матчим SC-трек к YouTube (как E3, в обратную сторону).
-            ytSeedId = query ? await this.findYouTubeSeed(query, track) : null;
-            rid = null;
-        } else {
-            rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+        const seedIsYandex = track?.source === 'yandex';
+        const seedIsForeign = seedIsSc || seedIsYandex;
+
+        let ytPromise: Promise<YTMTrack[]> = Promise.resolve([]);
+        if (sources.has('youtube')) {
+            let ytSeedId: string | null = videoId;
+            let rid: string | null = null;
+            if (seedIsForeign) {
+                // От SC/Yandex-id YT-рекомендаций нет — матчим к YouTube по «artist title».
+                ytSeedId = query ? await this.findYouTubeSeed(query, track) : null;
+            } else {
+                rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+            }
+            ytPromise = ytSeedId ? getQueueRecommendations(ytSeedId, rid).then(r => r.tracks || []) : Promise.resolve([]);
         }
-        const [ytRes, scTracks] = await Promise.all([
-            ytSeedId ? getQueueRecommendations(ytSeedId, rid) : Promise.resolve({ tracks: [] as YTMTrack[] }),
-            this.scRadioTracks(videoId),
-        ]);
+        const scPromise = sources.has('soundcloud') ? this.scRadioTracks(videoId) : Promise.resolve([]);
+        const yandexPromise = sources.has('yandex') ? this.yandexRadioTracks(videoId) : Promise.resolve([]);
+
+        const [ytRes, scTracks, yandexTracks] = await Promise.all([ytPromise, scPromise, yandexPromise]);
         const qIds = new Set(this.queue.map(t => t.id));
-        const ytFresh = (ytRes.tracks || []).filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
+        const ytFresh = ytRes.filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
         const scFresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
-        // Убираем SC-дубли YT-треков (одна и та же песня на разных платформах).
+        const yandexFresh = yandexTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
+
+        // Убираем кросс-платформенные дубли: SC/Yandex сверяем с YT и друг с другом.
         const scDeduped = scFresh.filter(sc => !ytFresh.some(yt => isDuplicateTrack(yt, sc)));
+        const yandexDeduped = yandexFresh.filter(yx =>
+            !ytFresh.some(yt => isDuplicateTrack(yt, yx)) &&
+            !scDeduped.some(sc => isDuplicateTrack(sc, yx))
+        );
+
         if (forceReplace) this.recommendations = [];
-        this.applyRecommendations(interleaveTracks(ytFresh, scDeduped), forceReplace);
+        this.applyRecommendations(interleaveMany([ytFresh, scDeduped, yandexDeduped]), forceReplace);
     }
 
     // Подбираем YouTube-видео под SC-трек (для гибрид-рекомендаций от SC-сида).
@@ -1473,12 +1582,21 @@ class PlayerStore {
     }
     toggleAutoplay() { this.autoplay = !this.autoplay; this.saveState(); this.notify('state'); }
 
-    setRadioMode(mode: 'youtube' | 'soundcloud' | 'hybrid') {
-        if (this.radioMode === mode) return;
-        this.radioMode = mode;
+    // Заменяет весь набор активных источников радио (минимум один — youtube как страховка).
+    setActiveSources(sources: TrackSource[]) {
+        const clean = Array.from(new Set(sources.length > 0 ? sources : ['youtube'] as TrackSource[]));
+        if (clean.length === this.radioSources.length && clean.every(s => this.radioSources.includes(s))) return;
+        this.radioSources = clean;
         this.saveState();
         this.notify('state');
         if (this.currentTrack) this.fetchRecommendations(this.currentTrack.id, true);
+    }
+
+    // Включает/выключает один источник, не трогая остальные.
+    toggleRadioSource(source: TrackSource, enabled: boolean) {
+        const set = new Set(this.radioSources);
+        if (enabled) set.add(source); else set.delete(source);
+        this.setActiveSources(Array.from(set));
     }
 
     getUpcoming(): YTMTrack[] {

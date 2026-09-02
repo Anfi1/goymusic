@@ -14,3 +14,4 @@ pytubefix>=10.11.0
 imageio-ffmpeg>=0.5.1
 nodriver
 syncedlyrics>=1.0.1
+yandex-music>=3.0.0

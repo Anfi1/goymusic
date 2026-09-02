@@ -1,5 +1,6 @@
 import { getContinuation, rateSong, YTMTrack, getPlaylistTracks } from './yt';
 import { isScAuthed, scSetLiked } from './soundcloud';
+import { yandexSetLiked } from './yandex';
 import { likedStore, LikedEntry, YtImportState } from './likedStore';
 import { tracksStore } from './tracks';
 import { scLikedManager } from './scLikedManager';
@@ -266,8 +267,8 @@ class LikedManager {
 
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id } }));
 
-    // У SoundCloud нет дизлайка — действие недоступно (сбрасываем кнопку).
-    if (track.source === 'soundcloud') {
+    // У SoundCloud и Yandex Music нет дизлайка — действие недоступно (сбрасываем кнопку).
+    if (track.source === 'soundcloud' || track.source === 'yandex') {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
       return false;
     }
@@ -303,6 +304,22 @@ class LikedManager {
     
     // Глобальное событие начала
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id } }));
+
+    // Yandex-трек: лайк уходит в Yandex Music (токен уже на бэкенде, sync всегда серверный).
+    if (track.source === 'yandex') {
+      const ok = await yandexSetLiked(track.yandexId, newStatus === 'LIKE');
+      if (ok) {
+        if (newStatus === 'LIKE') {
+          await likedStore.putYandexTrack({ yandexId: track.yandexId!, trackId: track.id, likedAt: Date.now() });
+        } else if (track.yandexId) {
+          await likedStore.deleteYandexTrack(track.yandexId);
+        }
+        window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'success', likeStatus: newStatus } }));
+        return true;
+      }
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+      return false;
+    }
 
     // SoundCloud-трек: лайк уходит на SoundCloud (нужен oauth_token), не в YT-библиотеку.
     if (track.source === 'soundcloud') {

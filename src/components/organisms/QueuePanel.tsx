@@ -8,7 +8,9 @@ import { RotateCw } from 'lucide-react';
 import styles from './QueuePanel.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { YTMTrack } from '../../api/yt';
+import { TrackSource } from '../../api/source';
 import { isSoundCloudEnabled } from '../../api/soundcloud';
+import { isYandexEnabled } from '../../api/yandex';
 
 interface QueuePanelProps {
   onSelectAlbum: (id: string) => void;
@@ -18,41 +20,56 @@ interface QueuePanelProps {
   waveMode?: boolean;
 }
 
-const RADIO_MODES: { key: 'youtube' | 'soundcloud' | 'hybrid', label: string }[] = [
-  { key: 'youtube', label: 'YT' },
-  { key: 'soundcloud', label: 'SC' },
-  { key: 'hybrid', label: 'Гибрид' },
-];
+const SOURCE_LABELS: Record<TrackSource, string> = {
+  youtube: 'YT',
+  soundcloud: 'SC',
+  yandex: 'Я',
+};
 
-// Переключатель источника автодозагрузки очереди. Виден только при включённом SoundCloud.
+// Переключатель источников автодозагрузки очереди -- мульти-select: каждый источник
+// включается/выключается независимо, смешивание (бывший «Гибрид») теперь неявное
+// (>1 активного источника). YT/SC/Yandex видны только если соответствующая интеграция включена.
 const RadioModeSwitcher = memo(() => {
-  const [mode, setMode] = useState(player.radioMode);
+  const [active, setActive] = useState(player.radioSources);
   const [scEnabled, setScEnabled] = useState(isSoundCloudEnabled());
+  const [yandexEnabled, setYandexEnabled] = useState(isYandexEnabled());
   useEffect(() => {
     const unsub = player.subscribe((ev) => {
       if (ev !== 'state') return;
-      if (player.radioMode !== mode) setMode(player.radioMode);
+      setActive(prev => {
+        const cur = player.radioSources;
+        return (cur.length === prev.length && cur.every(s => prev.includes(s))) ? prev : cur;
+      });
     });
     const onScChange = (e: Event) => setScEnabled((e as CustomEvent).detail.enabled);
+    const onYandexChange = (e: Event) => setYandexEnabled((e as CustomEvent).detail.enabled);
     window.addEventListener('sc-enabled-changed', onScChange);
-    return () => { unsub(); window.removeEventListener('sc-enabled-changed', onScChange); };
-  }, [mode]);
+    window.addEventListener('yandex-enabled-changed', onYandexChange);
+    return () => {
+      unsub();
+      window.removeEventListener('sc-enabled-changed', onScChange);
+      window.removeEventListener('yandex-enabled-changed', onYandexChange);
+    };
+  }, []);
 
-  if (!scEnabled) return null;
+  const visibleSources: TrackSource[] = ['youtube', ...(scEnabled ? ['soundcloud' as const] : []), ...(yandexEnabled ? ['yandex' as const] : [])];
+  if (visibleSources.length <= 1) return null;
 
   return (
-    <div className={styles.radioSwitcher} role="tablist" data-tooltip="Источник радио">
-      {RADIO_MODES.map(({ key, label }) => (
-        <button
-          key={key}
-          className={`${styles.radioSegment} ${mode === key ? styles.radioSegmentActive : ''}`}
-          onClick={() => player.setRadioMode(key)}
-          role="tab"
-          aria-selected={mode === key}
-        >
-          {label}
-        </button>
-      ))}
+    <div className={styles.radioSwitcher} data-tooltip="Источники радио">
+      {visibleSources.map((key) => {
+        const isActive = active.includes(key);
+        return (
+          <button
+            key={key}
+            className={`${styles.radioSegment} ${isActive ? styles.radioSegmentActive : ''}`}
+            onClick={() => player.toggleRadioSource(key, !isActive)}
+            aria-pressed={isActive}
+          >
+            {SOURCE_LABELS[key]}
+          </button>
+        );
+      })}
     </div>
   );
 });

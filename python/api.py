@@ -39,6 +39,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USER_DATA_DIR = os.environ.get('GOYMUSIC_USER_DATA', BASE_DIR)
 OAUTH_FILE = os.path.join(USER_DATA_DIR, 'oauth.json')
 BROWSER_FILE = os.path.join(USER_DATA_DIR, 'browser.json')
+YANDEX_FILE = os.path.join(USER_DATA_DIR, 'yandex.json')
 
 # Credentials (not used if using browser.json)
 CLIENT_ID = None
@@ -53,6 +54,11 @@ _auth_data = None
 _auth_type = None # 'browser' or 'oauth'
 ytm_lock = threading.Lock()
 stdout_lock = threading.Lock()
+
+# Яндекс.Музыка: клиент кэшируется как get_api() для YTMusic -- токен читается
+# один раз из yandex.json, пересоздаётся только на login/logout.
+_yandex_client = None
+_yandex_lock = threading.Lock()
 
 # dataSyncId аккаунта для GVS PO Token (см. _fetch_stream_meta) — стабилен на весь сеанс,
 # достаём один раз из первого успешного player-ответа и переиспользуем.
@@ -438,6 +444,52 @@ def measure_loudness_full(stream_url):
     if loudness < 0:
         loudness = max(loudness, tp + 1.0)
     return loudness, tp
+
+def get_yandex_client(force=False):
+    """Клиент yandex_music.Client, поднятый из токена в yandex.json (Device Flow).
+    None, если пользователь не авторизован."""
+    global _yandex_client
+    with _yandex_lock:
+        if _yandex_client is not None and not force:
+            return _yandex_client
+        if force:
+            _yandex_client = None
+        if not os.path.exists(YANDEX_FILE):
+            return None
+        try:
+            from yandex_music import Client as _YClient
+            with open(YANDEX_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            token = data.get('token')
+            if not token:
+                return None
+            client = _YClient(token).init()
+            _yandex_client = client
+            return client
+        except Exception as e:
+            print(f"[yandex] failed to load client: {e}", file=sys.stderr)
+            return None
+
+
+def yandex_track_dict(t):
+    """Трек yandex_music.Track -> тот же плоский формат, что и SC-треки (sc_* команды),
+    только source='yandex' и yandexId вместо scId."""
+    artists = getattr(t, 'artists', None) or []
+    albums = getattr(t, 'albums', None) or []
+    album_id = albums[0].id if albums else None
+    cover_uri = getattr(t, 'cover_uri', None) or getattr(t, 'og_image', None)
+    thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+    return {
+        'yandexId': str(t.id),
+        'title': t.title or '',
+        'artist': artists[0].name if artists else '',
+        'duration': int((getattr(t, 'duration_ms', 0) or 0) / 1000),
+        'thumbUrl': thumb,
+        'source': 'yandex',
+        'albumId': str(album_id) if album_id else None,
+        'url': (f'https://music.yandex.ru/album/{album_id}/track/{t.id}' if album_id else ''),
+    }
+
 
 def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playlist_id=None):
     try:
@@ -1819,7 +1871,7 @@ def _resolve_fast(video_id, expected_sec=None, _swapped=False):
 
 
 def handle_request(request):
-    global _auth_data, _auth_type
+    global _auth_data, _auth_type, _yandex_client
     command = request.get('command')
     call_id = request.get('callId')
     
@@ -4406,6 +4458,238 @@ def handle_request(request):
                         print(f"[warn] ffmpeg volumedetect failed: {e2}", file=sys.stderr)
 
             safe_print({'status': 'ok', 'gainDb': gain_db, 'callId': call_id})
+
+        elif command == 'yandex_auth_start':
+            # OAuth Device Flow, шаг 1: код устройства + ссылка для подтверждения.
+            try:
+                from yandex_music import Client as _YClient
+                code = _YClient().request_device_code()
+                safe_print({
+                    'status': 'ok',
+                    'deviceCode': code.device_code,
+                    'userCode': code.user_code,
+                    'verificationUrl': code.verification_url,
+                    'expiresIn': code.expires_in,
+                    'interval': code.interval,
+                    'callId': call_id,
+                })
+            except Exception as e:
+                print(f"[error] yandex_auth_start: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_auth_poll':
+            # Шаг 2: однократный опрос -- фронт вызывает по таймеру раз в code.interval.
+            device_code = request.get('deviceCode', '')
+            try:
+                from yandex_music import Client as _YClient
+                token = _YClient().poll_device_token(device_code)
+                if token is None:
+                    safe_print({'status': 'pending', 'callId': call_id})
+                else:
+                    with _yandex_lock:
+                        with open(YANDEX_FILE, 'w', encoding='utf-8') as f:
+                            json.dump({'token': token.access_token}, f)
+                    client = get_yandex_client(force=True)
+                    login = ''
+                    if client and client.me and client.me.account:
+                        login = client.me.account.display_name or client.me.account.login or ''
+                    safe_print({'status': 'ok', 'login': login, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_auth_poll: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_auth_status':
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'ok', 'connected': False, 'callId': call_id})
+                else:
+                    login = ''
+                    if client.me and client.me.account:
+                        login = client.me.account.display_name or client.me.account.login or ''
+                    safe_print({'status': 'ok', 'connected': True, 'login': login, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_auth_status: {e}", file=sys.stderr)
+                safe_print({'status': 'ok', 'connected': False, 'callId': call_id})
+
+        elif command == 'yandex_logout':
+            if os.path.exists(YANDEX_FILE):
+                os.remove(YANDEX_FILE)
+            _yandex_client = None
+            safe_print({'status': 'ok', 'callId': call_id})
+
+        elif command == 'yandex_liked_tracks':
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    likes = client.users_likes_tracks()
+                    shorts = likes.tracks if likes else []
+                    ids = [str(s.id) for s in shorts]
+                    full = client.tracks(ids) if ids else []
+                    by_id = {str(t.id): t for t in full if t}
+                    results = []
+                    for s in shorts:
+                        t = by_id.get(str(s.id))
+                        if not t:
+                            continue
+                        d = yandex_track_dict(t)
+                        d['likedAt'] = s.timestamp
+                        results.append(d)
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_liked_tracks: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_set_liked':
+            track_id = request.get('yandexId', '')
+            liked = request.get('liked', True)
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    if liked:
+                        client.users_likes_tracks_add(track_id)
+                    else:
+                        client.users_likes_tracks_remove(track_id)
+                    safe_print({'status': 'ok', 'liked': liked, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_set_liked: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_wave_tracks':
+            # "Моя волна" -- станция user:onyourwave через rotor API.
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    res = client.rotor_station_tracks('user:onyourwave')
+                    results = []
+                    if res:
+                        for seq in res.sequence:
+                            if seq.track:
+                                results.append(yandex_track_dict(seq.track))
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_wave_tracks: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_recommendations':
+            # Радио от трека -- похожие треки (аналог sc_recommendations).
+            track_id = request.get('yandexId', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    sim = client.tracks_similar(track_id)
+                    results = [yandex_track_dict(t) for t in ((sim.similar_tracks if sim else []) or [])]
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_recommendations: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_new_releases':
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    landing = client.new_releases()
+                    album_ids = ((landing.new_releases if landing else []) or [])[:30]
+                    albums = client.albums(album_ids) if album_ids else []
+                    results = []
+                    for a in albums:
+                        if not a:
+                            continue
+                        artists = getattr(a, 'artists', None) or []
+                        cover_uri = getattr(a, 'cover_uri', None) or getattr(a, 'og_image', None)
+                        thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                        results.append({
+                            'albumId': str(a.id),
+                            'title': a.title or '',
+                            'artist': artists[0].name if artists else '',
+                            'thumbUrl': thumb,
+                            'year': getattr(a, 'year', None),
+                            'trackCount': getattr(a, 'track_count', None),
+                        })
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_new_releases: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_album_tracks':
+            album_id = request.get('albumId', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    album = client.albums_with_tracks(album_id)
+                    results = []
+                    if album and album.volumes:
+                        for vol in album.volumes:
+                            for t in vol:
+                                results.append(yandex_track_dict(t))
+                    cover_uri = getattr(album, 'cover_uri', None) if album else None
+                    thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                    safe_print({
+                        'status': 'ok',
+                        'title': (album.title if album else ''),
+                        'thumbUrl': thumb,
+                        'results': results,
+                        'callId': call_id,
+                    })
+            except Exception as e:
+                print(f"[error] yandex_album_tracks: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_stream_url':
+            # Прямая ссылка живёт ~1 минуту с момента получения -- не кэшировать надолго.
+            track_id = request.get('yandexId', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    infos = client.tracks_download_info(track_id, get_direct_links=True)
+                    if not infos:
+                        safe_print({'status': 'error', 'message': 'no download info', 'callId': call_id})
+                    else:
+                        best = sorted(infos, key=lambda i: (i.codec != 'mp3', -i.bitrate_in_kbps))[0]
+                        link = best.direct_link or best.get_direct_link()
+                        # Прямая ссылка живёт ~60с с момента получения -- отдаём короткий
+                        # запас, чтобы фронт не полагался на общий getExpirationFromUrl().
+                        safe_print({
+                            'status': 'ok',
+                            'url': link,
+                            'expires': int(time.time()) + 45,
+                            'bitrate': best.bitrate_in_kbps,
+                            'codec': best.codec,
+                            'callId': call_id,
+                        })
+            except Exception as e:
+                print(f"[error] yandex_stream_url: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_search':
+            # Поиск треков в Yandex Music (для гибрид-подмешивания от YT/SC-сида).
+            query = request.get('query', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    res = client.search(query, type_='track')
+                    tracks = (res.tracks.results if res and res.tracks else []) or []
+                    results = [yandex_track_dict(t) for t in tracks[:25]]
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_search: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'yandex_import_streaming':
             from difflib import SequenceMatcher

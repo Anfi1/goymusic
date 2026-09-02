@@ -20,6 +20,43 @@ export function registerSoundCloudTrack(id: string, scUrl: string) {
 }
 
 /**
+ * Реестр Yandex-треков: id трека -> yandexId. Прямая ссылка на mp3 живёт ~60с,
+ * поэтому в отличие от SC/YT кэш стрима для Yandex почти всегда будет протухшим --
+ * это ожидаемо, get_stream_url-эквивалент (yandex_stream_url) запрашивается заново.
+ */
+const yandexRegistry = new Map<string, string>();
+
+export function registerYandexTrack(id: string, yandexId: string) {
+    if (id && yandexId) yandexRegistry.set(id, yandexId);
+}
+
+async function fetchYandexStream(id: string, yandexId: string): Promise<CacheEntry | null> {
+    if (pendingRequests.has(id)) {
+        return pendingRequests.get(id)!;
+    }
+    const callId = createCallId();
+    const requestPromise = (async () => {
+        try {
+            const res = await (window as any).bridge.pyCall('yandex_stream_url', { yandexId, callId });
+            if (res.status === 'ok' && res.url) {
+                const expires = res.expires ?? (Math.floor(Date.now() / 1000) + 45);
+                await streamCache.set(id, res.url, expires, null);
+                console.log(`[stream] Yandex fetch: ${id} -> Done`);
+                return { url: res.url, expires, loudness: null };
+            }
+            console.warn(`[stream] Yandex fetch: ${id} -> Failed`, res);
+        } catch (e) {
+            console.error(`[stream] Yandex fetch: ${id} -> Error`, e);
+        } finally {
+            pendingRequests.delete(id);
+        }
+        return null;
+    })();
+    pendingRequests.set(id, requestPromise);
+    return requestPromise;
+}
+
+/**
  * Резолв играбельного стрима SoundCloud через Python get_preview_url.
  * Кэшируется по id трека так же, как YouTube-стримы.
  */
@@ -211,7 +248,24 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
         }
     }
 
-    // Приоритет 2: SoundCloud
+    // Приоритет 2: Yandex Music (прямая ссылка живёт ~60с -- кэш почти всегда мимо,
+    // но проверяем на случай мгновенного повторного вызова в пределах этого окна).
+    const yandexId = yandexRegistry.get(videoId);
+    if (yandexId) {
+        if (!forceBypassCache) {
+            const cached = await streamCache.get(videoId);
+            if (cached) {
+                console.log(`[stream] SOURCE: yandex-cache (${videoId})`);
+                return cached;
+            }
+        } else {
+            await streamCache.delete(videoId);
+        }
+        console.log(`[stream] SOURCE: yandex-stream (${videoId})`);
+        return fetchYandexStream(videoId, yandexId);
+    }
+
+    // Приоритет 3: SoundCloud
     const scUrl = scRegistry.get(videoId);
     if (scUrl) {
         if (!forceBypassCache) {
@@ -256,6 +310,10 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
  */
 export async function prefetchStreamUrl(videoId: string, expectedSec?: number) {
     await streamCache.init();
+
+    // Yandex-ссылка живёт ~60с -- префетч заранее почти гарантированно протухнет
+    // к моменту реального воспроизведения, поэтому просто ждём getStreamUrl() при play.
+    if (yandexRegistry.has(videoId)) return;
 
     const scUrlPrefetch = scRegistry.get(videoId);
     if (scUrlPrefetch) {

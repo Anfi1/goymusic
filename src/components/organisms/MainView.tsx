@@ -21,6 +21,8 @@ import { likedManager } from '../../api/likedManager';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
+import { YandexLikesView } from './YandexLikesView';
+import { isYandexEnabled } from '../../api/yandex';
 import { 
   Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar
 } from 'lucide-react';
@@ -464,6 +466,7 @@ export const MainView = memo<MainViewProps>(({
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [yandexLikesOpen, setYandexLikesOpen] = useState(false);
 
   const headerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -690,8 +693,26 @@ export const MainView = memo<MainViewProps>(({
   if (isSearch) return <SearchView searchQuery={activeView.searchQuery || ''} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSearchAgain={onSearchAgain} />;
   if (!isAuthenticated && !isInitializing) return null;
 
+  const isLikedSongsView = playlistType === 'liked' || playlistId === 'LM';
+  if (isLikedSongsView && yandexLikesOpen) {
+    return <YandexLikesView onBack={() => setYandexLikesOpen(false)} />;
+  }
+
   return (
-    <div className={styles.container} style={{ perspective: '1000px', isolation: 'isolate' }}>
+    <div className={styles.container} style={{ perspective: '1000px', isolation: 'isolate', position: 'relative' }}>
+      {isLikedSongsView && isYandexEnabled() && (
+        <button
+          onClick={() => setYandexLikesOpen(true)}
+          style={{
+            position: 'absolute', top: 12, right: 12, zIndex: 5,
+            padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            fontSize: 12, fontWeight: 700, background: '#ffcc00', color: '#1a1a1a',
+          }}
+          title="Показать лайки Yandex Music"
+        >
+          Yandex Music
+        </button>
+      )}
       <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div className={styles.virtuosoWrapper}>
         <TableVirtuoso 

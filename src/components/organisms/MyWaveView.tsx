@@ -7,9 +7,11 @@ import { likedManager } from '../../api/likedManager';
 import { YTMTrack, getMixedForYou, getPlaylistTracks } from '../../api/yt';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 import {
-  isSoundCloudEnabled, interleaveTracks, isScAuthed,
+  isSoundCloudEnabled, interleaveMany, isScAuthed,
   getScWaveStations, getScStationTracks,
 } from '../../api/soundcloud';
+import { isYandexEnabled, getYandexWaveTracks } from '../../api/yandex';
+import type { TrackSource } from '../../api/source';
 import { LazyImage } from '../atoms/LazyImage';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { ProgressBar, ProgressBarRef } from '../atoms/ProgressBar';
@@ -25,9 +27,10 @@ import styles from './MyWaveView.module.css';
 const WAVE_SOURCE_ID = 'my-wave';
 const WAVE_ACTIVE_ID_KEY = 'goymusic-my-wave-active-id';
 
-interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'foryou' | 'sc' | 'yt' | 'curated'; }
+interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'foryou' | 'sc' | 'yt' | 'curated' | 'yandex'; }
 const FORYOU: WaveStation = { id: 'foryou', title: 'Для тебя', thumbUrl: '', kind: 'foryou' };
 const CURATED: WaveStation = { id: 'curated', title: 'Мой подбор', thumbUrl: '', kind: 'curated' };
+const YANDEX_WAVE: WaveStation = { id: 'yandex-wave', title: 'Яндекс: Моя волна', thumbUrl: '', kind: 'yandex' };
 const WAVE_CURATED_MOODS_KEY = 'ytm-curated-moods';
 const MOOD_TAG_CATS = moodTagCategories();
 
@@ -351,7 +354,8 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         return /супер|super|рекоменд|новых релизов|new release|архив|replay|риплей/i.test(lower);
       });
       const sc = stations.filter(st => st.kind === 'sc');
-      const list = [FORYOU, ...golden, ...sc];
+      const yandexPin = isYandexEnabled() ? [YANDEX_WAVE] : [];
+      const list = [FORYOU, ...yandexPin, ...golden, ...sc];
       const unique = new Map(list.map(s => [s.id, s]));
       return activeStation && !unique.has(activeStation.id)
         ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
@@ -359,6 +363,13 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     }
     if (selectedFilter === 'soundcloud' || selectedFilter === 'genre') {
       const list = stations.filter(st => st.kind === 'sc');
+      const unique = new Map([FORYOU, ...list].map(s => [s.id, s]));
+      return activeStation && !unique.has(activeStation.id)
+        ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
+        : Array.from(unique.values());
+    }
+    if (selectedFilter === 'yandex') {
+      const list = isYandexEnabled() ? [YANDEX_WAVE] : [];
       const unique = new Map([FORYOU, ...list].map(s => [s.id, s]));
       return activeStation && !unique.has(activeStation.id)
         ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
@@ -517,9 +528,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     document.addEventListener('pointerup', onUp);
   }, []);
 
-  // «Для тебя»: лайки (YT + SC), при их отсутствии — недавняя история.
+  // «Для тебя»: лайки (YT + SC + Yandex), при их отсутствии — недавняя история.
   const buildPersonalizedSeeds = useCallback(async (): Promise<YTMTrack[]> => {
     const scOn = isSoundCloudEnabled();
+    const yandexOn = isYandexEnabled();
     const likes = await likedStore.getAllTracks();
     const hydratedLikes = await likedStore.hydrateTracks(likes);
     let ytPool = hydratedLikes.map(e => e.track).filter(t => t && t.isAvailable !== false);
@@ -530,9 +542,14 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     }
     const scEntries = scOn ? await likedStore.getAllScTracks() : [];
     const scPool = scOn ? (await likedStore.hydrateScTracks(scEntries)).map(e => e.track) : [];
+    const yandexEntries = yandexOn ? await likedStore.getAllYandexTracks() : [];
+    const yandexPool = yandexOn ? (await likedStore.hydrateYandexTracks(yandexEntries)).map(e => e.track) : [];
     const ytSeeds = shuffle(ytPool).slice(0, 30);
     const scSeeds = shuffle(scPool).slice(0, 15);
-    return scSeeds.length ? interleaveTracks(ytSeeds, scSeeds).slice(0, 40) : ytSeeds.slice(0, 40);
+    const yandexSeeds = shuffle(yandexPool).slice(0, 15);
+    return (scSeeds.length || yandexSeeds.length)
+      ? interleaveMany([ytSeeds, scSeeds, yandexSeeds]).slice(0, 40)
+      : ytSeeds.slice(0, 40);
   }, []);
 
   const startStation = useCallback(async (st: WaveStation, btn?: HTMLElement) => {
@@ -554,6 +571,8 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       } else if (st.kind === 'sc') {
         // Порядок плейлиста сохраняем (как на сайте SoundCloud), без перемешивания.
         seeds = (await getScStationTracks(st.id)).slice(0, 50);
+      } else if (st.kind === 'yandex') {
+        seeds = (await getYandexWaveTracks()).slice(0, 50);
       } else {
         const res = await getPlaylistTracks(st.id, 60);
         seeds = res.tracks || [];
@@ -567,8 +586,15 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         return;
       }
       if (!player.autoplay) player.toggleAutoplay();
-      // SC/персональные станции — гибридный поток; YT-микс оставляем на родном радио.
-      if (st.kind !== 'yt' && isSoundCloudEnabled()) player.setRadioMode('hybrid');
+      // SC/Yandex/персональные станции — смешанный поток; YT-микс оставляем на родном радио.
+      if (st.kind === 'sc' && isSoundCloudEnabled()) player.setActiveSources(['youtube', 'soundcloud']);
+      else if (st.kind === 'yandex' && isYandexEnabled()) player.setActiveSources(['youtube', 'yandex']);
+      else if (st.kind === 'foryou') {
+        const sources: TrackSource[] = ['youtube'];
+        if (isSoundCloudEnabled()) sources.push('soundcloud');
+        if (isYandexEnabled()) sources.push('yandex');
+        if (sources.length > 1) player.setActiveSources(sources);
+      }
       await player.playTrackList(seeds, 0, WAVE_SOURCE_ID, undefined, recId);
     } catch (e) {
       console.error('[my-wave] start failed', e);
@@ -617,6 +643,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const isPlaying = waveActive && player.isPlaying;
   const likeStatus = track?.likeStatus;
   const isSc = track?.source === 'soundcloud';
+  const noDislike = isSc || track?.source === 'yandex';
 
   const onPrimary = useCallback(() => {
     if (waveActive) player.togglePlay();
@@ -653,14 +680,14 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   }, [track, likeStatus, likeAction]);
 
   const onDislike = useCallback(async () => {
-    if (!track || isSc || likeAction) return;
+    if (!track || noDislike || likeAction) return;
     setLikeAction('dislike');
     try {
       await likedManager.toggleDislike(track, likeStatus || 'INDIFFERENT');
     } finally {
       setLikeAction(null);
     }
-  }, [track, likeStatus, isSc, likeAction]);
+  }, [track, likeStatus, noDislike, likeAction]);
 
   const onShuffle = useCallback(() => {
     player.toggleShuffle();
@@ -701,6 +728,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
               ? `Подбор: ${builtMoods.map(id => MOOD_TAG_CATS.find(c => c.id === id)?.label).filter(Boolean).join(', ')}`
               : st.kind === 'foryou' ? 'Персональная'
               : st.kind === 'sc' ? 'SoundCloud'
+              : st.kind === 'yandex' ? 'Yandex Music'
               : 'YouTube Mix'
           }</span>
         </span>
@@ -898,12 +926,12 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
               <div className={styles.secondaryControls}>
                 {/* Dislike */}
                 <button
-                  className={`${styles.ctrl} ${likeStatus === 'DISLIKE' && !isSc ? styles.ctrlActiveBad : ''}`}
+                  className={`${styles.ctrl} ${likeStatus === 'DISLIKE' && !noDislike ? styles.ctrlActiveBad : ''}`}
                   onClick={onDislike}
-                  disabled={isSc || likeAction !== null}
-                  title={isSc ? 'SoundCloud не поддерживает дизлайк' : 'Не нравится'}
+                  disabled={noDislike || likeAction !== null}
+                  title={noDislike ? `${isSc ? 'SoundCloud' : 'Yandex Music'} не поддерживает дизлайк` : 'Не нравится'}
                 >
-                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={18} color={likeStatus === 'DISLIKE' && !isSc ? '#fab387' : isSc ? 'rgba(255,255,255,0.25)' : undefined} />}
+                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={18} color={likeStatus === 'DISLIKE' && !noDislike ? '#fab387' : noDislike ? 'rgba(255,255,255,0.25)' : undefined} />}
                 </button>
                 {/* Queue */}
                 <button

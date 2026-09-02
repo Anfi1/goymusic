@@ -23,6 +23,16 @@ export interface HydratedScLikedEntry extends ScLikedEntry {
   track: YTMTrack;
 }
 
+export interface YandexLikedEntry {
+  yandexId: string;
+  trackId: string;
+  likedAt: number;
+}
+
+export interface HydratedYandexLikedEntry extends YandexLikedEntry {
+  track: YTMTrack;
+}
+
 export interface YtImportState {
   version: 1;
   status: 'importing' | 'failed';
@@ -48,6 +58,11 @@ function ensureFinalStores(db: IDBDatabase) {
   if (!db.objectStoreNames.contains('yt_import_liked')) {
     const pending = db.createObjectStore('yt_import_liked', { keyPath: 'trackId' });
     pending.createIndex('originalIndex', 'originalIndex', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('yandex_liked')) {
+    const yandex = db.createObjectStore('yandex_liked', { keyPath: 'yandexId' });
+    yandex.createIndex('likedAt', 'likedAt', { unique: false });
+    yandex.createIndex('trackId', 'trackId', { unique: false });
   }
   if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
 }
@@ -113,7 +128,7 @@ function applyMigration(
 class LikedStore {
   private db: IDBDatabase | null = null;
   private readonly DB_NAME = 'goymusic-liked';
-  private readonly VERSION = 5;
+  private readonly VERSION = 6;
   private initPromise: Promise<void> | null = null;
   private pendingTrackMigrations: YTMTrack[] = [];
 
@@ -196,6 +211,12 @@ class LikedStore {
               console.log(`[liked] v4→v5: migrated yt_liked: ${entries.length} entries`);
             }
           };
+          return;
+        }
+
+        // ─── v5 → v6: add yandex_liked store ───
+        if (oldVersion >= 5 && oldVersion < 6) {
+          ensureFinalStores(db);
           return;
         }
 
@@ -501,6 +522,71 @@ class LikedStore {
     return new Promise<void>((resolve, reject) => {
       const tx = this.db!.transaction('sc_liked', 'readwrite');
       const store = tx.objectStore('sc_liked');
+      try {
+        store.clear();
+        entries.forEach(entry => store.put(entry));
+      } catch (error) {
+        tx.abort();
+        reject(error);
+        return;
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+  // ─── Yandex Music tracks ─────────────────────────────────────────────────
+  async getAllYandexTracks(): Promise<YandexLikedEntry[]> {
+    await this.init();
+    if (!this.db) return [];
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction('yandex_liked', 'readonly');
+      const index = tx.objectStore('yandex_liked').index('likedAt');
+      const request = index.openCursor(null, 'prev');
+      const results: YandexLikedEntry[] = [];
+      request.onsuccess = (e: any) => {
+        const cursor = e.target.result;
+        if (cursor) { results.push(cursor.value); cursor.continue(); }
+        else resolve(results);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async hydrateYandexTracks(entries: YandexLikedEntry[]): Promise<HydratedYandexLikedEntry[]> {
+    if (entries.length === 0) return [];
+    const ids = [...new Set(entries.map(e => e.trackId))];
+    const trackMap = await tracksStore.getTracks(ids);
+    return entries.map(e => ({
+      ...e,
+      track: trackMap.get(e.trackId)!,
+    })).filter(e => e.track);
+  }
+
+  async putYandexTrack(entry: YandexLikedEntry) {
+    await this.init();
+    if (!this.db) return;
+    return new Promise<void>((resolve, reject) => {
+      const tx = this.db!.transaction('yandex_liked', 'readwrite');
+      tx.objectStore('yandex_liked').put(entry);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async deleteYandexTrack(yandexId: string) {
+    await this.init();
+    if (!this.db) return;
+    const tx = this.db!.transaction('yandex_liked', 'readwrite');
+    tx.objectStore('yandex_liked').delete(yandexId);
+  }
+
+  async replaceYandexTracks(entries: YandexLikedEntry[]) {
+    await this.init();
+    if (!this.db) return;
+    return new Promise<void>((resolve, reject) => {
+      const tx = this.db!.transaction('yandex_liked', 'readwrite');
+      const store = tx.objectStore('yandex_liked');
       try {
         store.clear();
         entries.forEach(entry => store.put(entry));

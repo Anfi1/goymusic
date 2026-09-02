@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { clearTokens } from '../../api/yt';
 import { player } from '../../api/player';
 import { historyStore } from '../../api/history';
@@ -8,6 +8,7 @@ import { likedManager } from '../../api/likedManager';
 import { clearAllOverrides } from '../../api/localOverrides';
 import { streamCache } from '../../api/cache';
 import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath } from '../../api/soundcloud';
+import { isYandexEnabled, setYandexEnabled, yandexAuthStart, yandexAuthPoll, yandexAuthStatus, yandexLogout, YandexDeviceCode } from '../../api/yandex';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
@@ -31,6 +32,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [scUploading, setScUploading] = useState(false);
     const [scEnableModalOpen, setScEnableModalOpen] = useState(false);
     const [scBrowserPath, setScBrowserPathState] = useState<string>(getScBrowserPath());
+    const [yandexEnabled, setYandexEnabledState] = useState(isYandexEnabled());
+    const [yandexConnected, setYandexConnected] = useState(false);
+    const [yandexLogin, setYandexLogin] = useState('');
+    const [yandexDeviceCode, setYandexDeviceCode] = useState<YandexDeviceCode | null>(null);
+    const [yandexConnecting, setYandexConnecting] = useState(false);
+    const [yandexError, setYandexError] = useState('');
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
     const [historyCleanup, setHistoryCleanup] = useState(historyManager.cleanupInterval);
@@ -190,6 +197,79 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
             console.error('[sc-likes] upload failed', e);
         }
         setScUploading(false);
+    };
+
+    // При открытии настроек / включении интеграции перепроверяем статус авторизации в Yandex.
+    useEffect(() => {
+        if (!yandexEnabled) { setYandexConnected(false); setYandexLogin(''); return; }
+        let alive = true;
+        yandexAuthStatus().then(res => {
+            if (!alive) return;
+            setYandexConnected(res.connected);
+            setYandexLogin(res.login || '');
+        });
+        return () => { alive = false; };
+    }, [yandexEnabled]);
+
+    const handleToggleYandex = () => {
+        const next = !yandexEnabled;
+        setYandexEnabledState(next);
+        setYandexEnabled(next);
+    };
+
+    const yandexPollCancelled = useRef(false);
+
+    const handleYandexLogin = async () => {
+        if (yandexConnecting) return;
+        yandexPollCancelled.current = false;
+        setYandexConnecting(true);
+        setYandexError('');
+        const code = await yandexAuthStart();
+        if (!code) {
+            setYandexError('Failed to start device login.');
+            setYandexConnecting(false);
+            return;
+        }
+        setYandexDeviceCode(code);
+        try { (window as any).bridge.openExternal(code.verificationUrl); } catch { /* ignore */ }
+
+        const deadline = Date.now() + code.expiresIn * 1000;
+        const poll = async () => {
+            if (yandexPollCancelled.current) return;
+            if (Date.now() > deadline) {
+                setYandexError('Code expired — try again.');
+                setYandexDeviceCode(null);
+                setYandexConnecting(false);
+                return;
+            }
+            const res = await yandexAuthPoll(code.deviceCode);
+            if (yandexPollCancelled.current) return;
+            if (res.status === 'ok') {
+                setYandexConnected(true);
+                setYandexLogin(res.login);
+                setYandexDeviceCode(null);
+                setYandexConnecting(false);
+            } else if (res.status === 'error') {
+                setYandexError(res.message);
+                setYandexDeviceCode(null);
+                setYandexConnecting(false);
+            } else {
+                setTimeout(poll, code.interval * 1000);
+            }
+        };
+        setTimeout(poll, code.interval * 1000);
+    };
+
+    const handleYandexCancelLogin = () => {
+        yandexPollCancelled.current = true;
+        setYandexDeviceCode(null);
+        setYandexConnecting(false);
+    };
+
+    const handleYandexDisconnect = async () => {
+        await yandexLogout();
+        setYandexConnected(false);
+        setYandexLogin('');
     };
 
     const handleToggleNormalization = () => {
@@ -367,6 +447,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                 </button>
                             )}
                         </div>
+                    </div>
+                )}
+                <div className={styles.row}>
+                    <div className={styles.col}>
+                        <span>Yandex Music</span>
+                        <span className={styles.subtitle}>Mix Yandex Music into search, radio & "Моя волна" — sign in via device code.</span>
+                    </div>
+                    <label className={styles.switch}>
+                        <input
+                            type="checkbox"
+                            checked={yandexEnabled}
+                            onChange={handleToggleYandex}
+                        />
+                        <span className={styles.slider}></span>
+                    </label>
+                </div>
+                {yandexEnabled && (
+                    <div className={styles.row}>
+                        <div className={styles.col}>
+                            <span>Yandex account {yandexConnected ? `— ${yandexLogin}` : ''}</span>
+                            <span className={styles.subtitle}>
+                                {yandexConnected
+                                    ? 'Connected — likes, "Моя волна" & streaming enabled.'
+                                    : 'Sign in required: Yandex Music has no anonymous API access, unlike SoundCloud.'}
+                            </span>
+                            {yandexError && (
+                                <span className={styles.subtitle} style={{ color: 'var(--color-error, #f38ba8)' }}>
+                                    {yandexError}
+                                </span>
+                            )}
+                            {yandexDeviceCode && (
+                                <span className={styles.subtitle} style={{ color: '#ffcc00' }}>
+                                    Enter code <strong>{yandexDeviceCode.userCode}</strong> at {yandexDeviceCode.verificationUrl} (opened in browser)
+                                </span>
+                            )}
+                        </div>
+                        {yandexConnected ? (
+                            <button
+                                onClick={handleYandexDisconnect}
+                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                            >Disconnect</button>
+                        ) : yandexDeviceCode ? (
+                            <button
+                                onClick={handleYandexCancelLogin}
+                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                            >Cancel</button>
+                        ) : (
+                            <button
+                                onClick={handleYandexLogin}
+                                disabled={yandexConnecting}
+                                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#ffcc00', color: '#1a1a1a', fontWeight: 600, cursor: yandexConnecting ? 'default' : 'pointer', fontSize: 13, opacity: yandexConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                            >{yandexConnecting ? '...' : 'Log in to Yandex Music'}</button>
+                        )}
                     </div>
                 )}
             </div>

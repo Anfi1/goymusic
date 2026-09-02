@@ -15,6 +15,8 @@ import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
 import { useToast } from '../atoms/Toast';
 import { YTMHomeSection } from '../../api/yt';
 import { ActiveView } from '../../types';
+import { isYandexEnabled } from '../../api/yandex';
+import { YandexHomeView } from './YandexHomeView';
 import styles from './HomeView.module.css';
 
 const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
@@ -120,6 +122,7 @@ export const HomeView: React.FC<{
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, item: any } | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [yandexMode, setYandexMode] = useState(false);
 
   const {
     data,
@@ -256,22 +259,58 @@ export const HomeView: React.FC<{
     return items;
   }, [contextMenu, handlePlayClick, onSelectAlbum, onSelectPlaylist, handleFeedback]);
 
+  // Кнопка-переключатель в углу: YT-главная <-> Yandex-главная (волна + новинки).
+  // Видна только когда интеграция включена в настройках.
+  const yandexToggle = isYandexEnabled() ? (
+    <button
+      onClick={() => setYandexMode(v => !v)}
+      style={{
+        position: 'absolute', top: 12, right: 12, zIndex: 5,
+        padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+        fontSize: 12, fontWeight: 700,
+        background: yandexMode ? '#ffcc00' : 'rgba(255,255,255,0.08)',
+        color: yandexMode ? '#1a1a1a' : 'var(--text-main, #cdd6f4)',
+      }}
+      title={yandexMode ? 'Показать YouTube Music' : 'Показать Yandex Music'}
+    >
+      {yandexMode ? 'YouTube Music' : 'Yandex Music'}
+    </button>
+  ) : null;
+
+  if (yandexMode) {
+    return (
+      <div style={{ position: 'relative' }}>
+        {yandexToggle}
+        <YandexHomeView />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
-      <div className={styles.container}>
-        <SectionSkeleton variant="card" />
-        <SectionSkeleton variant="row" />
-        <SectionSkeleton variant="card" />
+      <div style={{ position: 'relative' }}>
+        {yandexToggle}
+        <div className={styles.container}>
+          <SectionSkeleton variant="card" />
+          <SectionSkeleton variant="row" />
+          <SectionSkeleton variant="card" />
+        </div>
       </div>
     );
   }
 
   if (isError && sections.length === 0) {
-    return <div className={styles.container} style={{ color: '#f38ba8', padding: 24 }}>Failed to load home feed.</div>;
+    return (
+      <div style={{ position: 'relative' }}>
+        {yandexToggle}
+        <div className={styles.container} style={{ color: '#f38ba8', padding: 24 }}>Failed to load home feed.</div>
+      </div>
+    );
   }
 
   return (
-    <div ref={containerRef} className={styles.container}>
+    <div ref={containerRef} className={styles.container} style={{ position: 'relative' }}>
+      {yandexToggle}
       {sections.map((section: any, idx: number) => {
         const Icon = getSectionIcon(section.category, idx === 0);
         const isSongGrid = section.category === 'song';

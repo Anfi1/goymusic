@@ -26,6 +26,8 @@ export interface YTMTrack {
     source?: TrackSource;
     scUrl?: string;
     scId?: string;
+    yandexId?: string;
+    yandexAlbumId?: string;
 }
 
 export interface YTMArtist {

@@ -8,14 +8,24 @@ interface SourceBadgeProps {
   size?: number;
 }
 
-// Помечаем только SoundCloud; YouTube не помечаем — меньше визуального шума.
+// Помечаем только SoundCloud и Yandex; YouTube не помечаем — меньше визуального шума.
 export const SourceBadge = memo(({ source, size = 14 }: SourceBadgeProps) => {
-  if (resolveSource(source) !== 'soundcloud') return null;
-  return (
-    <span className={styles.badge} data-tooltip="SoundCloud">
-      <Cloud size={size} color="#ff5500" />
-    </span>
-  );
+  const resolved = resolveSource(source);
+  if (resolved === 'soundcloud') {
+    return (
+      <span className={styles.badge} data-tooltip="SoundCloud">
+        <Cloud size={size} color="#ff5500" />
+      </span>
+    );
+  }
+  if (resolved === 'yandex') {
+    return (
+      <span className={styles.badge} data-tooltip="Yandex Music">
+        <span className={styles.yandexGlyph} style={{ width: size, height: size, fontSize: size * 0.72 }}>Я</span>
+      </span>
+    );
+  }
+  return null;
 });
 
 SourceBadge.displayName = 'SourceBadge';

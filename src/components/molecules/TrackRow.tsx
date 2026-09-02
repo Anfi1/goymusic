@@ -40,6 +40,8 @@ interface TrackRowProps {
   renderOnlyCells?: boolean;
   extraCells?: React.ReactNode[];
   source?: unknown;
+  yandexId?: string;
+  yandexAlbumId?: string;
 }
 
 const MemoizedPlayIcon = memo(() => <Play size={14} className={styles.playIcon} fill="currentColor" />);
@@ -116,6 +118,8 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
     source: (trackData as any).source,
     scUrl: (trackData as any).scUrl,
     scId: (trackData as any).scId,
+    yandexId: (trackData as any).yandexId,
+    yandexAlbumId: (trackData as any).yandexAlbumId,
   });
 
   const handleLike = useCallback(async (e: React.MouseEvent) => {
@@ -318,7 +322,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
         <td className={styles.durationCell}>
           <div className={styles.durationWrapper}>
             <OverrideIndicator id={id} />
-            {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike || resolveSource(source) === 'soundcloud'} /></div>}
+            {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike || resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex'} /></div>}
             <span className={styles.durationText}>{duration}</span>
           </div>
         </td>

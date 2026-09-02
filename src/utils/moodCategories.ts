@@ -20,6 +20,7 @@ export const MOOD_CATEGORIES: MoodCategory[] = [
   { id: 'discovery', label: 'Открытия',            emoji: '✨', keywords: ['рекоменд', 'новых релизов', 'new release', 'discover'], color: '#f5c2e7' },
   { id: 'genre',     label: 'Жанровое',            emoji: '🎸', keywords: [],                                                      color: '#f2cdcd' },
   { id: 'soundcloud',label: 'SoundCloud',          emoji: '☁️', keywords: [],                                                      color: '#ff7700' },
+  { id: 'yandex',    label: 'Yandex Music',        emoji: '🟡', keywords: [],                                                      color: '#ffcc00' },
 ];
 
 export function groupKey(title: string): string {
@@ -33,9 +34,9 @@ export function groupKey(title: string): string {
 
 export function assignCategory(groupName: string): MoodCategory | null {
   const lower = groupName.toLowerCase();
-  // Проверяем все категории кроме 'all' и 'soundcloud'/'genre'
+  // Проверяем все категории кроме 'all' и 'soundcloud'/'genre'/'yandex'
   for (const cat of MOOD_CATEGORIES) {
-    if (cat.id === 'all' || cat.id === 'genre' || cat.id === 'soundcloud') continue;
+    if (cat.id === 'all' || cat.id === 'genre' || cat.id === 'soundcloud' || cat.id === 'yandex') continue;
     if (cat.keywords.some(kw => lower.includes(kw))) return cat;
   }
   return null;

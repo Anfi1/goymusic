@@ -53,11 +53,17 @@ export function mergeTracks(yt: YTMTrack[], sc: YTMTrack[]): YTMTrack[] {
 
 // Чередуем 1:1 (50/50); остатки более длинного списка добавляем в конец.
 export function interleaveTracks(a: YTMTrack[], b: YTMTrack[]): YTMTrack[] {
+  return interleaveMany([a, b]);
+}
+
+// Round-robin чередование произвольного числа списков (используется для 3+ источников
+// в очереди: YT/SC/Yandex одновременно, вместо жёсткого 2-way interleave).
+export function interleaveMany(lists: YTMTrack[][]): YTMTrack[] {
   const out: YTMTrack[] = [];
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    if (i < a.length) out.push(a[i]);
-    if (i < b.length) out.push(b[i]);
+  const nonEmpty = lists.filter(l => l.length > 0);
+  const maxLen = Math.max(0, ...nonEmpty.map(l => l.length));
+  for (let i = 0; i < maxLen; i++) {
+    for (const l of nonEmpty) if (i < l.length) out.push(l[i]);
   }
   return out;
 }
