@@ -87,7 +87,7 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
     // Radio
     items.push({
       label: 'Start Radio', icon: Radio,
-      onClick: () => player.startRadio(track)
+      onClick: () => { player.startRadio(track); }
     });
 
     // 2. Навигация

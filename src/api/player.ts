@@ -1098,6 +1098,7 @@ class PlayerStore {
 
     async startRadio(track: YTMTrack) {
         if (track.isAvailable === false) return;
+        const alreadyPlayingThisTrack = this.currentTrack?.id === track.id && !this.hasStreamError;
         this.queueSourceId = null;
         this.queueSourceType = null;
         // Для SC-трека YT-плейлист RDAMVM невалиден — радио пойдёт через SC (fetchRecommendations).
@@ -1108,7 +1109,8 @@ class PlayerStore {
         this.queueIndex = 0;
         this.recommendations = [];
         this.notify('state');
-        await this.startPlayback(track);
+        // Трек уже играет -- не сбрасывать позицию и не перезапрашивать стрим заново.
+        if (!alreadyPlayingThisTrack) await this.startPlayback(track);
         await this.fetchRecommendations(track.id, true);
     }
 
@@ -1154,11 +1156,21 @@ class PlayerStore {
             if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD') || rid === 'MLCT')) {
                 const currentIndex = tracks.findIndex(t => t.id === videoId);
                 if (currentIndex !== -1) {
-                    // Preserve full YouTube queue order and queueIndex
-                    const fullQueue = tracks.map((t, i) => i === currentIndex ? { ...t, likeStatus: this.currentTrack?.likeStatus ?? t.likeStatus } : t);
-                    this.queue = fullQueue;
-                    this.queueIndex = currentIndex;
-                    this.currentTrack = this.queue[currentIndex];
+                    if (rid.startsWith('RD')) {
+                        // Радио (в т.ч. RDAMVM от startRadio): сид всегда первый, остальное -- следом.
+                        // YouTube не гарантирует позицию сида в сыром ответе радио-микса.
+                        const seedItem = { ...tracks[currentIndex], likeStatus: this.currentTrack?.likeStatus ?? tracks[currentIndex].likeStatus };
+                        const rest = tracks.filter((_, i) => i !== currentIndex);
+                        this.queue = [seedItem, ...rest];
+                        this.queueIndex = 0;
+                        this.currentTrack = this.queue[0];
+                    } else {
+                        // Альбом/плейлист/MLCT: сохраняем естественный порядок, сид остаётся на своей позиции.
+                        const fullQueue = tracks.map((t, i) => i === currentIndex ? { ...t, likeStatus: this.currentTrack?.likeStatus ?? t.likeStatus } : t);
+                        this.queue = fullQueue;
+                        this.queueIndex = currentIndex;
+                        this.currentTrack = this.queue[currentIndex];
+                    }
                     this.recommendations = [];
                     this.recommendationPlaylistId = null;
                     this.saveState();
