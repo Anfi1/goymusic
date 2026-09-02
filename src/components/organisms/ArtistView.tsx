@@ -664,7 +664,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 title={artist.name} 
                 thumbUrl={artist.thumbUrl} 
                 type="artist" 
-                description={artist.subscribers ? `${artist.subscribers} subscribers` : undefined} 
+                description={artist.subscribers || undefined}
                 onClick={() => onSelectArtist(artist.id)} 
               />
             )}

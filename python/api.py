@@ -2115,14 +2115,7 @@ def handle_request(request):
             except Exception:
                 pass
             
-            # Парсим ежемесячных слушателей
-            monthly_listeners = None
-            if 'слушателей' in description_text:
-                try: monthly_listeners = description_text.split('слушателей')[0].split('·')[-1].strip()
-                except: pass
-            elif 'monthly listeners' in description_text:
-                try: monthly_listeners = description_text.split('monthly listeners')[0].split('·')[-1].strip()
-                except: pass
+            monthly_listeners = info.get('monthlyListeners')
 
             def process_media_item(item, category):
                 try:
