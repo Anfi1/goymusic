@@ -22,10 +22,14 @@ import { likedStore } from '../../api/likedStore';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
-import { getCachedYandexLikedTracks, syncYandexLikedTracks, isYandexAlbumRouteId, isYandexPlaylistRouteId, yandexSetAlbumLiked } from '../../api/yandex';
+import { getCachedYandexLikedTracks, syncYandexLikedTracks, isYandexAlbumRouteId, isYandexPlaylistRouteId, yandexSetAlbumLiked, isYandexEnabled } from '../../api/yandex';
+import { isSoundCloudEnabled } from '../../api/soundcloud';
+import { TrackSource, resolveSource } from '../../api/source';
+import { SourceSwitcher } from '../atoms/SourceSwitcher';
 import {
-  Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar, RefreshCw
+  Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar
 } from 'lucide-react';
+
 import { openImageViewer } from '../molecules/ImageViewer';
 
 import { IconButton } from '../atoms/IconButton';
@@ -51,6 +55,7 @@ interface MainViewProps {
   canGoBack?: boolean;
 }
 
+const LIKED_SOURCES_KEY = 'ytm-liked-sources';
 const HEADER_HEIGHT = 320;
 const STICKY_THRESHOLD = 160;
 const AUTO_SCROLL_THRESHOLD = 100;
@@ -95,8 +100,9 @@ const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, cont
         setSortMode={context.setSortMode}
         isSorting={context.isSorting}
         isLikedSongsView={context.isLikedSongsView}
-        onSyncYandex={context.onSyncYandex}
-        isSyncingYandex={context.isSyncingYandex}
+        likedSources={context.likedSources}
+        activeLikedSources={context.activeLikedSources}
+        onToggleLikedSource={context.onToggleLikedSource}
       />
     )}
     {children}
@@ -214,7 +220,7 @@ const LargeHeader = memo(({
   metadata, tracks, totalReportedCount, showSkeletons,
   isFetchingNextPage, handleHeaderAction, isHeaderActionLoading,
   headerRef, playlistType, sortMode, setSortMode, isSorting,
-  isLikedSongsView, onSyncYandex, isSyncingYandex
+  isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource
 }: any) => {
   const { showToast } = useToast();
   
@@ -417,13 +423,11 @@ const LargeHeader = memo(({
                     <IconButton icon={Share2} size={42} iconSize={20} onClick={handleShare} title="Copy Link" />
                   )}
                   {isLikedSongsView && (
-                    <IconButton
-                      icon={RefreshCw}
-                      size={42}
-                      iconSize={20}
-                      isLoading={isSyncingYandex}
-                      onClick={onSyncYandex}
-                      title="Sync Yandex Music likes"
+                    <SourceSwitcher
+                      sources={likedSources}
+                      active={activeLikedSources}
+                      onToggle={onToggleLikedSource}
+                      tooltip="Показывать источники"
                     />
                   )}
                 </div>
@@ -489,7 +493,14 @@ export const MainView = memo<MainViewProps>(({
   const [yandexLikedTracks, setYandexLikedTracks] = useState<YTMTrack[]>([]);
   // Даты лайков YouTube-треков: в самом списке их нет, они лежат в likedStore.
   const [ytLikedAt, setYtLikedAt] = useState<Map<string, number>>(new Map());
-  const [isSyncingYandexLikes, setIsSyncingYandexLikes] = useState(false);
+  // Какие источники показывать во вкладке лайков (список смешанный: YT + SC + Yandex).
+  const [activeLikedSources, setActiveLikedSources] = useState<TrackSource[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LIKED_SOURCES_KEY) || 'null');
+      if (Array.isArray(saved) && saved.length > 0) return saved;
+    } catch { /* повреждённое значение -- показываем всё */ }
+    return ['youtube', 'soundcloud', 'yandex'];
+  });
 
   const headerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -529,20 +540,15 @@ export const MainView = memo<MainViewProps>(({
     return () => { alive = false; };
   }, [isLikedSongsView]);
 
-  const handleSyncYandexLikes = useCallback(async () => {
-    if (isSyncingYandexLikes) return;
-    setIsSyncingYandexLikes(true);
-    try {
-      const entries = await syncYandexLikedTracks();
-      const fresh = await getCachedYandexLikedTracks();
-      setYandexLikedTracks(fresh);
-      showToast(entries.length > 0 ? `Synced ${entries.length} Yandex likes` : 'No Yandex likes found', entries.length > 0 ? 'success' : 'error');
-    } catch (e) {
-      showToast('Failed to sync Yandex likes', 'error');
-    } finally {
-      setIsSyncingYandexLikes(false);
-    }
-  }, [isSyncingYandexLikes, showToast]);
+  const handleToggleLikedSource = useCallback((source: TrackSource, next: boolean) => {
+    setActiveLikedSources(prev => {
+      const updated = next ? [...new Set([...prev, source])] : prev.filter(s => s !== source);
+      // Полностью пустой фильтр показал бы пустой список -- последний источник не гасим.
+      const safe = updated.length > 0 ? updated : prev;
+      localStorage.setItem(LIKED_SOURCES_KEY, JSON.stringify(safe));
+      return safe;
+    });
+  }, []);
 
   const isEditable = useMemo(() => 
     playlistMetadata?.owned && playlistType === 'playlist' && playlistId !== 'LM'
@@ -665,7 +671,7 @@ export const MainView = memo<MainViewProps>(({
   const viewTitle = playlistMetadata?.title || 'Loading...';
   const viewLabel = playlistMetadata?.type || 'PLAYLIST';
   const showSkeletons = isPlaylistLoading || isInitializing;
-  const displayTracks = useMemo(() => {
+  const mergedLikedTracks = useMemo(() => {
     if (showSkeletons) return Array(20).fill({});
     if (!isLikedSongsView || yandexLikedTracks.length === 0) return playlistTracks;
     // Оба списка уже отсортированы по дате лайка (свежие сверху), поэтому сливаем их
@@ -682,6 +688,18 @@ export const MainView = memo<MainViewProps>(({
     }
     return [...merged, ...playlistTracks.slice(i), ...yandexLikedTracks.slice(j)];
   }, [showSkeletons, playlistTracks, isLikedSongsView, yandexLikedTracks, ytLikedAt]);
+
+  // Переключатель источников во вкладке лайков виден только когда есть что фильтровать.
+  const likedSources = useMemo<TrackSource[]>(
+    () => ['youtube', ...(isSoundCloudEnabled() ? ['soundcloud' as const] : []), ...(isYandexEnabled() ? ['yandex' as const] : [])],
+    [],
+  );
+
+  const displayTracks = useMemo(() => {
+    if (!isLikedSongsView || showSkeletons) return mergedLikedTracks;
+    if (activeLikedSources.length >= likedSources.length) return mergedLikedTracks;
+    return mergedLikedTracks.filter((t: YTMTrack) => activeLikedSources.includes(resolveSource(t.source)));
+  }, [mergedLikedTracks, isLikedSongsView, showSkeletons, activeLikedSources, likedSources.length]);
 
   const handleContextMenu = useCallback((e: any, track: any) => trackMenuRef.current?.open(e, track), []);
   const handlePlayTrack = useCallback((idx: number) => player.playTrackList(displayTracks, idx, playlistId || playlistType), [displayTracks, playlistId, playlistType]);
@@ -775,13 +793,13 @@ export const MainView = memo<MainViewProps>(({
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
     onDragStart: handleDragStart, onDragOverItem: handleDragOverItem, onDragOverContainer: handleDragOverContainer,
     onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
-    isLikedSongsView, onSyncYandex: handleSyncYandexLikes, isSyncingYandex: isSyncingYandexLikes
+    isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource: handleToggleLikedSource
   }), [
     isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing,
     handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
     dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
-    isLikedSongsView, handleSyncYandexLikes, isSyncingYandexLikes
+    isLikedSongsView, likedSources, activeLikedSources, handleToggleLikedSource
   ]);
 
   if (isSearch) return <SearchView searchQuery={activeView.searchQuery || ''} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSearchAgain={onSearchAgain} />;

@@ -11,6 +11,7 @@ import { YTMTrack } from '../../api/yt';
 import { TrackSource } from '../../api/source';
 import { isSoundCloudEnabled } from '../../api/soundcloud';
 import { isYandexEnabled } from '../../api/yandex';
+import { SourceSwitcher } from '../atoms/SourceSwitcher';
 
 interface QueuePanelProps {
   onSelectAlbum: (id: string) => void;
@@ -19,12 +20,6 @@ interface QueuePanelProps {
   isVisible?: boolean;
   waveMode?: boolean;
 }
-
-const SOURCE_LABELS: Record<TrackSource, string> = {
-  youtube: 'YT',
-  soundcloud: 'SC',
-  yandex: 'YAN',
-};
 
 // Переключатель источников автодозагрузки очереди -- мульти-select: каждый источник
 // включается/выключается независимо, смешивание (бывший «Гибрид») теперь неявное
@@ -53,24 +48,14 @@ const RadioModeSwitcher = memo(() => {
   }, []);
 
   const visibleSources: TrackSource[] = ['youtube', ...(scEnabled ? ['soundcloud' as const] : []), ...(yandexEnabled ? ['yandex' as const] : [])];
-  if (visibleSources.length <= 1) return null;
 
   return (
-    <div className={styles.radioSwitcher} data-tooltip="Источники радио">
-      {visibleSources.map((key) => {
-        const isActive = active.includes(key);
-        return (
-          <button
-            key={key}
-            className={`${styles.radioSegment} ${isActive ? styles.radioSegmentActive : ''}`}
-            onClick={() => player.toggleRadioSource(key, !isActive)}
-            aria-pressed={isActive}
-          >
-            {SOURCE_LABELS[key]}
-          </button>
-        );
-      })}
-    </div>
+    <SourceSwitcher
+      sources={visibleSources}
+      active={active}
+      onToggle={(key, next) => player.toggleRadioSource(key, next)}
+      tooltip="Источники радио"
+    />
   );
 });
 
