@@ -201,7 +201,7 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
           </div>
         )}
         <PlaybackOverlay id={id} isActive={isActive} />
-        {resolveSource(source) === 'soundcloud' && (
+        {(resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex') && (
           <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
             <SourceBadge source={source} size={12} />
           </div>
@@ -228,7 +228,7 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
 
       <div className={styles.rightSection}>
         <OverrideIndicator id={id} />
-        <div className={styles.likeBtnGroup}><LikeButton id={id} initialLikeStatus={initialLikeStatus} trackData={trackData} hideDislike={hideDislike || resolveSource(source) === 'soundcloud'} /></div>
+        <div className={styles.likeBtnGroup}><LikeButton id={id} initialLikeStatus={initialLikeStatus} trackData={trackData} hideDislike={hideDislike || resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex'} /></div>
         {duration && <div className={styles.duration}>{duration}</div>}
       </div>
     </div>

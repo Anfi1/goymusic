@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query';
 import { searchMusic, searchMore } from '../../api/yt';
 import { searchSoundCloud, mergeTracks, searchSoundCloudExtra } from '../../api/soundcloud';
+import { searchYandex, isYandexEnabled } from '../../api/yandex';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { player } from '../../api/player';
 import { LazyImage } from '../atoms/LazyImage';
@@ -88,6 +89,13 @@ export const SearchView: React.FC<SearchViewProps> = ({
     queryKey: ['sc-search', searchQuery],
     queryFn: () => searchSoundCloud(searchQuery),
     enabled: !!searchQuery && (activeFilter === 'all' || activeFilter === 'songs'),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: yandexTracks = [] } = useQuery({
+    queryKey: ['yandex-search', searchQuery],
+    queryFn: () => searchYandex(searchQuery),
+    enabled: !!searchQuery && isYandexEnabled() && (activeFilter === 'all' || activeFilter === 'songs'),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -232,11 +240,14 @@ export const SearchView: React.FC<SearchViewProps> = ({
     ? { ...topResultRaw, likeStatus: likeOverrides[topResultRaw.id] ?? topResultRaw.likeStatus }
     : undefined;
   const correction = searchData?.correction;
-  const tracks = useMemo(() => mergeTracks(tracksSection, scTracks), [tracksSection, scTracks]);
-  // В табе Songs подмешиваем SC (2 YT : 1 SC); для videos — без изменений.
+  const tracks = useMemo(
+    () => mergeTracks(mergeTracks(tracksSection, scTracks), yandexTracks),
+    [tracksSection, scTracks, yandexTracks]
+  );
+  // В табе Songs подмешиваем SC и Yandex (2 YT : 1 SC, затем ещё 2:1 Yandex); для videos — без изменений.
   const displayedItems = useMemo(
-    () => activeFilter === 'songs' ? mergeTracks(filteredItems, scTracks) : filteredItems,
-    [activeFilter, filteredItems, scTracks]
+    () => activeFilter === 'songs' ? mergeTracks(mergeTracks(filteredItems, scTracks), yandexTracks) : filteredItems,
+    [activeFilter, filteredItems, scTracks, yandexTracks]
   );
   // Подмешиваем SC-артистов и SC-альбомы (с пометкой источника) в соответствующие секции.
   const artists = useMemo(() => [...artistsSection, ...scExtra.artists], [artistsSection, scExtra.artists]);

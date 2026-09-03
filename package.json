@@ -1,6 +1,6 @@
 {
   "name": "goymusic",
-  "version": "6.6.2",
+  "version": "6.6.3",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

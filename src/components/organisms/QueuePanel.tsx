@@ -23,7 +23,7 @@ interface QueuePanelProps {
 const SOURCE_LABELS: Record<TrackSource, string> = {
   youtube: 'YT',
   soundcloud: 'SC',
-  yandex: 'Я',
+  yandex: 'YAN',
 };
 
 // Переключатель источников автодозагрузки очереди -- мульти-select: каждый источник

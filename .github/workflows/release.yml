@@ -74,8 +74,12 @@ jobs:
           python\bin\python.exe get-pip.py --no-warn-script-location
 
           # Install requirements
+          # yandex-music ships sdist-only on PyPI (no wheel, ever) -- pip's isolated build
+          # env can't build it here (BackendUnavailable: Cannot import 'setuptools.build_meta'),
+          # so pre-seed setuptools/wheel into the real site-packages and skip build isolation.
+          python\bin\python.exe -m pip install setuptools wheel --no-warn-script-location
           $env:PYTHONPATH = "$PWD\python\fork"
-          python\bin\python.exe -m pip install -r python\requirements.txt --no-warn-script-location
+          python\bin\python.exe -m pip install -r python\requirements.txt --no-warn-script-location --no-build-isolation
 
       # --- Node.js build ---
       - name: Setup Node.js
