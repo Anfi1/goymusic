@@ -153,6 +153,7 @@ AllSongsTableRow.displayName = 'AllSongsTableRow';
 
 
 import { isSoundCloudId, getSoundCloudArtist } from '../../api/soundcloud';
+import { isYandexArtistId, getYandexArtist } from '../../api/yandex';
 
 interface ArtistViewProps {
   artistId: string;
@@ -212,6 +213,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   }, []);
 
   const isSoundCloudArtist = isSoundCloudId(artistId);
+  const isYandexArtist = isYandexArtistId(artistId);
 
   // Wrapped setViewMode that also notifies parent about view mode changes
   const setViewModeWithNotification = useCallback((mode: ViewMode) => {
@@ -258,6 +260,16 @@ export const ArtistView = React.memo<ArtistViewProps>(({
           scPlaylists: sc.playlists,
           related: sc.related,
           isSoundCloud: true,
+        } as any;
+      }
+      if (isYandexArtist) {
+        const yx = await getYandexArtist(artistId);
+        if (!yx) return null;
+        return {
+          name: yx.name,
+          thumbUrl: yx.thumbUrl,
+          topSongs: yx.topSongs,
+          isYandex: true,
         } as any;
       }
       return getArtistDetail(artistId);
@@ -387,8 +399,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     enabled: viewMode === 'all-songs' && !!detail?.seeAllSongsId,
   });
 
-  // Для SC артистов загрузка не нужна — все треки уже есть
-  const isSongsInitialLoading = detail?.isSoundCloud ? false : isSongsInitialLoadingYT;
+  // Для SC/Yandex артистов загрузка не нужна — все треки уже есть
+  const isSongsInitialLoading = (detail?.isSoundCloud || detail?.isYandex) ? false : isSongsInitialLoadingYT;
 
   const allSongs = useMemo(() => {
     // Для SC артистов — все треки из detail.allTracks
@@ -516,7 +528,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 {detail.isSoundCloud && detail.tracksCount > 0 && <div className={styles.statItem}><span>{detail.tracksCount} tracks</span></div>}
                 {detail.views && <div className={styles.statItem}><Eye size={16} /><span>{formatStatValue(detail.views)}</span></div>}
               </div>
-              {!detail.isSoundCloud && (
+              {!detail.isSoundCloud && !detail.isYandex && (
                 <div className={styles.headerActions}>
                   <button className={`${styles.subscribeBtn} ${detail.subscribed ? styles.subscribed : ''}`} onClick={handleToggleSubscribe}>
                     {detail.subscribed ? <><Check size={18} /> Subscribed</> : <><Plus size={18} /> Subscribe</>}
@@ -549,6 +561,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 onSelectAlbum={onSelectAlbum} 
                 onClick={() => detail.isSoundCloud
                   ? player.playTrackList(detail.topSongs, i, 'sc-artist-' + artistId)
+                  : detail.isYandex
+                  ? player.playTrackList(detail.topSongs, i, 'yandex-artist-' + artistId)
                   : player.playTrackList(detail.topSongs, i, artistId, 'artist')}
                 onContextMenu={(e) => handleContextMenu(e, track)}
               />

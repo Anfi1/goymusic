@@ -4,18 +4,3 @@
   justify-content: center;
   flex-shrink: 0;
 }
-
-.yandexGlyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: #ffcc00;
-  color: #1a1a1a;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  font-family: var(--font-main, 'Inter', system-ui, sans-serif);
-}

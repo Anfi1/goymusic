@@ -268,6 +268,12 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
 
   const isActive = externalIsActive !== undefined ? externalIsActive : (id ? rowActive : false);
 
+  // Клик по уже играющей/активной строке — пауза/резюм вместо перезапуска трека.
+  const handleRowClick = useCallback(() => {
+    if (isActive) player.togglePlay();
+    else onClick?.();
+  }, [isActive, onClick]);
+
   const cells = (
     <>
       <td className={styles.indexCell}>
@@ -336,7 +342,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     <tr
       ref={ref}
       className={`${styles.row} ${isActive ? styles.active : ''} ${!isAvailable ? styles.unavailable : ''} ${className || ''}`}
-      onClick={!isAvailable ? undefined : onClick}
+      onClick={!isAvailable ? undefined : handleRowClick}
       onContextMenu={onContextMenu}
       draggable={draggable}
       onDragStart={onDragStart}

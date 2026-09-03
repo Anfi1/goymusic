@@ -21,8 +21,7 @@ import { likedManager } from '../../api/likedManager';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
-import { YandexLikesView } from './YandexLikesView';
-import { isYandexEnabled } from '../../api/yandex';
+import { isYandexEnabled, getCachedYandexLikedTracks, syncYandexLikedTracks } from '../../api/yandex';
 import { 
   Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar
 } from 'lucide-react';
@@ -169,7 +168,7 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
       {...rest}
       ref={ref}
       className={`${trackStyles.row} ${isActive ? trackStyles.active : ''} ${!isAvailable ? trackStyles.unavailable : ''} ${context.draggedIdx === index ? styles.draggingRow : ''} ${context.dragOverIdx === index ? styles.dropTarget : ''}`}
-      onClick={isAvailable ? () => context.onPlay(index) : undefined}
+      onClick={isAvailable ? () => (isActive ? player.togglePlay() : context.onPlay(index)) : undefined}
       onContextMenu={(e) => { e.preventDefault(); context.onContextMenu(e, track); }}
       draggable={context.isEditable}
       onDragStart={() => context.onDragStart(index)}
@@ -466,7 +465,7 @@ export const MainView = memo<MainViewProps>(({
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const [yandexLikesOpen, setYandexLikesOpen] = useState(false);
+  const [yandexLikedTracks, setYandexLikedTracks] = useState<YTMTrack[]>([]);
 
   const headerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -485,7 +484,22 @@ export const MainView = memo<MainViewProps>(({
     sortMode, setSortMode, isSorting
   } = usePlaylist(playlistType, playlistId);
 
-  const isSyncing = (playlistType === 'liked' || playlistId === 'LM') ? (likedManager.isSyncing || isFetchingNextPage) : isFetchingNextPage;
+  const isLikedSongsView = playlistType === 'liked' || playlistId === 'LM';
+  const isSyncing = isLikedSongsView ? (likedManager.isSyncing || isFetchingNextPage) : isFetchingNextPage;
+
+  // Yandex-лайки подмешиваются прямо в общий список Liked Songs (не отдельная страница) --
+  // сперва кэш (мгновенно), затем свежие данные с сервера в фоне.
+  useEffect(() => {
+    if (!isLikedSongsView || !isYandexEnabled()) { setYandexLikedTracks([]); return; }
+    let alive = true;
+    getCachedYandexLikedTracks().then(cached => { if (alive && cached.length > 0) setYandexLikedTracks(cached); });
+    syncYandexLikedTracks().then(async () => {
+      if (!alive) return;
+      const fresh = await getCachedYandexLikedTracks();
+      if (alive) setYandexLikedTracks(fresh);
+    });
+    return () => { alive = false; };
+  }, [isLikedSongsView]);
 
   const isEditable = useMemo(() => 
     playlistMetadata?.owned && playlistType === 'playlist' && playlistId !== 'LM'
@@ -589,10 +603,14 @@ export const MainView = memo<MainViewProps>(({
   const viewTitle = playlistMetadata?.title || 'Loading...';
   const viewLabel = playlistMetadata?.type || 'PLAYLIST';
   const showSkeletons = isPlaylistLoading || isInitializing;
-  const displayTracks = useMemo(() => showSkeletons ? Array(20).fill({}) : playlistTracks, [showSkeletons, playlistTracks]);
+  const displayTracks = useMemo(() => {
+    if (showSkeletons) return Array(20).fill({});
+    if (isLikedSongsView && yandexLikedTracks.length > 0) return [...playlistTracks, ...yandexLikedTracks];
+    return playlistTracks;
+  }, [showSkeletons, playlistTracks, isLikedSongsView, yandexLikedTracks]);
 
   const handleContextMenu = useCallback((e: any, track: any) => trackMenuRef.current?.open(e, track), []);
-  const handlePlayTrack = useCallback((idx: number) => player.playTrackList(playlistTracks, idx, playlistId || playlistType), [playlistTracks, playlistId, playlistType]);
+  const handlePlayTrack = useCallback((idx: number) => player.playTrackList(displayTracks, idx, playlistId || playlistType), [displayTracks, playlistId, playlistType]);
 
   const stopAutoScroll = useCallback(() => {
     if (autoScrollRaf.current !== null) {
@@ -693,26 +711,8 @@ export const MainView = memo<MainViewProps>(({
   if (isSearch) return <SearchView searchQuery={activeView.searchQuery || ''} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSearchAgain={onSearchAgain} />;
   if (!isAuthenticated && !isInitializing) return null;
 
-  const isLikedSongsView = playlistType === 'liked' || playlistId === 'LM';
-  if (isLikedSongsView && yandexLikesOpen) {
-    return <YandexLikesView onBack={() => setYandexLikesOpen(false)} />;
-  }
-
   return (
-    <div className={styles.container} style={{ perspective: '1000px', isolation: 'isolate', position: 'relative' }}>
-      {isLikedSongsView && isYandexEnabled() && (
-        <button
-          onClick={() => setYandexLikesOpen(true)}
-          style={{
-            position: 'absolute', top: 12, right: 12, zIndex: 5,
-            padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            fontSize: 12, fontWeight: 700, background: '#ffcc00', color: '#1a1a1a',
-          }}
-          title="Показать лайки Yandex Music"
-        >
-          Yandex Music
-        </button>
-      )}
+    <div className={styles.container} style={{ perspective: '1000px', isolation: 'isolate' }}>
       <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div className={styles.virtuosoWrapper}>
         <TableVirtuoso 

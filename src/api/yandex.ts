@@ -8,6 +8,7 @@ export interface YandexSearchEntry {
   yandexId: string;
   title: string;
   artist: string;
+  artistId?: string | null;
   duration: number;
   thumbUrl: string;
   source: string;
@@ -16,11 +17,22 @@ export interface YandexSearchEntry {
   likedAt?: number;
 }
 
+// Yandex-артисты идентифицируются числовым id, который сам по себе не отличим
+// от YT channelId/SC url -- префиксуем так же, как yandex-трек id.
+export function yandexArtistId(rawId: string | number): string {
+  return `yandex:${rawId}`;
+}
+
+export function isYandexArtistId(id: string | undefined | null): boolean {
+  return !!id && id.startsWith('yandex:');
+}
+
 export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
   return {
     id: `yandex:${entry.yandexId}`,
     title: entry.title || 'Unknown',
     artists: entry.artist ? [entry.artist] : [],
+    artistIds: entry.artistId ? [yandexArtistId(entry.artistId)] : undefined,
     album: '',
     albumId: entry.albumId || undefined,
     duration: formatYandexDuration(entry.duration),
@@ -151,23 +163,35 @@ export async function yandexSetLiked(yandexId: string | undefined, liked: boolea
   return false;
 }
 
-// Полная выгрузка лайкнутых Yandex-треков (для локального стора/вкладки лайков).
-export async function getYandexLikedEntries(): Promise<YandexLikedEntry[]> {
+// Полная выгрузка лайкнутых Yandex-треков с бэкенда + запись в локальный кэш
+// (likedStore.yandex_liked) -- чтобы Liked Songs могла показать их сразу
+// при следующем открытии, не дожидаясь сети.
+export async function syncYandexLikedTracks(): Promise<YandexLikedEntry[]> {
   try {
     const res = await (window as any).bridge.pyCall('yandex_liked_tracks', {});
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       yandexLikedSet = new Set(res.results.map((e: YandexSearchEntry) => e.yandexId));
-      return res.results.map((e: YandexSearchEntry) => {
+      const entries: YandexLikedEntry[] = res.results.map((e: YandexSearchEntry) => {
         const track = yandexEntryToTrack(e);
         registerYandexTrack(track.id, e.yandexId);
         tracksStore.upsertTrack(track);
         return { yandexId: e.yandexId, trackId: track.id, likedAt: Number(e.likedAt) || 0 };
       });
+      await likedStore.replaceYandexTracks(entries);
+      return entries;
     }
   } catch (e) {
-    console.warn('[yandex] getYandexLikedEntries failed', e);
+    console.warn('[yandex] syncYandexLikedTracks failed', e);
   }
   return [];
+}
+
+// Быстрое чтение уже закэшированных лайков (без сетевого запроса) — для мгновенного
+// отображения при открытии Liked Songs, пока syncYandexLikedTracks идёт в фоне.
+export async function getCachedYandexLikedTracks(): Promise<YTMTrack[]> {
+  const entries = await likedStore.getAllYandexTracks();
+  const hydrated = await likedStore.hydrateYandexTracks(entries);
+  return hydrated.map(h => h.track);
 }
 
 // При старте подтягиваем статус лайков, если интеграция включена (чтобы иконка лайка была верной сразу).
@@ -259,6 +283,29 @@ export async function getYandexAlbumTracks(albumId: string): Promise<YandexAlbum
     }
   } catch (e) {
     console.warn('[yandex] getYandexAlbumTracks failed', e);
+  }
+  return null;
+}
+
+export interface YandexArtistDetail {
+  name: string;
+  thumbUrl: string;
+  topSongs: YTMTrack[];
+}
+
+// artistId — префиксованный (yandex:12345, см. yandexArtistId/isYandexArtistId).
+export async function getYandexArtist(artistId: string): Promise<YandexArtistDetail | null> {
+  const rawId = artistId.replace(/^yandex:/, '');
+  if (!rawId) return null;
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_artist', { artistId: rawId });
+    if (res?.status === 'ok') {
+      const tracks = (res.tracks || []).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
+      tracks.forEach((t: YTMTrack) => { if (t.yandexId) registerYandexTrack(t.id, t.yandexId); });
+      return { name: res.name || '', thumbUrl: res.thumbUrl || '', topSongs: tracks };
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexArtist failed', e);
   }
   return null;
 }

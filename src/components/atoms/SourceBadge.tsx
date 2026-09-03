@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Cloud } from 'lucide-react';
 import { resolveSource } from '../../api/source';
+import { YandexMusicIcon } from './YandexMusicIcon';
 import styles from './SourceBadge.module.css';
 
 interface SourceBadgeProps {
@@ -21,7 +22,7 @@ export const SourceBadge = memo(({ source, size = 14 }: SourceBadgeProps) => {
   if (resolved === 'yandex') {
     return (
       <span className={styles.badge} data-tooltip="Yandex Music">
-        <span className={styles.yandexGlyph} style={{ height: size, fontSize: size * 0.62 }}>YAN</span>
+        <YandexMusicIcon size={size} />
       </span>
     );
   }

@@ -1,7 +1,7 @@
 import { YTMTrack, getQueueRecommendations, rateSong, searchMore } from './yt';
 import type { TrackSource } from './source';
 import { streamCache, CacheEntry } from './cache';
-import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, ensureLoudness } from './stream';
+import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, registerYandexTrack, ensureLoudness } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
@@ -671,10 +671,11 @@ class PlayerStore {
         }, 600); // 600ms interval for better efficiency
     }
 
-    // Регистрируем SC-трек в реестре стримов до префетча, иначе prefetchStreamUrl уйдёт
-    // в YouTube-путь и предзагрузка SC-трека не сработает (бесшовность пропадёт).
+    // Регистрируем SC/Yandex-трек в реестре стримов до префетча, иначе prefetchStreamUrl
+    // уйдёт в YouTube-путь и предзагрузка не сработает (бесшовность пропадёт).
     private ensureScRegistered(track?: YTMTrack | null) {
         if (track?.source === 'soundcloud' && track.scUrl) registerSoundCloudTrack(track.id, track.scUrl);
+        else if (track?.source === 'yandex' && track.yandexId) registerYandexTrack(track.id, track.yandexId);
     }
 
     private async preloadNextTrack() {
@@ -984,9 +985,11 @@ class PlayerStore {
         }
 
         try {
-            // Гарантируем маршрутизацию SC-стрима даже для треков из восстановленной очереди
+            // Гарантируем маршрутизацию SC/Yandex-стрима даже для треков из восстановленной очереди
             if (track.source === 'soundcloud' && track.scUrl) {
                 registerSoundCloudTrack(track.id, track.scUrl);
+            } else if (track.source === 'yandex' && track.yandexId) {
+                registerYandexTrack(track.id, track.yandexId);
             }
             const tUrl = performance.now();
             // длительность из строки трека -- эталон, по которому бэкенд отличает клип
@@ -1150,8 +1153,9 @@ class PlayerStore {
         const alreadyPlayingThisTrack = this.currentTrack?.id === track.id && !this.hasStreamError;
         this.queueSourceId = null;
         this.queueSourceType = null;
-        // Для SC-трека YT-плейлист RDAMVM невалиден — радио пойдёт через SC (fetchRecommendations).
-        this.recommendationPlaylistId = track.source === 'soundcloud' ? null : 'RDAMVM' + track.id;
+        // Для SC/Yandex-трека YT-плейлист RDAMVM невалиден (нет YT videoId) — радио пойдёт
+        // через соответствующий источник (fetchRecommendations).
+        this.recommendationPlaylistId = (track.source === 'soundcloud' || track.source === 'yandex') ? null : 'RDAMVM' + track.id;
         this.currentTrack = track;
         this.queue = [track];
         this.originalQueue = [track];

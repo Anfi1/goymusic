@@ -9,6 +9,7 @@ import { clearAllOverrides } from '../../api/localOverrides';
 import { streamCache } from '../../api/cache';
 import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath } from '../../api/soundcloud';
 import { isYandexEnabled, setYandexEnabled, yandexAuthStart, yandexAuthPoll, yandexAuthStatus, yandexLogout, YandexDeviceCode } from '../../api/yandex';
+import { YandexMusicIcon } from '../atoms/YandexMusicIcon';
 import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
@@ -38,6 +39,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [yandexDeviceCode, setYandexDeviceCode] = useState<YandexDeviceCode | null>(null);
     const [yandexConnecting, setYandexConnecting] = useState(false);
     const [yandexError, setYandexError] = useState('');
+    const [yandexCodeCopied, setYandexCodeCopied] = useState(false);
     const [normalizationEnabled, setNormalizationEnabled] = useState(player.normalizationEnabled);
     const [historyEnabled, setHistoryEnabled] = useState(historyManager.isEnabled);
     const [historyCleanup, setHistoryCleanup] = useState(historyManager.cleanupInterval);
@@ -266,6 +268,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         setYandexConnecting(false);
     };
 
+    const handleCopyYandexCode = () => {
+        if (!yandexDeviceCode) return;
+        navigator.clipboard.writeText(yandexDeviceCode.userCode).then(() => {
+            setYandexCodeCopied(true);
+            setTimeout(() => setYandexCodeCopied(false), 2000);
+        }).catch(() => { /* ignore */ });
+    };
+
     const handleYandexDisconnect = async () => {
         await yandexLogout();
         setYandexConnected(false);
@@ -451,7 +461,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 )}
                 <div className={styles.row}>
                     <div className={styles.col}>
-                        <span>Yandex Music</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><YandexMusicIcon size={16} />Yandex Music</span>
                         <span className={styles.subtitle}>Mix Yandex Music into search, radio & "Моя волна" — sign in via device code.</span>
                     </div>
                     <label className={styles.switch}>
@@ -479,7 +489,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                             )}
                             {yandexDeviceCode && (
                                 <span className={styles.subtitle} style={{ color: '#ffcc00' }}>
-                                    Enter code <strong>{yandexDeviceCode.userCode}</strong> at {yandexDeviceCode.verificationUrl} (opened in browser)
+                                    Enter code{' '}
+                                    <strong
+                                        onClick={handleCopyYandexCode}
+                                        title="Click to copy"
+                                        style={{ cursor: 'pointer', textDecoration: 'underline dotted', userSelect: 'all' }}
+                                    >{yandexDeviceCode.userCode}</strong>
+                                    {yandexCodeCopied && <span style={{ color: '#a6e3a1' }}> (copied!)</span>}
+                                    {' '}at {yandexDeviceCode.verificationUrl} (opened in browser)
                                 </span>
                             )}
                         </div>
@@ -497,8 +514,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                             <button
                                 onClick={handleYandexLogin}
                                 disabled={yandexConnecting}
-                                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#ffcc00', color: '#1a1a1a', fontWeight: 600, cursor: yandexConnecting ? 'default' : 'pointer', fontSize: 13, opacity: yandexConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
-                            >{yandexConnecting ? '...' : 'Log in to Yandex Music'}</button>
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, border: 'none', background: '#ffee00', color: '#110503', fontWeight: 600, cursor: yandexConnecting ? 'default' : 'pointer', fontSize: 13, opacity: yandexConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                            ><YandexMusicIcon size={14} />{yandexConnecting ? '...' : 'Log in to Yandex Music'}</button>
                         )}
                     </div>
                 )}

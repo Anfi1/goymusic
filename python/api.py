@@ -478,12 +478,14 @@ def yandex_track_dict(t):
     artists = getattr(t, 'artists', None) or []
     albums = getattr(t, 'albums', None) or []
     album_id = albums[0].id if albums else None
+    artist_id = artists[0].id if artists else None
     cover_uri = getattr(t, 'cover_uri', None) or getattr(t, 'og_image', None)
     thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
     return {
         'yandexId': str(t.id),
         'title': t.title or '',
         'artist': artists[0].name if artists else '',
+        'artistId': str(artist_id) if artist_id else None,
         'duration': int((getattr(t, 'duration_ms', 0) or 0) / 1000),
         'thumbUrl': thumb,
         'source': 'yandex',
@@ -4676,6 +4678,31 @@ def handle_request(request):
                         })
             except Exception as e:
                 print(f"[error] yandex_stream_url: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_artist':
+            artist_id = request.get('artistId', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    artists = client.artists([artist_id])
+                    artist = artists[0] if artists else None
+                    top = client.artists_tracks(artist_id, page_size=20)
+                    tracks = [yandex_track_dict(t) for t in ((top.tracks if top else []) or [])]
+                    cover = getattr(artist, 'cover', None) if artist else None
+                    cover_uri = getattr(cover, 'uri', None) if cover else None
+                    thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                    safe_print({
+                        'status': 'ok',
+                        'name': artist.name if artist else '',
+                        'thumbUrl': thumb,
+                        'tracks': tracks,
+                        'callId': call_id,
+                    })
+            except Exception as e:
+                print(f"[error] yandex_artist: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'yandex_search':
