@@ -4655,17 +4655,42 @@ def handle_request(request):
             # Треки конкретной станции (id вида "user:onyourwave", "genre:rock" и т.п.
             # -- см. yandex_wave_stations) через rotor API.
             station = request.get('station') or 'user:onyourwave'
+            # rotor отдаёт ровно 5 треков за запрос; следующая порция берётся с queue=<id
+            # последнего трека>, поэтому batches>1 склеивает несколько порций (соседние
+            # порции частично пересекаются -- дедуплицируем по id).
+            queue_from = request.get('queue') or None
+            try:
+                batches = max(1, min(int(request.get('batches') or 1), 5))
+            except (TypeError, ValueError):
+                batches = 1
             try:
                 client = get_yandex_client()
                 if not client:
                     safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
                 else:
-                    res = client.rotor_station_tracks(station)
                     results = []
-                    if res:
-                        for seq in res.sequence:
-                            if seq.track:
-                                results.append(yandex_track_dict(seq.track))
+                    seen = set()
+                    cursor = queue_from
+                    for _ in range(batches):
+                        res = client.rotor_station_tracks(station, queue=cursor) if cursor else client.rotor_station_tracks(station)
+                        seq = (res.sequence if res else None) or []
+                        if not seq:
+                            break
+                        added = 0
+                        last_id = None
+                        for item in seq:
+                            t = item.track
+                            if not t:
+                                continue
+                            last_id = str(t.id)
+                            if last_id in seen:
+                                continue
+                            seen.add(last_id)
+                            results.append(yandex_track_dict(t))
+                            added += 1
+                        if added == 0 or not last_id:
+                            break
+                        cursor = last_id
                     safe_print({'status': 'ok', 'results': results, 'callId': call_id})
             except Exception as e:
                 print(f"[error] yandex_wave_tracks: {e}", file=sys.stderr)

@@ -373,10 +373,12 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         : Array.from(unique.values());
     }
     if (selectedFilter === 'yandex') {
+      // Без FORYOU: персональная станция здесь -- своя, яндексовая ("Моя волна",
+      // user:onyourwave из дашборда), а не наша сборка по лайкам YouTube.
       const list = stations.filter(st => st.kind === 'yandex');
-      const unique = new Map([FORYOU, ...list].map(s => [s.id, s]));
-      return activeStation && !unique.has(activeStation.id)
-        ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
+      const unique = new Map(list.map(s => [s.id, s]));
+      return activeStation && activeStation.kind === 'yandex' && !unique.has(activeStation.id)
+        ? [activeStation, ...Array.from(unique.values())]
         : Array.from(unique.values());
     }
     const cat = MOOD_CATEGORIES.find(c => c.id === selectedFilter);
@@ -576,7 +578,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         // Порядок плейлиста сохраняем (как на сайте SoundCloud), без перемешивания.
         seeds = (await getScStationTracks(st.id)).slice(0, 50);
       } else if (st.kind === 'yandex') {
-        seeds = (await getYandexWaveTracks(st.id)).slice(0, 50);
+        // 2 порции rotor'а сразу (по 5 за запрос, ~3с), дальше станция сама достраивается
+        // в player.fetchYandexRadio по recId -- больше порций тут только тормозят старт.
+        seeds = (await getYandexWaveTracks(st.id, undefined, 2)).slice(0, 50);
+        recId = st.id;
       } else {
         const res = await getPlaylistTracks(st.id, 60);
         seeds = res.tracks || [];
@@ -592,7 +597,11 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
       if (!player.autoplay) player.toggleAutoplay();
       // SC/Yandex/персональные станции — смешанный поток; YT-микс оставляем на родном радио.
       if (st.kind === 'sc' && isSoundCloudEnabled()) player.setActiveSources(['youtube', 'soundcloud']);
-      else if (st.kind === 'yandex' && isYandexEnabled()) player.setActiveSources(['youtube', 'yandex']);
+      // В режиме Яндекса волна должна быть чисто яндексовой -- иначе в поток станции
+      // подмешивается YouTube и «Моя волна» перестаёт быть той, что на music.yandex.ru.
+      else if (st.kind === 'yandex' && isYandexEnabled()) {
+        player.setActiveSources(getHomeSource() === 'yandex' ? ['yandex'] : ['youtube', 'yandex']);
+      }
       else if (st.kind === 'foryou') {
         const sources: TrackSource[] = ['youtube'];
         if (isSoundCloudEnabled()) sources.push('soundcloud');

@@ -5,7 +5,11 @@ import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundClo
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
-import { searchYandex, isYandexEnabled, getYandexRecommendations } from './yandex';
+import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks } from './yandex';
+
+// id станции rotor: "<тип>:<тег>" (user:onyourwave, genre:rap, activity:wake-up).
+// Явный список типов, чтобы не спутать с route-id альбома Яндекса ("yandex:123").
+const YANDEX_STATION_RE = /^(user|genre|activity|mood|epoch|personal|theme|author|local|editorial):[\w-]+$/i;
 
 export type PlayerEventType = 'state' | 'tick' | 'buffer';
 type PlayerCallback = (event: PlayerEventType) => void;
@@ -1355,6 +1359,19 @@ class PlayerStore {
     }
 
     private async fetchYandexRadio(videoId: string, forceReplace: boolean) {
+        // Волна Яндекса продолжается своей же станцией: rotor отдаёт по 5 треков, и без
+        // этого после первой пятёрки поток подменялся радио по похожим (tracks_similar).
+        const station = this.recommendationPlaylistId;
+        if (station && YANDEX_STATION_RE.test(station)) {
+            const seed = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
+            const next = await getYandexWaveTracks(station, seed?.yandexId);
+            const qIds = new Set(this.queue.map(t => t.id));
+            const fresh = next.filter(t => t.id !== videoId && !qIds.has(t.id));
+            if (fresh.length > 0) {
+                this.applyRecommendations(fresh, forceReplace);
+                return;
+            }
+        }
         const yandexTracks = await this.yandexRadioTracks(videoId);
         const qIds = new Set(this.queue.map(t => t.id));
         const fresh = yandexTracks.filter(t => t.id !== videoId && !qIds.has(t.id));

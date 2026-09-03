@@ -266,10 +266,16 @@ export async function getYandexWaveStations(): Promise<YandexWaveStation[]> {
 }
 
 // station — id вида "user:onyourwave" / "genre:rock" (см. getYandexWaveStations).
-export async function getYandexWaveTracks(station: string = 'user:onyourwave'): Promise<YTMTrack[]> {
+// queue -- yandexId последнего проигранного трека станции: rotor отдаёт по 5 треков и
+// продолжает поток от него. batches склеивает несколько порций за один вызов.
+export async function getYandexWaveTracks(
+  station: string = 'user:onyourwave',
+  queue?: string,
+  batches?: number,
+): Promise<YTMTrack[]> {
   if (!isYandexEnabled()) return [];
   try {
-    const res = await (window as any).bridge.pyCall('yandex_wave_tracks', { station });
+    const res = await (window as any).bridge.pyCall('yandex_wave_tracks', { station, queue, batches });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       return res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
     }
