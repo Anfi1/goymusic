@@ -203,6 +203,8 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
             type: 'ALBUM',
             thumbUrl: yd?.thumbUrl || '',
             trackCount: yd?.tracks.length || 0,
+            artists: yd?.artist ? [yd.artist] : undefined,
+            artistIds: yd?.artistId ? [yd.artistId] : undefined,
           };
           return { tracks: yd?.tracks || [], continuation: null, totalCount: yd?.tracks.length || 0, metadata };
         }

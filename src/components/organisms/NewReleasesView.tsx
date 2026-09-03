@@ -5,7 +5,7 @@ import { player } from '../../api/player';
 import { MediaCard } from '../molecules/MediaCard';
 import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
 import { Sparkles, RefreshCw } from 'lucide-react';
-import { isYandexEnabled, getYandexNewReleases, getYandexAlbumTracks } from '../../api/yandex';
+import { isYandexEnabled, getYandexNewReleases, getYandexAlbumTracks, yandexAlbumRouteId } from '../../api/yandex';
 import { getHomeSource, setHomeSource, HomeSource } from '../../api/homeSource';
 import { HomeSourceToggle } from '../atoms/HomeSourceToggle';
 import styles from './NewReleasesView.module.css';
@@ -143,7 +143,7 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
                 artists={a.artist ? [a.artist] : []}
                 year={a.year ? String(a.year) : undefined}
                 type="album"
-                onClick={() => playYandexAlbum(a.albumId)}
+                onClick={() => onSelectAlbum(yandexAlbumRouteId(a.albumId))}
                 onPlayClick={() => playYandexAlbum(a.albumId)}
               />
             ))}

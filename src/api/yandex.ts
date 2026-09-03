@@ -323,6 +323,9 @@ export async function getYandexNewReleases(): Promise<YandexAlbumResult[]> {
 export interface YandexAlbumDetail {
   title: string;
   thumbUrl: string;
+  artist?: string;
+  artistId?: string;
+  year?: number;
   tracks: YTMTrack[];
 }
 
@@ -332,7 +335,14 @@ export async function getYandexAlbumTracks(albumId: string): Promise<YandexAlbum
     const res = await (window as any).bridge.pyCall('yandex_album_tracks', { albumId });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      return { title: res.title || '', thumbUrl: res.thumbUrl || '', tracks };
+      return {
+        title: res.title || '',
+        thumbUrl: res.thumbUrl || '',
+        artist: res.artist || undefined,
+        artistId: res.artistId ? yandexArtistId(res.artistId) : undefined,
+        year: res.year ?? undefined,
+        tracks,
+      };
     }
   } catch (e) {
     console.warn('[yandex] getYandexAlbumTracks failed', e);

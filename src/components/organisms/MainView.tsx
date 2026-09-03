@@ -21,7 +21,7 @@ import { likedManager } from '../../api/likedManager';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
-import { getCachedYandexLikedTracks, syncYandexLikedTracks } from '../../api/yandex';
+import { getCachedYandexLikedTracks, syncYandexLikedTracks, isYandexAlbumRouteId, isYandexPlaylistRouteId } from '../../api/yandex';
 import {
   Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar, RefreshCw
 } from 'lucide-react';
@@ -218,7 +218,12 @@ const LargeHeader = memo(({
   const { showToast } = useToast();
   
   const handleShare = useCallback(() => {
-    const url = getAlbumLink(metadata?.id ?? '');
+    const id = metadata?.id ?? '';
+    const url = isYandexAlbumRouteId(id)
+      ? `https://music.yandex.ru/album/${id.replace(/^yandex:/, '')}`
+      : isYandexPlaylistRouteId(id)
+      ? `https://music.yandex.ru/users/${id.split(':')[1] || ''}/playlists/${id.split(':')[2]}`
+      : getAlbumLink(id);
     navigator.clipboard.writeText(url);
     showToast('Link copied to clipboard', 'success');
   }, [metadata?.id, showToast]);
@@ -235,6 +240,7 @@ const LargeHeader = memo(({
   const isOwned = !!metadata?.owned;
 
   const targetRatingId = metadata?.audioPlaylistId || metadata?.id;
+  const isYandexMeta = isYandexAlbumRouteId(metadata?.id) || isYandexPlaylistRouteId(metadata?.id);
   const displayCount = showSkeletons ? '...' : 
     (tracks.length >= totalReportedCount || !totalReportedCount) ? `${tracks.length} songs` : `${tracks.length} of ${totalReportedCount}`;
 
@@ -362,7 +368,7 @@ const LargeHeader = memo(({
                 </div>
 
                 <div className={styles.headerActions}>
-                  {targetRatingId && (metadata.likeStatus === 'LIKE' || !isOwned) && (
+                  {targetRatingId && !isYandexMeta && (metadata.likeStatus === 'LIKE' || !isOwned) && (
                     <IconButton
                       icon={Heart}
                       size={42}
@@ -562,6 +568,7 @@ export const MainView = memo<MainViewProps>(({
   const handleHeaderAction = useCallback(async (type: string, payload?: any) => {
     if (type === 'artist' && payload) onSelectArtist(payload);
     else if (type === 'like') {
+      if (isYandexAlbumRouteId(playlistMetadata?.id) || isYandexPlaylistRouteId(playlistMetadata?.id)) return;
       const targetId = playlistMetadata?.audioPlaylistId || playlistMetadata?.id;
       if (!targetId || isHeaderActionLoading) return;
       setIsHeaderActionLoading('like');
