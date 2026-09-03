@@ -287,6 +287,9 @@ function App() {
         tip.style.opacity = '1';
         return;
       }
+      // Пустой data-tooltip (трек без альбома, артист без имени и т.п.) рисовал
+      // пустую плашку -- такие элементы просто пропускаем.
+      if (!el.getAttribute('data-tooltip')?.trim()) return;
       if (el === current || el === pendingEl) return;
       // overflow-only: only show if text is actually truncated (+1 tolerance for subpixel rounding)
       if (

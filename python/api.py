@@ -487,14 +487,20 @@ def yandex_track_dict(t):
     if not cover_uri and album:
         cover_uri = getattr(album, 'cover_uri', None) or getattr(album, 'og_image', None)
     thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
-    # Яндекс отдаёт готовый гейн нормализации в самих метаданных трека (как loudnessDb
-    # у YouTube) -- конвенция та же, что у ReplayGain (gain+peak): положительный gain
-    # значит трек тише цели и его нужно усилить. У нас наоборот, положительный
-    # loudness = трек громче цели (см. measure_loudness_full/-14 LUFS), поэтому знак
-    # переворачиваем. Раз это не проверено вживую (нет доступа к живому аккаунту),
-    # ffmpeg-замер на фронте остаётся фолбэком, если normalization отсутствует.
-    norm = getattr(t, 'normalization', None)
-    loudness = -norm.gain if norm and norm.gain is not None else None
+    # Громкость Яндекс отдаёт в поле r128 (EBU R 128): i -- интегрированная громкость
+    # в LUFS, tp -- true peak. Это ровно та же пара, что считает ffmpeg loudnorm, так что
+    # формула совпадает с measure_loudness_full (цель -14 LUFS, при усилении не даём
+    # пикам вылезти выше -1 dBTP). Поле normalization, на которое смотрели раньше, у
+    # живого API всегда пустое -- из-за этого каждый трек уезжал на фоновый ffmpeg-замер
+    # и нормализация наезжала с задержкой. r128 приходит на всех эндпоинтах (трек,
+    # альбом, поиск, лайки, волна), поэтому фолбэк на замер остаётся лишь страховкой.
+    r128 = getattr(t, 'r128', None)
+    loudness = None
+    if r128 is not None and getattr(r128, 'i', None) is not None:
+        loudness = r128.i + 14.0
+        tp = getattr(r128, 'tp', None)
+        if loudness < 0 and tp is not None:
+            loudness = max(loudness, tp + 1.0)
     return {
         'yandexId': str(t.id),
         'title': t.title or '',
