@@ -481,6 +481,14 @@ def yandex_track_dict(t):
     artist_id = artists[0].id if artists else None
     cover_uri = getattr(t, 'cover_uri', None) or getattr(t, 'og_image', None)
     thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+    # Яндекс отдаёт готовый гейн нормализации в самих метаданных трека (как loudnessDb
+    # у YouTube) -- конвенция та же, что у ReplayGain (gain+peak): положительный gain
+    # значит трек тише цели и его нужно усилить. У нас наоборот, положительный
+    # loudness = трек громче цели (см. measure_loudness_full/-14 LUFS), поэтому знак
+    # переворачиваем. Раз это не проверено вживую (нет доступа к живому аккаунту),
+    # ffmpeg-замер на фронте остаётся фолбэком, если normalization отсутствует.
+    norm = getattr(t, 'normalization', None)
+    loudness = -norm.gain if norm and norm.gain is not None else None
     return {
         'yandexId': str(t.id),
         'title': t.title or '',
@@ -491,6 +499,7 @@ def yandex_track_dict(t):
         'source': 'yandex',
         'albumId': str(album_id) if album_id else None,
         'url': (f'https://music.yandex.ru/album/{album_id}/track/{t.id}' if album_id else ''),
+        'loudness': loudness,
     }
 
 
@@ -4564,14 +4573,45 @@ def handle_request(request):
                 print(f"[error] yandex_set_liked: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
-        elif command == 'yandex_wave_tracks':
-            # "Моя волна" -- станция user:onyourwave через rotor API.
+        elif command == 'yandex_wave_stations':
+            # Персональный дашборд станций (как на странице радио в Яндекс.Музыке) --
+            # "Моя волна" + жанровые/настроенческие станции, а не одна фиксированная.
             try:
                 client = get_yandex_client()
                 if not client:
                     safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
                 else:
-                    res = client.rotor_station_tracks('user:onyourwave')
+                    dash = client.rotor_stations_dashboard()
+                    stations = []
+                    seen = set()
+                    for item in ((dash.stations if dash else []) or []):
+                        st = item.station
+                        if not st or not st.id:
+                            continue
+                        sid = f'{st.id.type}:{st.id.tag}'
+                        if sid in seen:
+                            continue
+                        seen.add(sid)
+                        stations.append({
+                            'id': sid,
+                            'title': item.custom_name or st.name or sid,
+                            'thumbUrl': st.full_image_url or '',
+                        })
+                    safe_print({'status': 'ok', 'stations': stations, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_wave_stations: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_wave_tracks':
+            # Треки конкретной станции (id вида "user:onyourwave", "genre:rock" и т.п.
+            # -- см. yandex_wave_stations) через rotor API.
+            station = request.get('station') or 'user:onyourwave'
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    res = client.rotor_station_tracks(station)
                     results = []
                     if res:
                         for seq in res.sequence:

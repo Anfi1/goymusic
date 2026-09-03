@@ -15,6 +15,9 @@ export interface YandexSearchEntry {
   albumId?: string | null;
   url?: string;
   likedAt?: number;
+  // Гейн из Track.normalization (см. python: yandex_track_dict) -- уже готовая
+  // нормализация от Яндекса, если есть; null/undefined -> фронт замерит сам через ffmpeg.
+  loudness?: number | null;
 }
 
 // Yandex-артисты идентифицируются числовым id, который сам по себе не отличим
@@ -28,6 +31,9 @@ export function isYandexArtistId(id: string | undefined | null): boolean {
 }
 
 export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
+  // Регистрируем сразу здесь -- единая точка регистрации вместо разброса
+  // registerYandexTrack(...) по каждому вызывающему коду (легко забыть в новом месте).
+  registerYandexTrack(`yandex:${entry.yandexId}`, entry.yandexId, entry.loudness ?? undefined);
   return {
     id: `yandex:${entry.yandexId}`,
     title: entry.title || 'Unknown',
@@ -173,7 +179,6 @@ export async function syncYandexLikedTracks(): Promise<YandexLikedEntry[]> {
       yandexLikedSet = new Set(res.results.map((e: YandexSearchEntry) => e.yandexId));
       const entries: YandexLikedEntry[] = res.results.map((e: YandexSearchEntry) => {
         const track = yandexEntryToTrack(e);
-        registerYandexTrack(track.id, e.yandexId);
         tracksStore.upsertTrack(track);
         return { yandexId: e.yandexId, trackId: track.id, likedAt: Number(e.likedAt) || 0 };
       });
@@ -201,14 +206,30 @@ if (typeof window !== 'undefined' && isYandexEnabled()) {
 
 // --- "Моя волна" / радио / поиск / новинки ---
 
-export async function getYandexWaveTracks(): Promise<YTMTrack[]> {
+export interface YandexWaveStation { id: string; title: string; thumbUrl: string; }
+
+// Персональный дашборд станций (как на странице радио в Яндекс.Музыке) --
+// "Моя волна" + жанровые/настроенческие станции, а не одна фиксированная.
+export async function getYandexWaveStations(): Promise<YandexWaveStation[]> {
   if (!isYandexEnabled()) return [];
   try {
-    const res = await (window as any).bridge.pyCall('yandex_wave_tracks', {});
+    const res = await (window as any).bridge.pyCall('yandex_wave_stations', {});
+    if (res?.status === 'ok' && Array.isArray(res.stations)) {
+      return res.stations.map((s: any) => ({ id: s.id, title: s.title || '', thumbUrl: s.thumbUrl || '' }));
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexWaveStations failed', e);
+  }
+  return [];
+}
+
+// station — id вида "user:onyourwave" / "genre:rock" (см. getYandexWaveStations).
+export async function getYandexWaveTracks(station: string = 'user:onyourwave'): Promise<YTMTrack[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_wave_tracks', { station });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
-      const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      tracks.forEach((t: YTMTrack) => { if (t.yandexId) registerYandexTrack(t.id, t.yandexId); });
-      return tracks;
+      return res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
     }
   } catch (e) {
     console.warn('[yandex] getYandexWaveTracks failed', e);
@@ -221,9 +242,7 @@ export async function getYandexRecommendations(yandexId: string | undefined): Pr
   try {
     const res = await (window as any).bridge.pyCall('yandex_recommendations', { yandexId });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
-      const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      tracks.forEach((t: YTMTrack) => { if (t.yandexId) registerYandexTrack(t.id, t.yandexId); });
-      return tracks;
+      return res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
     }
   } catch (e) {
     console.warn('[yandex] getYandexRecommendations failed', e);
@@ -236,9 +255,7 @@ export async function searchYandex(query: string, limit = 25): Promise<YTMTrack[
   try {
     const res = await (window as any).bridge.pyCall('yandex_search', { query: query.trim() });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
-      const tracks = res.results.slice(0, limit).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      tracks.forEach((t: YTMTrack) => { if (t.yandexId) registerYandexTrack(t.id, t.yandexId); });
-      return tracks;
+      return res.results.slice(0, limit).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
     }
   } catch (e) {
     console.warn('[yandex] searchYandex failed', e);
@@ -278,7 +295,6 @@ export async function getYandexAlbumTracks(albumId: string): Promise<YandexAlbum
     const res = await (window as any).bridge.pyCall('yandex_album_tracks', { albumId });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      tracks.forEach((t: YTMTrack) => { if (t.yandexId) registerYandexTrack(t.id, t.yandexId); });
       return { title: res.title || '', thumbUrl: res.thumbUrl || '', tracks };
     }
   } catch (e) {
@@ -301,7 +317,6 @@ export async function getYandexArtist(artistId: string): Promise<YandexArtistDet
     const res = await (window as any).bridge.pyCall('yandex_artist', { artistId: rawId });
     if (res?.status === 'ok') {
       const tracks = (res.tracks || []).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      tracks.forEach((t: YTMTrack) => { if (t.yandexId) registerYandexTrack(t.id, t.yandexId); });
       return { name: res.name || '', thumbUrl: res.thumbUrl || '', topSongs: tracks };
     }
   } catch (e) {

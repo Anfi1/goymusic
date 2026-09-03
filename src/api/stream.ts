@@ -26,8 +26,16 @@ export function registerSoundCloudTrack(id: string, scUrl: string) {
  */
 const yandexRegistry = new Map<string, string>();
 
-export function registerYandexTrack(id: string, yandexId: string) {
+/**
+ * Гейн нормализации из Track.normalization (см. python: yandex_track_dict) -- Яндекс
+ * отдаёт его прямо в метаданных трека, как loudnessDb у YouTube. Отдельная карта,
+ * т.к. loudness живёт на объекте трека, а fetchYandexStream знает только id/yandexId.
+ */
+const yandexLoudnessRegistry = new Map<string, number>();
+
+export function registerYandexTrack(id: string, yandexId: string, loudness?: number) {
     if (id && yandexId) yandexRegistry.set(id, yandexId);
+    if (id && loudness != null) yandexLoudnessRegistry.set(id, loudness);
 }
 
 async function fetchYandexStream(id: string, yandexId: string): Promise<CacheEntry | null> {
@@ -40,9 +48,13 @@ async function fetchYandexStream(id: string, yandexId: string): Promise<CacheEnt
             const res = await (window as any).bridge.pyCall('yandex_stream_url', { yandexId, callId });
             if (res.status === 'ok' && res.url) {
                 const expires = res.expires ?? (Math.floor(Date.now() / 1000) + 45);
-                await streamCache.set(id, res.url, expires, null);
-                console.log(`[stream] Yandex fetch: ${id} -> Done`);
-                return { url: res.url, expires, loudness: null };
+                // Известный из метаданных гейн (см. registerYandexTrack) экономит ffmpeg-замер
+                // и убирает гонку с истечением ссылки за ~60с; если его нет -- null, фронт
+                // домеряет громкость сам через ensureLoudness, как для SC.
+                const loudness = yandexLoudnessRegistry.get(id) ?? null;
+                await streamCache.set(id, res.url, expires, loudness);
+                console.log(`[stream] Yandex fetch: ${id} -> Done (loudness: ${loudness})`);
+                return { url: res.url, expires, loudness };
             }
             console.warn(`[stream] Yandex fetch: ${id} -> Failed`, res);
         } catch (e) {

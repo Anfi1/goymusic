@@ -10,7 +10,7 @@ import {
   isSoundCloudEnabled, interleaveMany, isScAuthed,
   getScWaveStations, getScStationTracks,
 } from '../../api/soundcloud';
-import { isYandexEnabled, getYandexWaveTracks } from '../../api/yandex';
+import { isYandexEnabled, getYandexWaveStations, getYandexWaveTracks } from '../../api/yandex';
 import type { TrackSource } from '../../api/source';
 import { LazyImage } from '../atoms/LazyImage';
 import { SourceBadge } from '../atoms/SourceBadge';
@@ -30,7 +30,6 @@ const WAVE_ACTIVE_ID_KEY = 'goymusic-my-wave-active-id';
 interface WaveStation { id: string; title: string; thumbUrl: string; kind: 'foryou' | 'sc' | 'yt' | 'curated' | 'yandex'; }
 const FORYOU: WaveStation = { id: 'foryou', title: 'Для тебя', thumbUrl: '', kind: 'foryou' };
 const CURATED: WaveStation = { id: 'curated', title: 'Мой подбор', thumbUrl: '', kind: 'curated' };
-const YANDEX_WAVE: WaveStation = { id: 'yandex-wave', title: 'Яндекс: Моя волна', thumbUrl: '', kind: 'yandex' };
 const WAVE_CURATED_MOODS_KEY = 'ytm-curated-moods';
 const MOOD_TAG_CATS = moodTagCategories();
 
@@ -292,18 +291,20 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     };
   }, [curateOpen, curateBuilding]);
 
-  // Курируемые станции: SoundCloud (жанры) + YouTube супермиксы.
+  // Курируемые станции: SoundCloud (жанры) + YouTube супермиксы + Yandex (дашборд радио).
   useEffect(() => {
     if (stationsCache) return;
     Promise.all([
       getScWaveStations().catch(() => []),
       getMixedForYou().catch(() => []),
-    ]).then(([sc, yt]) => {
+      getYandexWaveStations().catch(() => []),
+    ]).then(([sc, yt, yandex]) => {
       const scSt: WaveStation[] = sc.map(s => ({ id: s.id, title: s.title, thumbUrl: s.thumbUrl, kind: 'sc' }));
       const ytSt: WaveStation[] = (yt || [])
         .filter(m => m.playlistId && m.title)
         .map(m => ({ id: m.playlistId, title: m.title, thumbUrl: m.thumbUrl, kind: 'yt' }));
-      const combined = [...scSt, ...ytSt];
+      const yandexSt: WaveStation[] = yandex.map(s => ({ id: s.id, title: s.title, thumbUrl: s.thumbUrl, kind: 'yandex' }));
+      const combined = [...scSt, ...ytSt, ...yandexSt];
       stationsCache = combined;
       setStations(combined);
     }).catch(() => {}).finally(() => setLoading(false));
@@ -347,15 +348,15 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const visibleStations = useMemo<WaveStation[]>(() => {
     const activeStation = stations.find(s => s.id === activeId);
     if (selectedFilter === 'all') {
-      // «Все»: золотые (supermix) + ностальгия + открытия + SoundCloud.
+      // «Все»: золотые (supermix) + ностальгия + открытия + SoundCloud + Yandex.
       const golden = stations.filter(st => {
-        if (st.kind === 'sc') return false;
+        if (st.kind === 'sc' || st.kind === 'yandex') return false;
         const lower = st.title.toLowerCase();
         return /супер|super|рекоменд|новых релизов|new release|архив|replay|риплей/i.test(lower);
       });
       const sc = stations.filter(st => st.kind === 'sc');
-      const yandexPin = isYandexEnabled() ? [YANDEX_WAVE] : [];
-      const list = [FORYOU, ...yandexPin, ...golden, ...sc];
+      const yandex = stations.filter(st => st.kind === 'yandex');
+      const list = [FORYOU, ...golden, ...sc, ...yandex];
       const unique = new Map(list.map(s => [s.id, s]));
       return activeStation && !unique.has(activeStation.id)
         ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
@@ -369,7 +370,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         : Array.from(unique.values());
     }
     if (selectedFilter === 'yandex') {
-      const list = isYandexEnabled() ? [YANDEX_WAVE] : [];
+      const list = stations.filter(st => st.kind === 'yandex');
       const unique = new Map([FORYOU, ...list].map(s => [s.id, s]));
       return activeStation && !unique.has(activeStation.id)
         ? [FORYOU, activeStation, ...Array.from(unique.values()).filter(s => s.id !== activeStation.id)]
@@ -572,7 +573,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         // Порядок плейлиста сохраняем (как на сайте SoundCloud), без перемешивания.
         seeds = (await getScStationTracks(st.id)).slice(0, 50);
       } else if (st.kind === 'yandex') {
-        seeds = (await getYandexWaveTracks()).slice(0, 50);
+        seeds = (await getYandexWaveTracks(st.id)).slice(0, 50);
       } else {
         const res = await getPlaylistTracks(st.id, 60);
         seeds = res.tracks || [];
