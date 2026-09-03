@@ -5,7 +5,7 @@ import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundClo
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
-import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks } from './yandex';
+import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks, yandexRotorFeedback, yandexPlayAudio } from './yandex';
 
 // id станции rotor: "<тип>:<тег>" (user:onyourwave, genre:rap, activity:wake-up).
 // Явный список типов, чтобы не спутать с route-id альбома Яндекса ("yandex:123").
@@ -70,6 +70,9 @@ class PlayerStore {
     private wtSegStart: number = 0;
     private wtNextFlushAt: number = 10;
     private wtPrevMediaTime: number = 0;
+
+    // Текущее прослушивание Yandex-трека: по нему шлём /play-audio и feedback станции.
+    private yaSession: { yandexId: string; albumId?: string; station: string | null; duration: number } | null = null;
 
     // Треки, для которых уже пробовали SC-фолбэк в текущей попытке воспроизведения (защита от цикла).
     private scFallbackTried = new Set<string>();
@@ -521,6 +524,7 @@ class PlayerStore {
                 console.log(`[player] Player ${playerLabel} ended`);
                 this.wtFlush('ended');
                 this.wtUrl = null;
+                this.yaFinish('trackFinished');
                 if (this.repeat === 'one') {
                     const currentUrl = audio.src;
                     const isExpired = currentUrl &&
@@ -610,6 +614,37 @@ class PlayerStore {
                 }
             }) as EventListener);
         }
+    }
+
+    // Закрываем прослушивание Yandex-трека: отчёт в историю (/play-audio) и, если трек
+    // пришёл со станции, feedback rotor'у -- именно он двигает цепочку волны дальше.
+    private yaFinish(reason: 'trackFinished' | 'skip') {
+        const s = this.yaSession;
+        if (!s) return;
+        this.yaSession = null;
+        const played = Math.min(this.currentTime, s.duration || this.currentTime);
+        // Трек, доигранный до конца, для Яндекса всегда trackFinished -- даже если сюда
+        // пришли по пути смены трека, а не по событию ended.
+        const type = (s.duration > 0 && played >= s.duration - 3) ? 'trackFinished' : reason;
+        if (s.station) yandexRotorFeedback(s.station, type, s.yandexId, played);
+        yandexPlayAudio({
+            yandexId: s.yandexId,
+            albumId: s.albumId,
+            duration: s.duration,
+            played,
+            endPosition: played,
+        });
+    }
+
+    private yaStart(track: YTMTrack) {
+        const station = YANDEX_STATION_RE.test(this.recommendationPlaylistId || '') ? this.recommendationPlaylistId : null;
+        this.yaSession = {
+            yandexId: track.yandexId!,
+            albumId: track.yandexAlbumId,
+            station,
+            duration: this.parseDuration(track.duration),
+        };
+        if (station) yandexRotorFeedback(station, 'trackStarted', track.yandexId);
     }
 
     private initWatchtime(url: string) {
@@ -975,12 +1010,17 @@ class PlayerStore {
         this.isPreloadingNext = false;
         this.isCurrentTrackLocal = false;
 
+        // Предыдущий трек закрываем ДО сброса currentTime -- в нём ещё лежит доигранная
+        // позиция. На ретрае того же трека отчёт не шлём: прослушивание не прерывалось.
+        if (!isRetry) this.yaFinish('skip');
+
         await this.initAudioContext();
         this.currentTime = startTime;
         this.duration = this.parseDuration(track.duration);
         this.buffered = [];
         this.wtFlush('paused');
         this.wtUrl = null;
+        if (track.source === 'yandex' && track.yandexId) this.yaStart(track);
         this.saveState();
         this.notify('state'); 
         
@@ -1500,6 +1540,9 @@ class PlayerStore {
             const prevAudio = this.activeAudio;
             this.wtFlush('paused');
             this.wtUrl = null;
+            // Бесшовный переход идёт мимо startPlayback -- отчёты Яндексу закрываем и
+            // открываем здесь сами, иначе прослушивание такого трека теряется.
+            this.yaFinish('skip');
             this.activePlayer = this.activePlayer === 'A' ? 'B' : 'A';
             const nextAudio = this.activeAudio;
 
@@ -1507,6 +1550,7 @@ class PlayerStore {
             this.currentTrack = nextTrack;
             this.duration = this.parseDuration(nextTrack.duration);
             this.currentTime = 0;
+            if (nextTrack.source === 'yandex' && nextTrack.yandexId) this.yaStart(nextTrack);
             this.preloadedTrackId = null;
 
             nextAudio.volume = this.volume / 100;

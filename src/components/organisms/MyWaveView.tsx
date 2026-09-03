@@ -10,7 +10,7 @@ import {
   isSoundCloudEnabled, interleaveMany, isScAuthed,
   getScWaveStations, getScStationTracks,
 } from '../../api/soundcloud';
-import { isYandexEnabled, getYandexWaveStations, getYandexWaveTracks } from '../../api/yandex';
+import { isYandexEnabled, getYandexWaveStations, getYandexWaveTracks, yandexRotorFeedback } from '../../api/yandex';
 import { getHomeSource } from '../../api/homeSource';
 import type { TrackSource } from '../../api/source';
 import { LazyImage } from '../atoms/LazyImage';
@@ -582,6 +582,9 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
         // в player.fetchYandexRadio по recId -- больше порций тут только тормозят старт.
         seeds = (await getYandexWaveTracks(st.id, undefined, 2)).slice(0, 50);
         recId = st.id;
+        // Станция считается запущенной только после radioStarted -- дальше плеер шлёт
+        // trackStarted/trackFinished сам (src/api/player.ts, yaStart/yaFinish).
+        void yandexRotorFeedback(st.id, 'radioStarted');
       } else {
         const res = await getPlaylistTracks(st.id, 60);
         seeds = res.tracks || [];

@@ -4671,6 +4671,7 @@ def handle_request(request):
                     results = []
                     seen = set()
                     cursor = queue_from
+                    batch_id = None
                     for _ in range(batches):
                         res = client.rotor_station_tracks(station, queue=cursor) if cursor else client.rotor_station_tracks(station)
                         seq = (res.sequence if res else None) or []
@@ -4691,7 +4692,9 @@ def handle_request(request):
                         if added == 0 or not last_id:
                             break
                         cursor = last_id
-                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+                        if batch_id is None:
+                            batch_id = getattr(res, 'batch_id', None)
+                    safe_print({'status': 'ok', 'results': results, 'batchId': batch_id, 'callId': call_id})
             except Exception as e:
                 print(f"[error] yandex_wave_tracks: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
@@ -4906,6 +4909,52 @@ def handle_request(request):
                     safe_print({'status': 'ok', 'liked': liked, 'callId': call_id})
             except Exception as e:
                 print(f"[error] yandex_album_like: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_play_audio':
+            # /play-audio -- то, чем клиенты Яндекса отчитываются о прослушивании:
+            # пополняет историю, счётчики прослушиваний и влияет на рекомендации.
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    ok = client.play_audio(
+                        track_id=request.get('yandexId', ''),
+                        from_=request.get('from') or 'desktop_win',
+                        album_id=request.get('albumId') or '',
+                        playlist_id=request.get('playlistId') or None,
+                        play_id=request.get('playId') or None,
+                        track_length_seconds=int(request.get('duration') or 0),
+                        total_played_seconds=int(request.get('played') or 0),
+                        end_position_seconds=int(request.get('endPosition') or 0),
+                    )
+                    safe_print({'status': 'ok', 'ok': bool(ok), 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_play_audio: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_rotor_feedback':
+            # Обратная связь станции (radioStarted/trackStarted/trackFinished/skip).
+            # Без неё rotor не двигает цепочку: следующий запрос треков возвращает
+            # почти ту же пятёрку, а «Моя волна» не подстраивается под слушателя.
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    played = request.get('played')
+                    ok = client.rotor_station_feedback(
+                        station=request.get('station', ''),
+                        type_=request.get('type', ''),
+                        from_=request.get('from') or 'desktop_win',
+                        batch_id=request.get('batchId') or None,
+                        track_id=request.get('yandexId') or None,
+                        total_played_seconds=(float(played) if played is not None else None),
+                    )
+                    safe_print({'status': 'ok', 'ok': bool(ok), 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_rotor_feedback: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'yandex_stream_url':

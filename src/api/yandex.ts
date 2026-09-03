@@ -277,12 +277,65 @@ export async function getYandexWaveTracks(
   try {
     const res = await (window as any).bridge.pyCall('yandex_wave_tracks', { station, queue, batches });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
+      if (res.batchId) waveBatchIds.set(station, res.batchId);
       return res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
     }
   } catch (e) {
     console.warn('[yandex] getYandexWaveTracks failed', e);
   }
   return [];
+}
+
+// batch-id последней выданной порции станции. Яндекс ждёт его в feedback'е, а таскать
+// его через плеер и MyWaveView ради одной активной станции незачем.
+const waveBatchIds = new Map<string, string>();
+
+export type YandexRotorEvent = 'radioStarted' | 'trackStarted' | 'trackFinished' | 'skip';
+
+// Обратная связь станции. Яндекс двигает цепочку треков только по ней: без feedback'а
+// следующий rotor_station_tracks возвращает почти ту же порцию, а волна не учится.
+export async function yandexRotorFeedback(
+  station: string,
+  type: YandexRotorEvent,
+  yandexId?: string,
+  played?: number,
+): Promise<void> {
+  if (!isYandexEnabled() || !station) return;
+  try {
+    await (window as any).bridge.pyCall('yandex_rotor_feedback', {
+      station,
+      type,
+      yandexId,
+      played: played !== undefined ? Math.max(0, Math.round(played)) : undefined,
+      batchId: waveBatchIds.get(station),
+    });
+  } catch (e) {
+    console.warn('[yandex] rotor feedback failed', type, e);
+  }
+}
+
+// /play-audio -- история прослушиваний и счётчики на стороне Яндекса.
+export async function yandexPlayAudio(opts: {
+  yandexId: string;
+  albumId?: string;
+  playlistId?: string;
+  duration: number;
+  played: number;
+  endPosition: number;
+}): Promise<void> {
+  if (!isYandexEnabled() || !opts.yandexId) return;
+  try {
+    await (window as any).bridge.pyCall('yandex_play_audio', {
+      yandexId: opts.yandexId,
+      albumId: opts.albumId || '',
+      playlistId: opts.playlistId,
+      duration: Math.max(0, Math.round(opts.duration)),
+      played: Math.max(0, Math.round(opts.played)),
+      endPosition: Math.max(0, Math.round(opts.endPosition)),
+    });
+  } catch (e) {
+    console.warn('[yandex] play-audio failed', e);
+  }
 }
 
 export async function getYandexRecommendations(yandexId: string | undefined): Promise<YTMTrack[]> {
