@@ -21,7 +21,7 @@ export const SourceBadge = memo(({ source, size = 14 }: SourceBadgeProps) => {
   if (resolved === 'yandex') {
     return (
       <span className={styles.badge} data-tooltip="Yandex Music">
-        <span className={styles.yandexGlyph} style={{ width: size, height: size, fontSize: size * 0.72 }}>Я</span>
+        <span className={styles.yandexGlyph} style={{ height: size, fontSize: size * 0.62 }}>YAN</span>
       </span>
     );
   }
