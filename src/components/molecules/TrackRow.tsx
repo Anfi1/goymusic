@@ -1,5 +1,5 @@
 import React, { useState, forwardRef, Fragment, useEffect, memo, useCallback } from 'react';
-import { Play, Heart, HeartCrack, Loader2, HardDriveDownload, Zap } from 'lucide-react';
+import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload, Zap } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
 import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
@@ -46,6 +46,8 @@ interface TrackRowProps {
 }
 
 const MemoizedPlayIcon = memo(() => <Play size={14} className={styles.playIcon} fill="currentColor" />);
+// Клик по играющей строке ставит паузу, значит и иконка при наведении должна быть паузой.
+const MemoizedPauseIcon = memo(() => <Pause size={14} className={styles.playIcon} fill="currentColor" />);
 
 // Isolated Playback Indicator - only re-renders itself on player state changes
 const PlaybackIndicator = memo(({ id, index, isAvailable, isActive: propIsActive, isPlaying: propIsPlaying }: { id?: string, index: number, isAvailable: boolean, isActive?: boolean, isPlaying?: boolean }) => {
@@ -57,16 +59,16 @@ const PlaybackIndicator = memo(({ id, index, isAvailable, isActive: propIsActive
     if (!id || propIsActive !== undefined) return;
     
     return player.subscribe((event) => {
-      if (event === 'state') {
-        const isMe = player.currentTrack?.id === id;
-        const playerPlaying = player.isPlaying;
-        
-        setIsActive(prev => {
-          if (prev !== isMe) return isMe;
-          if (isMe) setIsPlaying(playerPlaying);
-          return prev;
-        });
-      }
+      if (event !== 'state') return;
+      const isMe = player.currentTrack?.id === id;
+      // Раньше isPlaying обновлялся побочным эффектом внутри апдейтера isActive и
+      // пропускался ровно в тот момент, когда строка становилась активной -- из-за
+      // этого состояние воспроизведения у строки залипало.
+      setIsActive(prev => (prev !== isMe ? isMe : prev));
+      setIsPlaying(prev => {
+        const next = isMe && player.isPlaying;
+        return prev !== next ? next : prev;
+      });
     });
   }, [id, propIsActive]);
 
@@ -79,7 +81,7 @@ const PlaybackIndicator = memo(({ id, index, isAvailable, isActive: propIsActive
   return (
     <>
       {!showVisualizer && <span className={styles.indexText}>{index}</span>}
-      <MemoizedPlayIcon />
+      {showVisualizer ? <MemoizedPauseIcon /> : <MemoizedPlayIcon />}
       {showVisualizer && <div className={styles.visualizerWrapper}><Visualizer trackId={id} /></div>}
     </>
   );

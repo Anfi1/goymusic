@@ -493,6 +493,21 @@ export const MainView = memo<MainViewProps>(({
   const [yandexLikedTracks, setYandexLikedTracks] = useState<YTMTrack[]>([]);
   // Даты лайков YouTube-треков: в самом списке их нет, они лежат в likedStore.
   const [ytLikedAt, setYtLikedAt] = useState<Map<string, number>>(new Map());
+  // Интеграции могут включаться/выключаться на ходу -- следим за событиями, иначе
+  // список лайков не перестроится до перезахода на вкладку.
+  const [scEnabled, setScEnabled] = useState(isSoundCloudEnabled());
+  const [yandexEnabled, setYandexEnabled] = useState(isYandexEnabled());
+  useEffect(() => {
+    const onSc = (e: Event) => setScEnabled((e as CustomEvent).detail.enabled);
+    const onYandex = (e: Event) => setYandexEnabled((e as CustomEvent).detail.enabled);
+    window.addEventListener('sc-enabled-changed', onSc);
+    window.addEventListener('yandex-enabled-changed', onYandex);
+    return () => {
+      window.removeEventListener('sc-enabled-changed', onSc);
+      window.removeEventListener('yandex-enabled-changed', onYandex);
+    };
+  }, []);
+
   // Какие источники показывать во вкладке лайков (список смешанный: YT + SC + Yandex).
   const [activeLikedSources, setActiveLikedSources] = useState<TrackSource[]>(() => {
     try {
@@ -543,8 +558,13 @@ export const MainView = memo<MainViewProps>(({
   const handleToggleLikedSource = useCallback((source: TrackSource, next: boolean) => {
     setActiveLikedSources(prev => {
       const updated = next ? [...new Set([...prev, source])] : prev.filter(s => s !== source);
-      // Полностью пустой фильтр показал бы пустой список -- последний источник не гасим.
-      const safe = updated.length > 0 ? updated : prev;
+      // Пустой фильтр показал бы пустой список -- последний источник не гасим. Считаем
+      // по доступным: выключенная интеграция в выборе не участвует, даже если её id
+      // остался в сохранённом значении.
+      const available = new Set<TrackSource>(['youtube',
+        ...(isSoundCloudEnabled() ? ['soundcloud' as const] : []),
+        ...(isYandexEnabled() ? ['yandex' as const] : [])]);
+      const safe = updated.some(s => available.has(s)) ? updated : prev;
       localStorage.setItem(LIKED_SOURCES_KEY, JSON.stringify(safe));
       return safe;
     });
@@ -689,17 +709,25 @@ export const MainView = memo<MainViewProps>(({
     return [...merged, ...playlistTracks.slice(i), ...yandexLikedTracks.slice(j)];
   }, [showSkeletons, playlistTracks, isLikedSongsView, yandexLikedTracks, ytLikedAt]);
 
-  // Переключатель источников во вкладке лайков виден только когда есть что фильтровать.
+  // Доступные источники: выключенная интеграция не должна ни показывать свою кнопку,
+  // ни оставлять свои треки в списке (в кэше лайков они остаются и после отключения).
   const likedSources = useMemo<TrackSource[]>(
-    () => ['youtube', ...(isSoundCloudEnabled() ? ['soundcloud' as const] : []), ...(isYandexEnabled() ? ['yandex' as const] : [])],
-    [],
+    () => ['youtube', ...(scEnabled ? ['soundcloud' as const] : []), ...(yandexEnabled ? ['yandex' as const] : [])],
+    [scEnabled, yandexEnabled],
+  );
+
+  // Фильтруем всегда по пересечению выбранного с доступным: раньше стояла отсечка
+  // "выбрано >= доступно -> не фильтровать", и при выключенном SoundCloud сохранённый
+  // выбор из трёх источников перекрывал два доступных -- фильтр не срабатывал вовсе.
+  const effectiveLikedSources = useMemo(
+    () => likedSources.filter(s => activeLikedSources.includes(s)),
+    [likedSources, activeLikedSources],
   );
 
   const displayTracks = useMemo(() => {
     if (!isLikedSongsView || showSkeletons) return mergedLikedTracks;
-    if (activeLikedSources.length >= likedSources.length) return mergedLikedTracks;
-    return mergedLikedTracks.filter((t: YTMTrack) => activeLikedSources.includes(resolveSource(t.source)));
-  }, [mergedLikedTracks, isLikedSongsView, showSkeletons, activeLikedSources, likedSources.length]);
+    return mergedLikedTracks.filter((t: YTMTrack) => effectiveLikedSources.includes(resolveSource(t.source)));
+  }, [mergedLikedTracks, isLikedSongsView, showSkeletons, effectiveLikedSources]);
 
   const handleContextMenu = useCallback((e: any, track: any) => trackMenuRef.current?.open(e, track), []);
   const handlePlayTrack = useCallback((idx: number) => player.playTrackList(displayTracks, idx, playlistId || playlistType), [displayTracks, playlistId, playlistType]);
@@ -793,13 +821,13 @@ export const MainView = memo<MainViewProps>(({
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
     onDragStart: handleDragStart, onDragOverItem: handleDragOverItem, onDragOverContainer: handleDragOverContainer,
     onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
-    isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource: handleToggleLikedSource
+    isLikedSongsView, likedSources, activeLikedSources: effectiveLikedSources, onToggleLikedSource: handleToggleLikedSource
   }), [
     isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing,
     handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
     dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
-    isLikedSongsView, likedSources, activeLikedSources, handleToggleLikedSource
+    isLikedSongsView, likedSources, effectiveLikedSources, handleToggleLikedSource
   ]);
 
   if (isSearch) return <SearchView searchQuery={activeView.searchQuery || ''} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSearchAgain={onSearchAgain} />;
