@@ -1,6 +1,6 @@
 {
   "name": "goymusic",
-  "version": "6.9.10",
+  "version": "6.9.11",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "mobile:build": "cd mobile && npm run build",
+    "mobile:sync": "cd mobile && npm run sync",
+    "mobile:apk": "cd mobile && npm run apk"
   },
   "keywords": [],
   "author": "",

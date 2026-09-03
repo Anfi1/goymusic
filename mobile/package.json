@@ -1,0 +1,31 @@
+{
+  "name": "goymusic-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Android-сборка GoyMusic: тот же UI из ../src, бэкенд на JS вместо Python",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "sync": "npm run build && npx cap sync android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@tanstack/react-query": "^5.90.21",
+    "lucide-react": "^0.575.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-virtuoso": "^4.18.1",
+    "twemoji": "^14.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}

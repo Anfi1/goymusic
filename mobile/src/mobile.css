@@ -1,0 +1,50 @@
+/* Мобильные поправки поверх десктопных стилей ../src. Сами десктопные файлы не трогаем:
+   всё, что нужно, переопределяем здесь -- этот файл грузится последним. */
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  /* Вырезы и системные панели Android. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
+}
+
+/* Кнопок окна на телефоне нет -- у TitleBar остаётся только перетаскивание, которое
+   на тач-экране бессмысленно, поэтому прячем всю полосу целиком. */
+[class*="titleBar"] {
+  display: none !important;
+}
+
+/* Десктопная сетка рассчитана на широкий экран: сайдбар и правая панель на телефоне
+   съедают всё место. Прячем их, оставляя основную колонку во всю ширину. */
+@media (max-width: 820px) {
+  [class*="sidebar"]:not([class*="sidebarToggle"]) {
+    display: none !important;
+  }
+  [class*="rightPanel"] {
+    display: none !important;
+  }
+  [class*="mainContent"],
+  [class*="content"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  /* Таблица треков: колонка альбома не помещается, время оставляем. */
+  table [class*="album"] {
+    display: none !important;
+  }
+}
+
+/* Тач-прокрутка списков Virtuoso без резинки Android. */
+* {
+  -webkit-overflow-scrolling: touch;
+}

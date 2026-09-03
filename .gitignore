@@ -23,3 +23,14 @@ ptf_pot.json
 
 # Скачанные версии треков для прослушивания (python/download_versions.py)
 versions/
+
+# Android-сборка (mobile/): сгенерированный нативный проект и артефакты Gradle.
+# Исходники mobile/src и конфиги -- в репозитории, всё остальное восстанавливается
+# из `npx cap add android` + `gradlew assembleDebug`.
+mobile/dist/
+mobile/android/
+mobile/.gradle/
+
+
+# Готовый APK мобильной сборки
+*.apk
