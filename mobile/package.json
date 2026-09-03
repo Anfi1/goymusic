@@ -7,8 +7,9 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "sync": "npm run build && npx cap sync android",
-    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+    "sync": "npm run build && npm run pysrc && npx cap sync android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug",
+    "pysrc": "node -e \"const fs=require('fs');fs.rmSync('pysrc/ytmusicapi',{recursive:true,force:true});fs.cpSync('../python/fork/ytmusicapi','pysrc/ytmusicapi',{recursive:true})\""
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

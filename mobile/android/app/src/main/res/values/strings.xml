@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GoyMusic</string>
+    <string name="title_activity_main">GoyMusic</string>
+    <string name="package_name">com.goymusic.app</string>
+    <string name="custom_url_scheme">com.goymusic.app</string>
+</resources>

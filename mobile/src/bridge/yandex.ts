@@ -61,8 +61,9 @@ export function trackDict(t: any): any {
   let loudness: number | null = null;
   const r128 = t?.r128;
   if (r128 && typeof r128.i === 'number') {
-    loudness = r128.i + 14;
-    if (loudness < 0 && typeof r128.tp === 'number') loudness = Math.max(loudness, r128.tp + 1);
+    let value = r128.i + 14;
+    if (value < 0 && typeof r128.tp === 'number') value = Math.max(value, r128.tp + 1);
+    loudness = value;
   }
 
   return {

@@ -28,8 +28,16 @@ versions/
 # Исходники mobile/src и конфиги -- в репозитории, всё остальное восстанавливается
 # из `npx cap add android` + `gradlew assembleDebug`.
 mobile/dist/
-mobile/android/
 mobile/.gradle/
+# Нативный проект нужен в репозитории: в нём Chaquopy-конфиг и мост к api.py,
+# из чистого `npx cap add android` он не восстановится. Игнорируем только артефакты.
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/src/main/assets/public/
+mobile/android/app/src/main/assets/capacitor.config.json
+mobile/android/capacitor-cordova-android-plugins/
 
 
 # Готовый APK мобильной сборки

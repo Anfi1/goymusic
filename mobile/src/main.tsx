@@ -20,9 +20,11 @@ Object.defineProperty(HTMLMediaElement.prototype, 'crossOrigin', {
   configurable: true,
 });
 
-installMobileBridge();
-
 async function boot() {
+  // Мост ставится до импорта ../src: модули рендерера дёргают window.bridge
+  // уже на инициализации.
+  await installMobileBridge();
+
   const [{ default: React }, ReactDOM, { QueryClient, QueryClientProvider }, { default: App }, { initMediaSession }] =
     await Promise.all([
       import('react'),

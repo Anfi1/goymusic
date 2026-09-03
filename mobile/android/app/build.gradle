@@ -1,0 +1,113 @@
+apply plugin: 'com.android.application'
+apply plugin: 'com.chaquo.python'
+
+android {
+    namespace "com.goymusic.app"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.goymusic.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Только arm64: все живые телефоны на нём, а каждая ABI тянет свою копию
+        // CPython и всех зависимостей (+~25 МБ на архитектуру).
+        // Только arm64: все живые телефоны на нём, а каждая ABI тянет свою копию
+        // CPython со всеми зависимостями (+~30 МБ). x86_64 добавляется временно,
+        // когда сборку нужно проверить на эмуляторе.
+        ndk { abiFilters "arm64-v8a" }
+
+        python {
+            version "3.13"
+            buildPython "C:/Users/Semir/AppData/Local/Programs/Python/Python313/python.exe"
+            pip {
+                // --no-deps со списком всех транзитивных зависимостей вручную: pytubefix
+                // тянет nodejs-wheel-binaries (бандленный Node), который под Android не
+                // собирается вообще -- pip уходит в CMake и падает. Node нам и не нужен:
+                // JS-челленджи YouTube решает WebView (см. python/js_bridge.py).
+                // Состав списка -- ровно то, что резолвил сам pip до падения.
+                options "--no-deps"
+
+                install "requests==2.32.5"
+                install "certifi"
+                install "urllib3<3"
+                install "charset_normalizer<4,>=2"
+                install "idna<4,>=2.5"
+
+                install "yt-dlp==2026.8.18.122307.dev0"
+                install "yt-dlp-ejs>=0.8.0"
+
+                install "pytubefix>=10.11.0"
+                install "aiohttp>=3.12.13"
+                install "aiohappyeyeballs>=2.5.0"
+                install "aiosignal>=1.4.0"
+                install "attrs>=17.3.0"
+                install "frozenlist>=1.1.1"
+                install "multidict<7.0,>=4.5"
+                install "yarl<2.0,>=1.17.0"
+                install "propcache>=0.2.0"
+                install "typing-extensions"
+
+                install "yandex-music>=3.0.0"
+
+                install "syncedlyrics>=1.0.1"
+                install "beautifulsoup4<5.0.0,>=4.12.3"
+                install "soupsieve>=1.6.1"
+                install "rapidfuzz"
+            }
+        }
+
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    sourceSets {
+        main {
+            // Берём питон прямо из десктопного дерева -- никаких копий, правки в
+            // python/api.py автоматически едут и в APK. fork -- вендоренный ytmusicapi.
+            // Вложенные srcDirs Chaquopy не переваривает: python и python/fork дают
+            // конфликтующие пути в AssetFinder и импорт падает FileNotFoundError.
+            // Поэтому форк ytmusicapi лежит отдельной копией в mobile/pysrc.
+            python.srcDirs = ["../../../python", "../../pysrc"]
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
