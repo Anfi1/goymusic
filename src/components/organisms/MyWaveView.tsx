@@ -640,6 +640,20 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
 
   const activeStation = allStations.find(s => s.id === activeId) || FORYOU;
   const waveActive = player.queueSourceId === WAVE_SOURCE_ID;
+
+  // При переключении фильтра на платформенную вкладку (SC/Yandex) поднимаем в актив
+  // её реальную станцию вместо общей "Для тебя" -- но не перебиваем реально играющую волну.
+  useEffect(() => {
+    if (waveActive) return;
+    const kind: WaveStation['kind'] | null =
+      selectedFilter === 'yandex' ? 'yandex' : (selectedFilter === 'soundcloud' || selectedFilter === 'genre') ? 'sc' : null;
+    if (!kind) return;
+    const current = stations.find(s => s.id === activeId);
+    if (current?.kind === kind) return;
+    const first = stations.find(s => s.kind === kind);
+    if (first) { setActiveId(first.id); saveActiveId(first.id); }
+  }, [selectedFilter, stations, activeId, waveActive]);
+
   const track = waveActive ? player.currentTrack : null;
   const isPlaying = waveActive && player.isPlaying;
   const likeStatus = track?.likeStatus;

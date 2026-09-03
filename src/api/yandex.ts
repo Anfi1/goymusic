@@ -303,6 +303,44 @@ export async function getYandexAlbumTracks(albumId: string): Promise<YandexAlbum
   return null;
 }
 
+export interface YandexPlaylistResult {
+  id: string;
+  title: string;
+  thumbUrl: string;
+  trackCount?: number;
+}
+
+// Собственные плейлисты пользователя (для "Коллекций" в режиме Yandex).
+export async function getYandexPlaylists(): Promise<YandexPlaylistResult[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_playlists', {});
+    if (res?.status === 'ok' && Array.isArray(res.results)) return res.results;
+  } catch (e) {
+    console.warn('[yandex] getYandexPlaylists failed', e);
+  }
+  return [];
+}
+
+export interface YandexPlaylistDetail {
+  title: string;
+  tracks: YTMTrack[];
+}
+
+export async function getYandexPlaylistTracks(kind: string): Promise<YandexPlaylistDetail | null> {
+  if (!kind) return null;
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_playlist_tracks', { kind });
+    if (res?.status === 'ok' && Array.isArray(res.results)) {
+      const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
+      return { title: res.title || '', tracks };
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexPlaylistTracks failed', e);
+  }
+  return null;
+}
+
 export interface YandexArtistDetail {
   name: string;
   thumbUrl: string;

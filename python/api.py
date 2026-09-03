@@ -4592,10 +4592,21 @@ def handle_request(request):
                         if sid in seen:
                             continue
                         seen.add(sid)
+                        # full_image_url почти всегда пусто (Optional, редко заполняется) --
+                        # надёжный источник обложки станции это icon.get_url() (Icon.image_url
+                        # с %% под размер, как у cover_uri треков/альбомов).
+                        thumb = ''
+                        try:
+                            if st.icon:
+                                thumb = st.icon.get_url('400x400')
+                        except Exception:
+                            pass
+                        if not thumb:
+                            thumb = st.full_image_url or ''
                         stations.append({
                             'id': sid,
                             'title': item.custom_name or st.name or sid,
-                            'thumbUrl': st.full_image_url or '',
+                            'thumbUrl': thumb,
                         })
                     safe_print({'status': 'ok', 'stations': stations, 'callId': call_id})
             except Exception as e:
@@ -4743,6 +4754,59 @@ def handle_request(request):
                     })
             except Exception as e:
                 print(f"[error] yandex_artist: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_playlists':
+            # Собственные плейлисты пользователя (для "Коллекций" в режиме Yandex).
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    playlists = client.users_playlists_list() or []
+                    results = []
+                    for pl in playlists:
+                        cover_uri = getattr(pl.cover, 'uri', None) if pl.cover else None
+                        thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                        results.append({
+                            'id': str(pl.kind),
+                            'title': pl.title or '',
+                            'thumbUrl': thumb,
+                            'trackCount': pl.track_count,
+                        })
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_playlists: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_playlist_tracks':
+            kind = request.get('kind', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    pl = client.users_playlists(kind)
+                    if isinstance(pl, list):
+                        pl = pl[0] if pl else None
+                    results = []
+                    if pl:
+                        shorts = pl.fetch_tracks() or []
+                        ids = [str(s.id) for s in shorts]
+                        full = client.tracks(ids) if ids else []
+                        by_id = {str(t.id): t for t in full if t}
+                        for s in shorts:
+                            t = by_id.get(str(s.id))
+                            if t:
+                                results.append(yandex_track_dict(t))
+                    safe_print({
+                        'status': 'ok',
+                        'title': (pl.title if pl else ''),
+                        'results': results,
+                        'callId': call_id,
+                    })
+            except Exception as e:
+                print(f"[error] yandex_playlist_tracks: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'yandex_search':

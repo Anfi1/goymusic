@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getExploreReleases, getAlbum, getPlaylistTracks } from '../../api/yt';
 import { player } from '../../api/player';
@@ -6,6 +6,8 @@ import { MediaCard } from '../molecules/MediaCard';
 import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
 import { Sparkles, RefreshCw } from 'lucide-react';
 import { isYandexEnabled, getYandexNewReleases, getYandexAlbumTracks } from '../../api/yandex';
+import { getHomeSource, setHomeSource, HomeSource } from '../../api/homeSource';
+import { HomeSourceToggle } from '../atoms/HomeSourceToggle';
 import styles from './NewReleasesView.module.css';
 
 interface NewReleasesViewProps {
@@ -17,7 +19,14 @@ interface NewReleasesViewProps {
 export const NewReleasesView: React.FC<NewReleasesViewProps> = ({ 
   onSelectAlbum, onSelectPlaylist, onSelectArtist 
 }) => {
-  const [yandexMode, setYandexMode] = useState(false);
+  const [homeSource, setHomeSourceState] = useState<HomeSource>(getHomeSource());
+  const yandexMode = homeSource === 'yandex';
+  const handleSourceChange = useCallback((v: HomeSource) => { setHomeSource(v); setHomeSourceState(v); }, []);
+  useEffect(() => {
+    const onChange = (e: Event) => setHomeSourceState((e as CustomEvent).detail.source);
+    window.addEventListener('home-source-changed', onChange);
+    return () => window.removeEventListener('home-source-changed', onChange);
+  }, []);
 
   const { data: rawSections, isLoading, isFetching } = useQuery({
     queryKey: ['new-releases'],
@@ -94,18 +103,9 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
   }, []);
 
   const yandexToggle = isYandexEnabled() ? (
-    <button
-      onClick={() => setYandexMode(v => !v)}
-      style={{
-        padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
-        fontSize: 12, fontWeight: 700, marginLeft: 'auto',
-        background: yandexMode ? '#ffcc00' : 'rgba(255,255,255,0.08)',
-        color: yandexMode ? '#1a1a1a' : 'var(--text-main, #cdd6f4)',
-      }}
-      title={yandexMode ? 'Показать новинки YouTube Music' : 'Показать новинки Yandex Music'}
-    >
-      {yandexMode ? 'YouTube Music' : 'Yandex Music'}
-    </button>
+    <div style={{ marginLeft: 'auto' }}>
+      <HomeSourceToggle value={homeSource} onChange={handleSourceChange} />
+    </div>
   ) : null;
 
   const header = (

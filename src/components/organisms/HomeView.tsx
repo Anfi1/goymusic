@@ -16,6 +16,8 @@ import { useToast } from '../atoms/Toast';
 import { YTMHomeSection } from '../../api/yt';
 import { ActiveView } from '../../types';
 import { isYandexEnabled } from '../../api/yandex';
+import { getHomeSource, setHomeSource, HomeSource } from '../../api/homeSource';
+import { HomeSourceToggle } from '../atoms/HomeSourceToggle';
 import { YandexHomeView } from './YandexHomeView';
 import styles from './HomeView.module.css';
 
@@ -122,7 +124,14 @@ export const HomeView: React.FC<{
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, item: any } | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [yandexMode, setYandexMode] = useState(false);
+  const [homeSource, setHomeSourceState] = useState<HomeSource>(getHomeSource());
+  const yandexMode = homeSource === 'yandex';
+  const handleSourceChange = useCallback((v: HomeSource) => { setHomeSource(v); setHomeSourceState(v); }, []);
+  useEffect(() => {
+    const onChange = (e: Event) => setHomeSourceState((e as CustomEvent).detail.source);
+    window.addEventListener('home-source-changed', onChange);
+    return () => window.removeEventListener('home-source-changed', onChange);
+  }, []);
 
   const {
     data,
@@ -259,22 +268,13 @@ export const HomeView: React.FC<{
     return items;
   }, [contextMenu, handlePlayClick, onSelectAlbum, onSelectPlaylist, handleFeedback]);
 
-  // Кнопка-переключатель в углу: YT-главная <-> Yandex-главная (волна + новинки).
-  // Видна только когда интеграция включена в настройках.
+  // Переключатель в углу: YT-главная <-> Yandex-главная (волна + новинки).
+  // Видна только когда интеграция включена в настройках; выбор сохраняется
+  // (ytm-home-source) и общий с New Releases / Коллекциями.
   const yandexToggle = isYandexEnabled() ? (
-    <button
-      onClick={() => setYandexMode(v => !v)}
-      style={{
-        position: 'absolute', top: 12, right: 12, zIndex: 5,
-        padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
-        fontSize: 12, fontWeight: 700,
-        background: yandexMode ? '#ffcc00' : 'rgba(255,255,255,0.08)',
-        color: yandexMode ? '#1a1a1a' : 'var(--text-main, #cdd6f4)',
-      }}
-      title={yandexMode ? 'Показать YouTube Music' : 'Показать Yandex Music'}
-    >
-      {yandexMode ? 'YouTube Music' : 'Yandex Music'}
-    </button>
+    <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+      <HomeSourceToggle value={homeSource} onChange={handleSourceChange} />
+    </div>
   ) : null;
 
   if (yandexMode) {

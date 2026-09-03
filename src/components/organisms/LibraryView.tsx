@@ -7,6 +7,8 @@ import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
 import { TrackRow } from '../molecules/TrackRow';
 import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { Library, Disc, Mic2, Heart, Users, ChevronDown, Shuffle, Check, X, Play } from 'lucide-react';
+import { getHomeSource } from '../../api/homeSource';
+import { isYandexEnabled, getYandexPlaylists, getYandexPlaylistTracks } from '../../api/yandex';
 import styles from './LibraryView.module.css';
 
 interface LibraryViewProps {
@@ -145,6 +147,14 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  const [homeSource, setHomeSourceState] = useState(getHomeSource());
+  useEffect(() => {
+    const onChange = (e: Event) => setHomeSourceState((e as CustomEvent).detail.source);
+    window.addEventListener('home-source-changed', onChange);
+    return () => window.removeEventListener('home-source-changed', onChange);
+  }, []);
+  const yandexPlaylistsMode = activeTab === 'playlists' && homeSource === 'yandex' && isYandexEnabled();
+
   const { data: rawItems = [], isLoading, isFetching } = useQuery({
     queryKey: ['library', activeTab, order, fetchLimit],
     queryFn: () => getLibrary(activeTab, fetchLimit, activeTab === 'playlists' ? undefined : order),
@@ -155,7 +165,20 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
       return undefined;
     },
     staleTime: 5 * 60 * 1000,
+    enabled: !yandexPlaylistsMode,
   });
+
+  const { data: yandexPlaylists = [], isLoading: isYandexPlaylistsLoading } = useQuery({
+    queryKey: ['yandex-playlists'],
+    queryFn: getYandexPlaylists,
+    staleTime: 5 * 60 * 1000,
+    enabled: yandexPlaylistsMode,
+  });
+
+  const playYandexPlaylist = useCallback(async (kind: string) => {
+    const detail = await getYandexPlaylistTracks(kind);
+    if (detail?.tracks?.length) await player.playTrackList(detail.tracks, 0, `yandex-playlist-${kind}`, 'playlist');
+  }, []);
 
   // IntersectionObserver — exact same prefetching pattern as HomeView
   useEffect(() => {
@@ -285,7 +308,10 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
     }
   }, [modalTracks, artistModalData]);
 
-  const showInitialSkeleton = isLoading && rawItems.length === 0;
+  const showInitialSkeleton = yandexPlaylistsMode
+    ? (isYandexPlaylistsLoading && yandexPlaylists.length === 0)
+    : (isLoading && rawItems.length === 0);
+  const displayItems = yandexPlaylistsMode ? yandexPlaylists : items;
 
   const availableOrders: LibraryOrder[] = activeTab === 'artists'
     ? ['recently_added', 'a_to_z', 'z_to_a', 'most_songs']
@@ -378,7 +404,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
             ))}
           </div>
         )
-      ) : items.length === 0 ? (
+      ) : displayItems.length === 0 ? (
         <div className={styles.emptyState}>
           <Library size={48} className={styles.emptyIcon} />
           <div className={styles.emptyText}>Library is empty</div>
@@ -415,19 +441,32 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
       ) : (
         <>
           <div className={styles.grid}>
-            {items.map((item: any) => (
-              <MediaCard
-                key={item.id}
-                {...item}
-                description={item.description || item.subscribers || item.count ? `${item.count ? item.count + ' tracks' : (item.description || item.subscribers)}` : undefined}
-                onClick={() => handleItemClick(item)}
-                onPlayClick={() => handlePlayClick(item)}
-                onArtistClick={onSelectArtist}
-              />
-            ))}
+            {yandexPlaylistsMode
+              ? yandexPlaylists.map((pl) => (
+                <MediaCard
+                  key={pl.id}
+                  id={pl.id}
+                  title={pl.title}
+                  thumbUrl={pl.thumbUrl}
+                  type="playlist"
+                  description={pl.trackCount ? `${pl.trackCount} tracks` : undefined}
+                  onClick={() => playYandexPlaylist(pl.id)}
+                  onPlayClick={() => playYandexPlaylist(pl.id)}
+                />
+              ))
+              : items.map((item: any) => (
+                <MediaCard
+                  key={item.id}
+                  {...item}
+                  description={item.description || item.subscribers || item.count ? `${item.count ? item.count + ' tracks' : (item.description || item.subscribers)}` : undefined}
+                  onClick={() => handleItemClick(item)}
+                  onPlayClick={() => handlePlayClick(item)}
+                  onArtistClick={onSelectArtist}
+                />
+              ))}
           </div>
           <div ref={sentinelRef} style={{ height: 1 }} />
-          {isFetching && (
+          {!yandexPlaylistsMode && isFetching && (
             <div className={styles.grid} style={{ marginTop: 12 }}>
               {Array.from({ length: 4 }).map((_, i) => (
                 <MediaCardSkeleton key={`bottom-card-skel-${i}`} />
