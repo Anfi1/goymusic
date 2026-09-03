@@ -507,6 +507,9 @@ def yandex_track_dict(t):
         'albumId': str(album_id) if album_id else None,
         'url': (f'https://music.yandex.ru/album/{album_id}/track/{t.id}' if album_id else ''),
         'loudness': loudness,
+        'best': bool(getattr(t, 'best', False)),
+        'artists': [a.name for a in artists],
+        'artistIds': [str(a.id) for a in artists],
     }
 
 
@@ -4627,18 +4630,17 @@ def handle_request(request):
                         if sid in seen:
                             continue
                         seen.add(sid)
-                        # full_image_url почти всегда пусто (Optional, редко заполняется) --
-                        # надёжный источник обложки станции это icon.get_url() (Icon.image_url
-                        # с %% под размер, как у cover_uri треков/альбомов).
-                        thumb = ''
-                        try:
-                            if st.icon:
-                                thumb = st.icon.get_url('400x400')
-                        except Exception:
-                            pass
+                        # full_image_url -- широкие цветные карточки станций (как на сайте
+                        # Яндекс.Музыки), приоритетный источник обложки; icon.get_url() -- фолбэк,
+                        # маленькая иконка, когда full_image_url не заполнен.
+                        fu = st.full_image_url
+                        thumb = ('https://' + fu.replace('%%', '400x400')) if fu else ''
                         if not thumb:
-                            fu = st.full_image_url
-                            thumb = ('https://' + fu.replace('%%', '400x400')) if fu else ''
+                            try:
+                                if st.icon:
+                                    thumb = st.icon.get_url('400x400')
+                            except Exception:
+                                pass
                         stations.append({
                             'id': sid,
                             'title': item.custom_name or st.name or sid,
@@ -4704,6 +4706,8 @@ def handle_request(request):
                             'albumId': str(a.id),
                             'title': a.title or '',
                             'artist': artists[0].name if artists else '',
+                            'artists': [ar.name for ar in artists],
+                            'artistIds': [str(ar.id) for ar in artists],
                             'thumbUrl': thumb,
                             'year': getattr(a, 'year', None),
                             'trackCount': getattr(a, 'track_count', None),
@@ -4712,6 +4716,118 @@ def handle_request(request):
             except Exception as e:
                 print(f"[error] yandex_new_releases: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_home_genres':
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    allowed = {
+                        'pop', 'allrock', 'indie', 'metal', 'alternative', 'dance', 'electronics',
+                        'rap', 'rnb', 'jazz', 'blues', 'reggae', 'ska', 'punk', 'folk', 'estrada',
+                        'shanson', 'country', 'soundtrack', 'relax', 'children', 'classicalmusic',
+                        'naturesounds', 'bard',
+                    }
+                    genres = client.genres() or []
+                    results = []
+                    for g in genres:
+                        if g.id not in allowed:
+                            continue
+                        images = getattr(g, 'images', None)
+                        raw = (getattr(images, '_300x300', None) or getattr(images, '_208x208', None)) if images else None
+                        if not raw:
+                            # у части метажанров (allrock и т.п.) images: null -- берём обложку первого поджанра
+                            for sub in (getattr(g, 'sub_genres', None) or []):
+                                sub_images = getattr(sub, 'images', None)
+                                raw = (getattr(sub_images, '_300x300', None) or getattr(sub_images, '_208x208', None)) if sub_images else None
+                                if raw:
+                                    break
+                        thumb = raw.replace('http://', 'https://') if raw else ''
+                        results.append({'id': g.id, 'title': g.title or '', 'thumbUrl': thumb})
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_home_genres: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_genre_stations':
+            genre = request.get('genre', '')
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    tag_map = {
+                        'pop': ['pop'], 'allrock': ['rock'], 'indie': ['indie'], 'metal': ['metal'],
+                        'alternative': ['alternative'], 'dance': ['dance', 'house', 'techno', 'disco', 'club'],
+                        'electronics': ['electron', 'dubstep', 'ambient', 'idm', 'dnb'],
+                        'rap': ['rap', 'hiphop', 'grime'], 'rnb': ['rnb', 'soul', 'funk'], 'jazz': ['jazz'],
+                        'blues': ['blues'], 'reggae': ['reggae'], 'ska': ['ska'], 'punk': ['punk'],
+                        'folk': ['folk'], 'estrada': ['estrada'], 'shanson': ['shanson', 'chanson'],
+                        'country': ['country'],
+                        'soundtrack': ['film', 'soundtrack', 'musical', 'cinema', 'movie'],
+                        'relax': ['relax', 'lounge', 'meditation', 'sleep', 'calm', 'chill'],
+                        'children': ['kids', 'lullaby', 'child'],
+                        'classicalmusic': ['classic', 'neoclass', 'orchestra', 'symphony', 'piano'],
+                        'naturesounds': ['nature', 'rain', 'sea', 'ocean', 'forest'],
+                        'bard': ['bard'],
+                    }
+                    needles = tag_map.get(genre, [])
+                    results = []
+                    if needles:
+                        stations = client.rotor_stations_list(language='ru') or []
+                        for item in stations:
+                            st = item.station
+                            if not st or not st.id or st.id.type != 'genre':
+                                continue
+                            tag = (st.id.tag or '').lower()
+                            if not any(n in tag for n in needles):
+                                continue
+                            fu = st.full_image_url
+                            thumb = ('https://' + fu.replace('%%', '400x400')) if fu else ''
+                            if not thumb:
+                                try:
+                                    if st.icon:
+                                        thumb = st.icon.get_url('400x400')
+                                except Exception:
+                                    pass
+                            results.append({'id': f'genre:{st.id.tag}', 'title': st.name or st.id.tag, 'thumbUrl': thumb})
+                            if len(results) >= 50:
+                                break
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_genre_stations: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_new_playlists':
+            results = []
+            try:
+                client = get_yandex_client()
+                if client:
+                    landing_list = client.new_playlists()
+                    pids = (getattr(landing_list, 'new_playlists', None) or [])
+                    ids_str = [f'{p.uid}:{p.kind}' for p in pids if p.uid and p.kind]
+                    pls_list = client.playlists(ids_str) if ids_str else None
+                    playlists = (getattr(pls_list, 'playlists', None) or [])
+                    for pl in playlists:
+                        thumb = ''
+                        try:
+                            if pl.cover:
+                                thumb = pl.cover.get_url(size='400x400')
+                        except Exception:
+                            pass
+                        if not thumb and pl.og_image:
+                            thumb = 'https://' + pl.og_image.replace('%%', '400x400')
+                        results.append({
+                            'id': str(pl.kind),
+                            'ownerId': str(pl.uid) if pl.uid else '',
+                            'title': pl.title or '',
+                            'thumbUrl': thumb,
+                            'trackCount': pl.track_count,
+                        })
+            except Exception as e:
+                print(f"[error] yandex_new_playlists: {e}", file=sys.stderr)
+            safe_print({'status': 'ok', 'results': results, 'callId': call_id})
 
         elif command == 'yandex_album_tracks':
             album_id = request.get('albumId', '')
@@ -4729,17 +4845,42 @@ def handle_request(request):
                     cover_uri = getattr(album, 'cover_uri', None) if album else None
                     thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
                     album_artists = (getattr(album, 'artists', None) if album else None) or []
+                    liked = False
+                    try:
+                        likes = client.users_likes_albums(album_ids=[int(album_id)])
+                        liked = any(str(getattr(li.album, 'id', '')) == str(album_id) for li in (likes or []) if li.album)
+                    except Exception:
+                        liked = False
                     safe_print({
                         'status': 'ok',
                         'title': (album.title if album else ''),
                         'artist': album_artists[0].name if album_artists else '',
                         'artistId': str(album_artists[0].id) if album_artists else '',
                         'thumbUrl': thumb,
+                        'year': getattr(album, 'year', None) if album else None,
+                        'liked': liked,
                         'results': results,
                         'callId': call_id,
                     })
             except Exception as e:
                 print(f"[error] yandex_album_tracks: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_album_like':
+            album_id = request.get('albumId', '')
+            liked = bool(request.get('liked'))
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    if liked:
+                        client.users_likes_albums_add([int(album_id)])
+                    else:
+                        client.users_likes_albums_remove([int(album_id)])
+                    safe_print({'status': 'ok', 'liked': liked, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_album_like: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
         elif command == 'yandex_stream_url':

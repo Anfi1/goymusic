@@ -1,5 +1,5 @@
 import React, { useState, forwardRef, Fragment, useEffect, memo, useCallback } from 'react';
-import { Play, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-react';
+import { Play, Heart, HeartCrack, Loader2, HardDriveDownload, Zap } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
 import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
@@ -42,6 +42,7 @@ interface TrackRowProps {
   source?: unknown;
   yandexId?: string;
   yandexAlbumId?: string;
+  best?: boolean;
 }
 
 const MemoizedPlayIcon = memo(() => <Play size={14} className={styles.playIcon} fill="currentColor" />);
@@ -227,7 +228,8 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     className,
     renderOnlyCells = false,
     extraCells = [],
-    source
+    source,
+    best
   } = props;
 
   // Still need active status for row styling, but isolated from playback state
@@ -305,7 +307,10 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
             </div>
           )}
           <div className={styles.titleWrapper}>
-            <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
+            <div className={styles.titleLine}>
+              {best && <Zap size={13} className={styles.bestBadge} data-tooltip="Popular" />}
+              <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
+            </div>
             <div className={styles.artist}>
               {artists.map((artist, i) => {
                 const aid = artistIds[i];

@@ -28,6 +28,7 @@ export interface YTMTrack {
     scId?: string;
     yandexId?: string;
     yandexAlbumId?: string;
+    best?: boolean;
 }
 
 export interface YTMArtist {

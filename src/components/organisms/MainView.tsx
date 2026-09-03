@@ -21,7 +21,7 @@ import { likedManager } from '../../api/likedManager';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
-import { getCachedYandexLikedTracks, syncYandexLikedTracks, isYandexAlbumRouteId, isYandexPlaylistRouteId } from '../../api/yandex';
+import { getCachedYandexLikedTracks, syncYandexLikedTracks, isYandexAlbumRouteId, isYandexPlaylistRouteId, yandexSetAlbumLiked } from '../../api/yandex';
 import {
   Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar, RefreshCw
 } from 'lucide-react';
@@ -368,7 +368,7 @@ const LargeHeader = memo(({
                 </div>
 
                 <div className={styles.headerActions}>
-                  {targetRatingId && !isYandexMeta && (metadata.likeStatus === 'LIKE' || !isOwned) && (
+                  {targetRatingId && (isYandexMeta ? true : (metadata.likeStatus === 'LIKE' || !isOwned)) && (
                     <IconButton
                       icon={Heart}
                       size={42}
@@ -568,7 +568,25 @@ export const MainView = memo<MainViewProps>(({
   const handleHeaderAction = useCallback(async (type: string, payload?: any) => {
     if (type === 'artist' && payload) onSelectArtist(payload);
     else if (type === 'like') {
-      if (isYandexAlbumRouteId(playlistMetadata?.id) || isYandexPlaylistRouteId(playlistMetadata?.id)) return;
+      if (isYandexPlaylistRouteId(playlistMetadata?.id)) return;
+      if (playlistMetadata && isYandexAlbumRouteId(playlistMetadata.id)) {
+        if (isHeaderActionLoading) return;
+        setIsHeaderActionLoading('like');
+        const rawId = (playlistMetadata.id || '').replace(/^yandex:/, '');
+        const newStatus = playlistMetadata.likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
+        const ok = await yandexSetAlbumLiked(rawId, newStatus === 'LIKE');
+        if (ok) {
+          queryClient.setQueryData(['playlist-infinite', playlistType, playlistId], (old: any) => {
+            if (!old) return old;
+            const updatedPages = [...old.pages];
+            updatedPages[0] = { ...updatedPages[0], metadata: { ...updatedPages[0].metadata, likeStatus: newStatus } };
+            return { ...old, pages: updatedPages };
+          });
+          showToast(newStatus === 'LIKE' ? 'Added to library' : 'Removed from library', 'success');
+        }
+        setIsHeaderActionLoading(null);
+        return;
+      }
       const targetId = playlistMetadata?.audioPlaylistId || playlistMetadata?.id;
       if (!targetId || isHeaderActionLoading) return;
       setIsHeaderActionLoading('like');

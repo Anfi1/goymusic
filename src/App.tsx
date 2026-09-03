@@ -16,6 +16,7 @@ import { NewReleasesView } from './components/organisms/NewReleasesView';
 import { RadioView } from './components/organisms/RadioView';
 import { MyWaveView } from './components/organisms/MyWaveView';
 import { LibraryView } from './components/organisms/LibraryView';
+import { YandexGenreView } from './components/organisms/YandexGenreView';
 import { ImageViewer } from './components/molecules/ImageViewer';
 
 import { ToastProvider } from './components/atoms/Toast';
@@ -38,6 +39,7 @@ const MainContentWrapper = memo(
     handleSelectArtist,
     handleSelectAlbum,
     handleSelectPlaylist,
+    handleSelectGenre,
     handleArtistViewModeChange,
     handleSearch,
     handleBack,
@@ -65,6 +67,13 @@ const MainContentWrapper = memo(
             onSelectAlbum={handleSelectAlbum}
             onSelectPlaylist={handleSelectPlaylist}
             onSelectArtist={handleSelectArtist}
+          />
+        ) : activeView.type === 'yandex-genre' ? (
+          <YandexGenreView
+            key={`yandex-genre-${activeView.genreId}`}
+            genreId={activeView.genreId}
+            genreTitle={activeView.genreTitle}
+            onBack={handleBack}
           />
         ) : activeView.type === 'new-releases' ? (
           <NewReleasesView
@@ -97,6 +106,7 @@ const MainContentWrapper = memo(
             onSelectArtist={handleSelectArtist}
             onSelectAlbum={handleSelectAlbum}
             onSelectPlaylist={handleSelectPlaylist}
+            onSelectGenre={handleSelectGenre}
             onSelectView={navigate}
           />
         ) : (
@@ -523,6 +533,11 @@ function App() {
       navigate({ type: 'playlist', playlistId: id, playlistTitle: title }),
     [navigate]
   );
+  const handleSelectGenre = useCallback(
+    (id: string, title: string) =>
+      navigate({ type: 'yandex-genre', genreId: id, genreTitle: title }),
+    [navigate]
+  );
   const handleSearch = useCallback(
     (q: string) => {
       if (!q) return;
@@ -661,6 +676,7 @@ function App() {
         handleSelectArtist={handleSelectArtist}
         handleSelectAlbum={handleSelectAlbum}
         handleSelectPlaylist={handleSelectPlaylist}
+        handleSelectGenre={handleSelectGenre}
         handleArtistViewModeChange={handleArtistViewModeChange}
         handleSearch={handleSearch}
         handleBack={handleBack}
@@ -678,6 +694,7 @@ function App() {
       handleSelectArtist,
       handleSelectAlbum,
       handleSelectPlaylist,
+      handleSelectGenre,
       handleArtistViewModeChange,
       handleSearch,
       handleBack,

@@ -142,6 +142,8 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
                 thumbUrl={a.thumbUrl}
                 artists={a.artist ? [a.artist] : []}
                 year={a.year ? String(a.year) : undefined}
+                artistIds={a.artistIds?.map((id: string) => `yandex:${id}`)}
+                onArtistClick={onSelectArtist}
                 type="album"
                 onClick={() => onSelectAlbum(yandexAlbumRouteId(a.albumId))}
                 onPlayClick={() => playYandexAlbum(a.albumId)}

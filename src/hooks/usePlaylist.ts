@@ -205,6 +205,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
             trackCount: yd?.tracks.length || 0,
             artists: yd?.artist ? [yd.artist] : undefined,
             artistIds: yd?.artistId ? [yd.artistId] : undefined,
+            likeStatus: yd?.liked ? 'LIKE' : undefined,
           };
           return { tracks: yd?.tracks || [], continuation: null, totalCount: yd?.tracks.length || 0, metadata };
         }

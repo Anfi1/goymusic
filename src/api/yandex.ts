@@ -9,6 +9,8 @@ export interface YandexSearchEntry {
   title: string;
   artist: string;
   artistId?: string | null;
+  artists?: string[];
+  artistIds?: string[];
   duration: number;
   thumbUrl: string;
   source: string;
@@ -19,6 +21,8 @@ export interface YandexSearchEntry {
   // Гейн из Track.normalization (см. python: yandex_track_dict) -- уже готовая
   // нормализация от Яндекса, если есть; null/undefined -> фронт замерит сам через ffmpeg.
   loudness?: number | null;
+  // Признак популярного трека (молния, как в Яндекс.Музыке).
+  best?: boolean;
 }
 
 // Yandex-артисты идентифицируются числовым id, который сам по себе не отличим
@@ -60,8 +64,8 @@ export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
   return {
     id: `yandex:${entry.yandexId}`,
     title: entry.title || 'Unknown',
-    artists: entry.artist ? [entry.artist] : [],
-    artistIds: entry.artistId ? [yandexArtistId(entry.artistId)] : undefined,
+    artists: entry.artists?.length ? entry.artists : (entry.artist ? [entry.artist] : []),
+    artistIds: entry.artistIds?.length ? entry.artistIds.map(id => yandexArtistId(id)) : (entry.artistId ? [yandexArtistId(entry.artistId)] : undefined),
     album: entry.album || '',
     albumId: entry.albumId ? yandexAlbumRouteId(entry.albumId) : undefined,
     duration: formatYandexDuration(entry.duration),
@@ -71,6 +75,7 @@ export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
     yandexAlbumId: entry.albumId || undefined,
     isAvailable: true,
     likeStatus: isYandexTrackLiked(entry.yandexId) ? 'LIKE' : undefined,
+    best: entry.best === true ? true : undefined,
   };
 }
 
@@ -304,6 +309,8 @@ export interface YandexAlbumResult {
   albumId: string;
   title: string;
   artist: string;
+  artists?: string[];
+  artistIds?: string[];
   thumbUrl: string;
   year?: number;
   trackCount?: number;
@@ -325,7 +332,10 @@ export interface YandexAlbumDetail {
   thumbUrl: string;
   artist?: string;
   artistId?: string;
+  artists?: string[];
+  artistIds?: string[];
   year?: number;
+  liked?: boolean;
   tracks: YTMTrack[];
 }
 
@@ -340,7 +350,10 @@ export async function getYandexAlbumTracks(albumId: string): Promise<YandexAlbum
         thumbUrl: res.thumbUrl || '',
         artist: res.artist || undefined,
         artistId: res.artistId ? yandexArtistId(res.artistId) : undefined,
+        artists: res.artists || undefined,
+        artistIds: res.artistIds?.map((id: string) => yandexArtistId(id)) || undefined,
         year: res.year ?? undefined,
+        liked: res.liked === true,
         tracks,
       };
     }
@@ -456,4 +469,65 @@ export async function getYandexArtist(artistId: string): Promise<YandexArtistDet
     console.warn('[yandex] getYandexArtist failed', e);
   }
   return null;
+}
+
+export interface YandexHomeGenre { id: string; title: string; thumbUrl: string; }
+
+export async function getYandexHomeGenres(): Promise<YandexHomeGenre[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_home_genres', {});
+    if (res?.status === 'ok' && Array.isArray(res.results)) {
+      return res.results.map((g: any) => ({ id: g.id, title: g.title || '', thumbUrl: g.thumbUrl || '' }));
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexHomeGenres failed', e);
+  }
+  return [];
+}
+
+export interface YandexGenreStation { id: string; title: string; thumbUrl: string; }
+
+export async function getYandexGenreStations(genreId: string): Promise<YandexGenreStation[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_genre_stations', { genre: genreId });
+    if (res?.status === 'ok' && Array.isArray(res.results)) {
+      return res.results.map((s: any) => ({ id: s.id, title: s.title || '', thumbUrl: s.thumbUrl || '' }));
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexGenreStations failed', e);
+  }
+  return [];
+}
+
+export async function getYandexNewPlaylists(): Promise<YandexPlaylistResult[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_new_playlists', {});
+    if (res?.status === 'ok' && Array.isArray(res.results)) {
+      return res.results.map((r: any) => ({
+        id: yandexPlaylistRouteId(r.ownerId || '', r.id),
+        title: r.title || '',
+        thumbUrl: r.thumbUrl || '',
+        trackCount: r.trackCount,
+      }));
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexNewPlaylists failed', e);
+  }
+  return [];
+}
+
+export async function yandexSetAlbumLiked(albumId: string, liked: boolean): Promise<boolean> {
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_album_like', { albumId: albumId.replace(/^yandex:/, ''), liked });
+    if (res?.status === 'ok') return true;
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: { message: res?.message ? `Не удалось поставить лайк альбому Yandex Music: ${res.message}` : 'Не удалось поставить лайк альбому Yandex Music', type: 'error' },
+    }));
+  } catch (e) {
+    console.warn('[yandex] yandexSetAlbumLiked failed', e);
+  }
+  return false;
 }

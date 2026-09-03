@@ -117,8 +117,9 @@ export const HomeView: React.FC<{
   onSelectArtist: (id: string) => void;
   onSelectAlbum: (id: string) => void;
   onSelectPlaylist: (id: string, title: string) => void;
+  onSelectGenre: (genreId: string, title: string) => void;
   onSelectView?: (view: ActiveView) => void;
-}> = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onSelectView }) => {
+}> = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onSelectGenre, onSelectView }) => {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, item: any } | null>(null);
@@ -281,7 +282,7 @@ export const HomeView: React.FC<{
     return (
       <div style={{ position: 'relative' }}>
         {yandexToggle}
-        <YandexHomeView onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSelectArtist={onSelectArtist} />
+        <YandexHomeView onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSelectArtist={onSelectArtist} onSelectGenre={onSelectGenre} />
       </div>
     );
   }
