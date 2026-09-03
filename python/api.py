@@ -4480,17 +4480,27 @@ def handle_request(request):
 
         elif command == 'yandex_auth_start':
             # OAuth Device Flow, шаг 1: код устройства + ссылка для подтверждения.
+            # Прямой HTTP вместо yandex_music (request_device_code отсутствует в 2.2.0).
             try:
-                from yandex_music import Client as _YClient
-                from yandex_music.utils.request import Request as _YRequest
-                code = _YClient(request=_YRequest(timeout=15)).request_device_code()
+                import string as _string
+                device_id = ''.join(random.choice(_string.ascii_letters + _string.digits) for _ in range(10))
+                resp = requests.post(
+                    'https://oauth.yandex.ru/device/code',
+                    data={
+                        'client_id': '23cabbbdc6cd418abb4b39c32c41195d',
+                        'device_id': device_id,
+                        'device_name': 'GoyMusic',
+                    },
+                    timeout=15,
+                )
+                data = resp.json()
                 safe_print({
                     'status': 'ok',
-                    'deviceCode': code.device_code,
-                    'userCode': code.user_code,
-                    'verificationUrl': code.verification_url,
-                    'expiresIn': code.expires_in,
-                    'interval': code.interval,
+                    'deviceCode': data.get('device_code'),
+                    'userCode': data.get('user_code'),
+                    'verificationUrl': data.get('verification_url'),
+                    'expiresIn': data.get('expires_in'),
+                    'interval': data.get('interval'),
                     'callId': call_id,
                 })
             except Exception as e:
@@ -4499,22 +4509,38 @@ def handle_request(request):
 
         elif command == 'yandex_auth_poll':
             # Шаг 2: однократный опрос -- фронт вызывает по таймеру раз в code.interval.
+            # Прямой HTTP вместо yandex_music (poll_device_token отсутствует в 2.2.0).
             device_code = request.get('deviceCode', '')
             try:
-                from yandex_music import Client as _YClient
-                from yandex_music.utils.request import Request as _YRequest
-                token = _YClient(request=_YRequest(timeout=15)).poll_device_token(device_code)
-                if token is None:
-                    safe_print({'status': 'pending', 'callId': call_id})
-                else:
+                resp = requests.post(
+                    'https://oauth.yandex.ru/token',
+                    data={
+                        'grant_type': 'device_code',
+                        'code': device_code,
+                        'client_id': '23cabbbdc6cd418abb4b39c32c41195d',
+                        'client_secret': '53bc75238f0c4d08a118e51fe9203300',
+                    },
+                    timeout=15,
+                )
+                data = resp.json()
+                token = data.get('access_token')
+                if token:
                     with _yandex_lock:
                         with open(YANDEX_FILE, 'w', encoding='utf-8') as f:
-                            json.dump({'token': token.access_token}, f)
+                            json.dump({'token': token}, f)
                     client = get_yandex_client(force=True)
                     login = ''
                     if client and client.me and client.me.account:
                         login = client.me.account.display_name or client.me.account.login or ''
                     safe_print({'status': 'ok', 'login': login, 'callId': call_id})
+                elif data.get('error') in ('authorization_pending', 'slow_down'):
+                    safe_print({'status': 'pending', 'callId': call_id})
+                else:
+                    safe_print({
+                        'status': 'error',
+                        'message': data.get('error_description') or data.get('error') or 'unknown error',
+                        'callId': call_id,
+                    })
             except Exception as e:
                 print(f"[error] yandex_auth_poll: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
@@ -4548,7 +4574,9 @@ def handle_request(request):
                     likes = client.users_likes_tracks()
                     shorts = likes.tracks if likes else []
                     ids = [str(s.id) for s in shorts]
-                    full = client.tracks(ids) if ids else []
+                    full = []
+                    for i in range(0, len(ids), 500):
+                        full.extend((client.tracks(ids[i:i + 500]) if ids[i:i + 500] else []) or [])
                     by_id = {str(t.id): t for t in full if t}
                     results = []
                     for s in shorts:
@@ -4609,7 +4637,8 @@ def handle_request(request):
                         except Exception:
                             pass
                         if not thumb:
-                            thumb = st.full_image_url or ''
+                            fu = st.full_image_url
+                            thumb = ('https://' + fu.replace('%%', '400x400')) if fu else ''
                         stations.append({
                             'id': sid,
                             'title': item.custom_name or st.name or sid,
@@ -4699,9 +4728,12 @@ def handle_request(request):
                                 results.append(yandex_track_dict(t))
                     cover_uri = getattr(album, 'cover_uri', None) if album else None
                     thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                    album_artists = (getattr(album, 'artists', None) if album else None) or []
                     safe_print({
                         'status': 'ok',
                         'title': (album.title if album else ''),
+                        'artist': album_artists[0].name if album_artists else '',
+                        'artistId': str(album_artists[0].id) if album_artists else '',
                         'thumbUrl': thumb,
                         'results': results,
                         'callId': call_id,
@@ -4765,6 +4797,9 @@ def handle_request(request):
                             thumb = cover.get_url(size='400x400')
                     except Exception:
                         pass
+                    artist_og = getattr(artist, 'og_image', None) if artist else None
+                    if not thumb and artist_og:
+                        thumb = ('https://' + artist_og.replace('%%', '400x400'))
                     playlists = []
                     for pl in ((info.playlists if info else []) or []):
                         pl_cover = getattr(pl, 'cover', None)
@@ -4775,15 +4810,26 @@ def handle_request(request):
                         except Exception:
                             pass
                         owner = getattr(pl, 'owner', None)
+                        owner_id = getattr(pl, 'uid', None) or (getattr(owner, 'uid', None) if owner else None)
+                        pl_og = getattr(pl, 'og_image', None)
+                        if not pl_thumb and pl_og:
+                            pl_thumb = ('https://' + pl_og.replace('%%', '400x400'))
                         playlists.append({
                             'id': str(pl.kind),
-                            'ownerId': str(owner.uid) if owner and owner.uid is not None else '',
+                            'ownerId': str(owner_id) if owner_id is not None else '',
                             'title': pl.title or '',
                             'thumbUrl': pl_thumb,
                             'trackCount': pl.track_count,
                         })
                     albums = []
-                    for al in ((info.albums if info else []) or []):
+                    direct_albums = []
+                    try:
+                        da = client.artists_direct_albums(artist_id)
+                        direct_albums = (da.albums if da else []) or []
+                    except Exception:
+                        direct_albums = []
+                    album_src = direct_albums if direct_albums else ((info.albums if info else []) or [])
+                    for al in album_src[:30]:
                         al_cover_uri = getattr(al, 'cover_uri', None) or getattr(al, 'og_image', None)
                         al_thumb = ('https://' + al_cover_uri.replace('%%', '400x400')) if al_cover_uri else ''
                         albums.append({
@@ -4791,6 +4837,7 @@ def handle_request(request):
                             'title': al.title or '',
                             'thumbUrl': al_thumb,
                             'year': getattr(al, 'year', None),
+                            'type': getattr(al, 'type', None),
                         })
                     related = []
                     for sa in ((info.similar_artists if info else []) or []):
@@ -4801,12 +4848,15 @@ def handle_request(request):
                                 sa_thumb = sa_cover.get_url(size='400x400')
                         except Exception:
                             pass
+                        sa_og = getattr(sa, 'og_image', None)
+                        if not sa_thumb and sa_og:
+                            sa_thumb = ('https://' + sa_og.replace('%%', '400x400'))
                         related.append({
                             'id': str(sa.id),
                             'name': sa.name or '',
                             'thumbUrl': sa_thumb,
                         })
-                    stats = info.stats if info else None
+                    stats = getattr(info, 'stats', None) if info else None
                     safe_print({
                         'status': 'ok',
                         'name': artist.name if artist else '',
