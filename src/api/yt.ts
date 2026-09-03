@@ -29,6 +29,8 @@ export interface YTMTrack {
     yandexId?: string;
     yandexAlbumId?: string;
     best?: boolean;
+    // Когда лайкнут (ms). Нужен, чтобы слить лайки разных источников по дате.
+    likedAt?: number;
 }
 
 export interface YTMArtist {

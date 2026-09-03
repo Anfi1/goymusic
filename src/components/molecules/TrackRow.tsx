@@ -299,7 +299,7 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
                 className={styles.thumb}
                 placeholder={ThumbPlaceholder}
               />
-              {resolveSource(source) === 'soundcloud' && (
+              {(resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex') && (
                 <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
                   <SourceBadge source={source} size={12} />
                 </div>

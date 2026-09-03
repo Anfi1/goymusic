@@ -247,7 +247,9 @@ export async function syncYandexLikedTracks(): Promise<YandexLikedEntry[]> {
 export async function getCachedYandexLikedTracks(): Promise<YTMTrack[]> {
   const entries = await likedStore.getAllYandexTracks();
   const hydrated = await likedStore.hydrateYandexTracks(entries);
-  return hydrated.map(h => h.track);
+  // likedAt тянем на сам трек: вкладка лайков сливает YouTube и Яндекс в один
+  // список и сортирует по дате лайка, иначе яндексовые уезжают в самый конец.
+  return hydrated.map(h => ({ ...h.track, likedAt: h.likedAt }));
 }
 
 // При старте подтягиваем статус лайков, если интеграция включена (чтобы иконка лайка была верной сразу).
@@ -397,6 +399,8 @@ export async function getYandexNewReleases(): Promise<YandexAlbumResult[]> {
 
 export interface YandexAlbumDetail {
   title: string;
+  // SINGLE / EP / COMPILATION / ALBUM -- как метит сам Яндекс, а не всегда "альбом".
+  albumType?: string;
   thumbUrl: string;
   artist?: string;
   artistId?: string;
@@ -415,6 +419,7 @@ export async function getYandexAlbumTracks(albumId: string): Promise<YandexAlbum
       const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
       return {
         title: res.title || '',
+        albumType: res.albumType || 'ALBUM',
         thumbUrl: res.thumbUrl || '',
         artist: res.artist || undefined,
         artistId: res.artistId ? yandexArtistId(res.artistId) : undefined,

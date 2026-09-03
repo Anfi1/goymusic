@@ -200,11 +200,11 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
           const metadata: PlaylistMetadata = {
             id,
             title: yd?.title || 'Album',
-            type: 'ALBUM',
+            type: yd?.albumType || 'ALBUM',
             thumbUrl: yd?.thumbUrl || '',
             trackCount: yd?.tracks.length || 0,
-            artists: yd?.artist ? [yd.artist] : undefined,
-            artistIds: yd?.artistId ? [yd.artistId] : undefined,
+            artists: yd?.artists?.length ? yd.artists : (yd?.artist ? [yd.artist] : undefined),
+            artistIds: yd?.artistIds?.length ? yd.artistIds : (yd?.artistId ? [yd.artistId] : undefined),
             likeStatus: yd?.liked ? 'LIKE' : undefined,
           };
           return { tracks: yd?.tracks || [], continuation: null, totalCount: yd?.tracks.length || 0, metadata };

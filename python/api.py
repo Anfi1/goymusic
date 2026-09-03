@@ -4961,10 +4961,22 @@ def handle_request(request):
                         liked = any(str(getattr(li.album, 'id', '')) == str(album_id) for li in (likes or []) if li.album)
                     except Exception:
                         liked = False
+                    # Тип релиза как у самого Яндекса: single с одним треком -- сингл,
+                    # single с несколькими -- EP. Раньше в шапке всегда стояло ALBUM.
+                    raw_type = (getattr(album, 'type', None) or '').lower() if album else ''
+                    if raw_type == 'single':
+                        album_type = 'SINGLE' if len(results) <= 1 else 'EP'
+                    elif raw_type == 'compilation':
+                        album_type = 'COMPILATION'
+                    else:
+                        album_type = 'ALBUM'
                     safe_print({
                         'status': 'ok',
                         'title': (album.title if album else ''),
+                        'albumType': album_type,
                         'artist': album_artists[0].name if album_artists else '',
+                        'artists': [a.name for a in album_artists],
+                        'artistIds': [str(a.id) for a in album_artists],
                         'artistId': str(album_artists[0].id) if album_artists else '',
                         'thumbUrl': thumb,
                         'year': getattr(album, 'year', None) if album else None,

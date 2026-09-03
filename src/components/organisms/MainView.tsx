@@ -18,6 +18,7 @@ import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import { getAlbumLink } from '../../api/trackLink';
 import { usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
 import { likedManager } from '../../api/likedManager';
+import { likedStore } from '../../api/likedStore';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
@@ -235,7 +236,7 @@ const LargeHeader = memo(({
   }, [metadata]);
 
   const isLikedSongs = playlistType === 'liked' || metadata?.id === 'LM';
-  const isAlbum = !!(metadata?.type?.match(/ALBUM|SINGLE|EP/i));
+  const isAlbum = !!(metadata?.type?.match(/ALBUM|SINGLE|EP|COMPILATION/i));
   const isPlaylist = !isAlbum && !isLikedSongs;
   const isOwned = !!metadata?.owned;
 
@@ -486,6 +487,8 @@ export const MainView = memo<MainViewProps>(({
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [yandexLikedTracks, setYandexLikedTracks] = useState<YTMTrack[]>([]);
+  // Даты лайков YouTube-треков: в самом списке их нет, они лежат в likedStore.
+  const [ytLikedAt, setYtLikedAt] = useState<Map<string, number>>(new Map());
   const [isSyncingYandexLikes, setIsSyncingYandexLikes] = useState(false);
 
   const headerRef = useRef<HTMLDivElement>(null);
@@ -516,6 +519,7 @@ export const MainView = memo<MainViewProps>(({
   useEffect(() => {
     if (!isLikedSongsView) { setYandexLikedTracks([]); return; }
     let alive = true;
+    likedStore.getLikedAtMap().then(m => { if (alive) setYtLikedAt(m); }).catch(() => {});
     getCachedYandexLikedTracks().then(cached => { if (alive && cached.length > 0) setYandexLikedTracks(cached); });
     syncYandexLikedTracks().then(async () => {
       if (!alive) return;
@@ -663,9 +667,21 @@ export const MainView = memo<MainViewProps>(({
   const showSkeletons = isPlaylistLoading || isInitializing;
   const displayTracks = useMemo(() => {
     if (showSkeletons) return Array(20).fill({});
-    if (isLikedSongsView && yandexLikedTracks.length > 0) return [...playlistTracks, ...yandexLikedTracks];
-    return playlistTracks;
-  }, [showSkeletons, playlistTracks, isLikedSongsView, yandexLikedTracks]);
+    if (!isLikedSongsView || yandexLikedTracks.length === 0) return playlistTracks;
+    // Оба списка уже отсортированы по дате лайка (свежие сверху), поэтому сливаем их
+    // слиянием, а не склейкой -- иначе весь Яндекс оказывался в хвосте под YouTube.
+    // У YT-треков даты в этом списке нет: держим их порядок, подставляя дату
+    // ближайшего датированного соседа сверху.
+    const merged: YTMTrack[] = [];
+    let i = 0, j = 0;
+    let ytDate = ytLikedAt.get(playlistTracks[0]?.id) ?? Number.MAX_SAFE_INTEGER;
+    while (i < playlistTracks.length && j < yandexLikedTracks.length) {
+      ytDate = ytLikedAt.get(playlistTracks[i].id) ?? ytDate;
+      if (ytDate >= (yandexLikedTracks[j].likedAt ?? 0)) merged.push(playlistTracks[i++]);
+      else merged.push(yandexLikedTracks[j++]);
+    }
+    return [...merged, ...playlistTracks.slice(i), ...yandexLikedTracks.slice(j)];
+  }, [showSkeletons, playlistTracks, isLikedSongsView, yandexLikedTracks, ytLikedAt]);
 
   const handleContextMenu = useCallback((e: any, track: any) => trackMenuRef.current?.open(e, track), []);
   const handlePlayTrack = useCallback((idx: number) => player.playTrackList(displayTracks, idx, playlistId || playlistType), [displayTracks, playlistId, playlistType]);
