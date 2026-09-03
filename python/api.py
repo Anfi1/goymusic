@@ -477,9 +477,15 @@ def yandex_track_dict(t):
     только source='yandex' и yandexId вместо scId."""
     artists = getattr(t, 'artists', None) or []
     albums = getattr(t, 'albums', None) or []
-    album_id = albums[0].id if albums else None
+    album = albums[0] if albums else None
+    album_id = album.id if album else None
     artist_id = artists[0].id if artists else None
     cover_uri = getattr(t, 'cover_uri', None) or getattr(t, 'og_image', None)
+    # У треков из радио/волны (rotor) cover_uri трека часто пустой -- в отличие от
+    # полного tracks()-ответа (поиск/лайки/плейлисты), где он почти всегда есть.
+    # Обложка альбома (albums[0]) заполнена гораздо надёжнее -- используем как фолбэк.
+    if not cover_uri and album:
+        cover_uri = getattr(album, 'cover_uri', None) or getattr(album, 'og_image', None)
     thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
     # Яндекс отдаёт готовый гейн нормализации в самих метаданных трека (как loudnessDb
     # у YouTube) -- конвенция та же, что у ReplayGain (gain+peak): положительный gain
@@ -497,6 +503,7 @@ def yandex_track_dict(t):
         'duration': int((getattr(t, 'duration_ms', 0) or 0) / 1000),
         'thumbUrl': thumb,
         'source': 'yandex',
+        'album': album.title if album and album.title else '',
         'albumId': str(album_id) if album_id else None,
         'url': (f'https://music.yandex.ru/album/{album_id}/track/{t.id}' if album_id else ''),
         'loudness': loudness,
@@ -4739,11 +4746,18 @@ def handle_request(request):
                     safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
                 else:
                     # brief-info -- один запрос вместо artists()+artists_tracks(): даёт ещё
-                    # stats.last_month_listeners (прослушивания) и playlists (плейлисты с артистом).
+                    # stats.last_month_listeners (прослушивания), playlists (плейлисты с артистом),
+                    # albums (дискография) и similar_artists (похожие) -- то же, что видно на сайте.
                     info = client.artists_brief_info(artist_id)
                     artist = info.artist if info else None
                     pop_tracks = (info.popular_tracks if info else []) or []
-                    tracks = [yandex_track_dict(t) for t in pop_tracks]
+                    # Превью -- top-5, как у YT/SC; полный список для "See all" -- отдельным
+                    # запросом (у brief-info popular_tracks урезан и не годится под модалку).
+                    top_tracks = [yandex_track_dict(t) for t in pop_tracks[:5]]
+                    all_page = client.artists_tracks(artist_id, page_size=50)
+                    all_tracks = [yandex_track_dict(t) for t in ((all_page.tracks if all_page else []) or [])]
+                    if not all_tracks:
+                        all_tracks = top_tracks
                     cover = getattr(artist, 'cover', None) if artist else None
                     thumb = ''
                     try:
@@ -4768,14 +4782,41 @@ def handle_request(request):
                             'thumbUrl': pl_thumb,
                             'trackCount': pl.track_count,
                         })
+                    albums = []
+                    for al in ((info.albums if info else []) or []):
+                        al_cover_uri = getattr(al, 'cover_uri', None) or getattr(al, 'og_image', None)
+                        al_thumb = ('https://' + al_cover_uri.replace('%%', '400x400')) if al_cover_uri else ''
+                        albums.append({
+                            'albumId': str(al.id),
+                            'title': al.title or '',
+                            'thumbUrl': al_thumb,
+                            'year': getattr(al, 'year', None),
+                        })
+                    related = []
+                    for sa in ((info.similar_artists if info else []) or []):
+                        sa_cover = getattr(sa, 'cover', None)
+                        sa_thumb = ''
+                        try:
+                            if sa_cover:
+                                sa_thumb = sa_cover.get_url(size='400x400')
+                        except Exception:
+                            pass
+                        related.append({
+                            'id': str(sa.id),
+                            'name': sa.name or '',
+                            'thumbUrl': sa_thumb,
+                        })
                     stats = info.stats if info else None
                     safe_print({
                         'status': 'ok',
                         'name': artist.name if artist else '',
                         'thumbUrl': thumb,
-                        'tracks': tracks,
+                        'tracks': top_tracks,
+                        'allTracks': all_tracks,
                         'monthlyListeners': stats.last_month_listeners if stats else None,
                         'playlists': playlists,
+                        'albums': albums,
+                        'related': related,
                         'callId': call_id,
                     })
             except Exception as e:

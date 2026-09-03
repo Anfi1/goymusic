@@ -84,7 +84,7 @@ export const YandexHomeView: React.FC = () => {
   return (
     <div className={styles.container}>
       <Shelf
-        title="Яндекс: Моя волна"
+        title="Моя волна"
         items={waveTracks?.slice(0, 20) ?? waveTracks}
         emptyText="Не удалось загрузить волну."
         renderCard={(t) => (
@@ -93,7 +93,7 @@ export const YandexHomeView: React.FC = () => {
         )}
       />
       <Shelf
-        title="Яндекс: Новинки"
+        title="Новинки"
         items={releases}
         emptyText="Не удалось загрузить новинки."
         renderCard={(a) => (
@@ -103,7 +103,7 @@ export const YandexHomeView: React.FC = () => {
         )}
       />
       <Shelf
-        title="Яндекс: Мои плейлисты"
+        title="Мои плейлисты"
         items={playlists}
         emptyText="Плейлистов пока нет."
         renderCard={(pl) => (
@@ -113,7 +113,7 @@ export const YandexHomeView: React.FC = () => {
         )}
       />
       <Shelf
-        title="Яндекс: Любимые треки"
+        title="Любимые треки"
         items={likedTracks?.slice(0, 20) ?? likedTracks}
         emptyText="Лайков пока нет."
         renderCard={(t) => {

@@ -154,7 +154,7 @@ AllSongsTableRow.displayName = 'AllSongsTableRow';
 
 
 import { isSoundCloudId, getSoundCloudArtist } from '../../api/soundcloud';
-import { isYandexArtistId, getYandexArtist } from '../../api/yandex';
+import { isYandexArtistId, getYandexArtist, getYandexAlbumTracks } from '../../api/yandex';
 
 interface ArtistViewProps {
   artistId: string;
@@ -270,8 +270,11 @@ export const ArtistView = React.memo<ArtistViewProps>(({
           name: yx.name,
           thumbUrl: yx.thumbUrl,
           topSongs: yx.topSongs,
+          allTracks: yx.allTracks,
           monthlyListeners: yx.monthlyListeners ? String(yx.monthlyListeners) : undefined,
           playlistsPreview: yx.playlists,
+          yandexAlbums: yx.albums,
+          related: yx.related,
           isYandex: true,
         } as any;
       }
@@ -406,8 +409,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const isSongsInitialLoading = (detail?.isSoundCloud || detail?.isYandex) ? false : isSongsInitialLoadingYT;
 
   const allSongs = useMemo(() => {
-    // Для SC артистов — все треки из detail.allTracks
-    if (detail?.isSoundCloud && detail?.allTracks) {
+    // Для SC/Yandex артистов — все треки из detail.allTracks (уже загружены целиком)
+    if ((detail?.isSoundCloud || detail?.isYandex) && detail?.allTracks) {
       return detail.allTracks;
     }
     const fetchedSongs = allSongsPages?.pages.flatMap(page => page.tracks) || [];
@@ -554,7 +557,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Top Songs</h2>
-            {detail.isSoundCloud && detail.allTracks?.length > detail.topSongs?.length && (
+            {(detail.isSoundCloud || detail.isYandex) && detail.allTracks?.length > detail.topSongs?.length && (
               <button className={styles.seeAllBtn} onClick={() => setViewModeWithNotification('all-songs')}>See all <ChevronRight size={16} /></button>
             )}
             {detail.seeAllSongsId && <button className={styles.seeAllBtn} onClick={handleSeeAllSongs}>See all <ChevronRight size={16} /></button>}
@@ -594,6 +597,33 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 key={item.id} 
                 {...item} 
                 onClick={() => onSelectAlbum(item.id)} 
+              />
+            )}
+          />
+        </section>
+      )}
+
+      {/* Yandex: Альбомы */}
+      {detail.isYandex && detail.yandexAlbums?.length > 0 && (
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Albums</h2>
+          </div>
+          <Carousel
+            items={detail.yandexAlbums}
+            renderItem={(item: any) => (
+              <MediaCard
+                key={item.albumId}
+                id={item.albumId}
+                title={item.title}
+                thumbUrl={item.thumbUrl}
+                year={item.year ? String(item.year) : undefined}
+                type="album"
+                onClick={() => onSelectAlbum(item.albumId)}
+                onPlayClick={async () => {
+                  const d = await getYandexAlbumTracks(item.albumId.replace(/^yandex:/, ''));
+                  if (d?.tracks?.length) player.playTrackList(d.tracks, 0, item.albumId);
+                }}
               />
             )}
           />

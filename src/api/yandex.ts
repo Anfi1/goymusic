@@ -12,6 +12,7 @@ export interface YandexSearchEntry {
   duration: number;
   thumbUrl: string;
   source: string;
+  album?: string;
   albumId?: string | null;
   url?: string;
   likedAt?: number;
@@ -61,7 +62,7 @@ export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
     title: entry.title || 'Unknown',
     artists: entry.artist ? [entry.artist] : [],
     artistIds: entry.artistId ? [yandexArtistId(entry.artistId)] : undefined,
-    album: '',
+    album: entry.album || '',
     albumId: entry.albumId ? yandexAlbumRouteId(entry.albumId) : undefined,
     duration: formatYandexDuration(entry.duration),
     thumbUrl: entry.thumbUrl || '',
@@ -378,12 +379,28 @@ export async function getYandexPlaylistTracks(kind: string, ownerId?: string): P
   return null;
 }
 
+export interface YandexArtistAlbum {
+  albumId: string;
+  title: string;
+  thumbUrl: string;
+  year?: number;
+}
+
+export interface YandexArtistRelated {
+  id: string;
+  name: string;
+  thumbUrl: string;
+}
+
 export interface YandexArtistDetail {
   name: string;
   thumbUrl: string;
   topSongs: YTMTrack[];
+  allTracks: YTMTrack[];
   monthlyListeners?: number;
   playlists: YandexPlaylistResult[];
+  albums: YandexArtistAlbum[];
+  related: YandexArtistRelated[];
 }
 
 // artistId — префиксованный (yandex:12345, см. yandexArtistId/isYandexArtistId).
@@ -393,19 +410,34 @@ export async function getYandexArtist(artistId: string): Promise<YandexArtistDet
   try {
     const res = await (window as any).bridge.pyCall('yandex_artist', { artistId: rawId });
     if (res?.status === 'ok') {
-      const tracks = (res.tracks || []).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
+      const topSongs = (res.tracks || []).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
+      const allTracks = (res.allTracks || []).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
       const playlists: YandexPlaylistResult[] = (res.playlists || []).map((p: any) => ({
         id: yandexPlaylistRouteId(p.ownerId || '', p.id),
         title: p.title || '',
         thumbUrl: p.thumbUrl || '',
         trackCount: p.trackCount,
       }));
+      const albums: YandexArtistAlbum[] = (res.albums || []).map((a: any) => ({
+        albumId: yandexAlbumRouteId(a.albumId),
+        title: a.title || '',
+        thumbUrl: a.thumbUrl || '',
+        year: a.year ?? undefined,
+      }));
+      const related: YandexArtistRelated[] = (res.related || []).map((r: any) => ({
+        id: yandexArtistId(r.id),
+        name: r.name || '',
+        thumbUrl: r.thumbUrl || '',
+      }));
       return {
         name: res.name || '',
         thumbUrl: res.thumbUrl || '',
-        topSongs: tracks,
+        topSongs,
+        allTracks,
         monthlyListeners: res.monthlyListeners ?? undefined,
         playlists,
+        albums,
+        related,
       };
     }
   } catch (e) {

@@ -21,9 +21,9 @@ import { likedManager } from '../../api/likedManager';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
-import { isYandexEnabled, getCachedYandexLikedTracks, syncYandexLikedTracks } from '../../api/yandex';
-import { 
-  Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar
+import { getCachedYandexLikedTracks, syncYandexLikedTracks } from '../../api/yandex';
+import {
+  Loader2, Heart, Share2, Globe, Lock, Clock, Pencil, Trash2, Pin, PinOff, ArrowDownAZ, Calendar, RefreshCw
 } from 'lucide-react';
 import { openImageViewer } from '../molecules/ImageViewer';
 
@@ -93,6 +93,9 @@ const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, cont
         sortMode={context.sortMode}
         setSortMode={context.setSortMode}
         isSorting={context.isSorting}
+        isLikedSongsView={context.isLikedSongsView}
+        onSyncYandex={context.onSyncYandex}
+        isSyncingYandex={context.isSyncingYandex}
       />
     )}
     {children}
@@ -206,10 +209,11 @@ const VirtuosoFooter = memo(({ context }: any) => (
   </tfoot>
 ));
 
-const LargeHeader = memo(({ 
-  metadata, tracks, totalReportedCount, showSkeletons, 
-  isFetchingNextPage, handleHeaderAction, isHeaderActionLoading, 
-  headerRef, playlistType, sortMode, setSortMode, isSorting
+const LargeHeader = memo(({
+  metadata, tracks, totalReportedCount, showSkeletons,
+  isFetchingNextPage, handleHeaderAction, isHeaderActionLoading,
+  headerRef, playlistType, sortMode, setSortMode, isSorting,
+  isLikedSongsView, onSyncYandex, isSyncingYandex
 }: any) => {
   const { showToast } = useToast();
   
@@ -405,6 +409,16 @@ const LargeHeader = memo(({
                   {!isLikedSongs && (
                     <IconButton icon={Share2} size={42} iconSize={20} onClick={handleShare} title="Copy Link" />
                   )}
+                  {isLikedSongsView && (
+                    <IconButton
+                      icon={RefreshCw}
+                      size={42}
+                      iconSize={20}
+                      isLoading={isSyncingYandex}
+                      onClick={onSyncYandex}
+                      title="Sync Yandex Music likes"
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -466,6 +480,7 @@ export const MainView = memo<MainViewProps>(({
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [yandexLikedTracks, setYandexLikedTracks] = useState<YTMTrack[]>([]);
+  const [isSyncingYandexLikes, setIsSyncingYandexLikes] = useState(false);
 
   const headerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -488,9 +503,12 @@ export const MainView = memo<MainViewProps>(({
   const isSyncing = isLikedSongsView ? (likedManager.isSyncing || isFetchingNextPage) : isFetchingNextPage;
 
   // Yandex-лайки подмешиваются прямо в общий список Liked Songs (не отдельная страница) --
-  // сперва кэш (мгновенно), затем свежие данные с сервера в фоне.
+  // сперва кэш (мгновенно), затем свежие данные с сервера в фоне. Без проверки isYandexEnabled()
+  // -- как было в старой отдельной вкладке лайков: если аккаунт не подключён, yandex_liked_tracks
+  // просто ответит not authenticated, а лишний гейт на фронте однажды уже стоил того, что лайки
+  // молча не подтягивались даже у подключённых пользователей.
   useEffect(() => {
-    if (!isLikedSongsView || !isYandexEnabled()) { setYandexLikedTracks([]); return; }
+    if (!isLikedSongsView) { setYandexLikedTracks([]); return; }
     let alive = true;
     getCachedYandexLikedTracks().then(cached => { if (alive && cached.length > 0) setYandexLikedTracks(cached); });
     syncYandexLikedTracks().then(async () => {
@@ -500,6 +518,21 @@ export const MainView = memo<MainViewProps>(({
     });
     return () => { alive = false; };
   }, [isLikedSongsView]);
+
+  const handleSyncYandexLikes = useCallback(async () => {
+    if (isSyncingYandexLikes) return;
+    setIsSyncingYandexLikes(true);
+    try {
+      const entries = await syncYandexLikedTracks();
+      const fresh = await getCachedYandexLikedTracks();
+      setYandexLikedTracks(fresh);
+      showToast(entries.length > 0 ? `Synced ${entries.length} Yandex likes` : 'No Yandex likes found', entries.length > 0 ? 'success' : 'error');
+    } catch (e) {
+      showToast('Failed to sync Yandex likes', 'error');
+    } finally {
+      setIsSyncingYandexLikes(false);
+    }
+  }, [isSyncingYandexLikes, showToast]);
 
   const isEditable = useMemo(() => 
     playlistMetadata?.owned && playlistType === 'playlist' && playlistId !== 'LM'
@@ -695,17 +728,19 @@ export const MainView = memo<MainViewProps>(({
   }), []);
 
   const virtuosoContext = useMemo(() => ({
-    isSearch, showSkeletons, tracks: playlistTracks, totalReportedCount, isSyncing,
+    isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing,
     onScroll: handleScroll, onPlay: handlePlayTrack, onContextMenu: handleContextMenu,
     metadata: playlistMetadata, handleHeaderAction, isHeaderActionLoading,
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
     onDragStart: handleDragStart, onDragOverItem: handleDragOverItem, onDragOverContainer: handleDragOverContainer,
-    onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting
+    onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
+    isLikedSongsView, onSyncYandex: handleSyncYandexLikes, isSyncingYandex: isSyncingYandexLikes
   }), [
-    isSearch, showSkeletons, playlistTracks, totalReportedCount, isSyncing,
-    handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata, 
+    isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing,
+    handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
-    dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting
+    dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
+    isLikedSongsView, handleSyncYandexLikes, isSyncingYandexLikes
   ]);
 
   if (isSearch) return <SearchView searchQuery={activeView.searchQuery || ''} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSearchAgain={onSearchAgain} />;
