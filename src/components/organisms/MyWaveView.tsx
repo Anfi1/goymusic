@@ -11,6 +11,7 @@ import {
   getScWaveStations, getScStationTracks,
 } from '../../api/soundcloud';
 import { isYandexEnabled, getYandexWaveStations, getYandexWaveTracks } from '../../api/yandex';
+import { getHomeSource } from '../../api/homeSource';
 import type { TrackSource } from '../../api/source';
 import { LazyImage } from '../atoms/LazyImage';
 import { SourceBadge } from '../atoms/SourceBadge';
@@ -243,7 +244,9 @@ interface MyWaveViewProps {
 export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelectAlbum, onSelectPlaylist }) => {
   const [stations, setStations] = useState<WaveStation[]>(stationsCache || []);
   const [activeId, setActiveId] = useState<string>(getSavedActiveId());
-  const [selectedFilter, setSelectedFilter] = useState<string>('all');
+  const [selectedFilter, setSelectedFilter] = useState<string>(
+    () => (getHomeSource() === 'yandex' && isYandexEnabled()) ? 'yandex' : 'all'
+  );
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);

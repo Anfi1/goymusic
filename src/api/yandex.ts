@@ -30,6 +30,28 @@ export function isYandexArtistId(id: string | undefined | null): boolean {
   return !!id && id.startsWith('yandex:');
 }
 
+// Аналогично артистам: raw album/playlist id от Яндекса неотличим от чужого
+// (числовой, как у SC), поэтому под навигацию (onSelectAlbum/onSelectPlaylist)
+// кладём префиксованный id, а не сырой.
+export function yandexAlbumRouteId(rawId: string | number): string {
+  return `yandex:${rawId}`;
+}
+
+export function isYandexAlbumRouteId(id: string | undefined | null): boolean {
+  return !!id && id.startsWith('yandex:');
+}
+
+// Плейлист Яндекса адресуется парой (kind, ownerId) -- ownerId нужен, когда
+// плейлист не свой (например с карточки артиста), иначе users_playlists()
+// на бэкенде ищет его у текущего залогиненного пользователя и не находит.
+export function yandexPlaylistRouteId(ownerId: string | number, kind: string | number): string {
+  return `yandex:${ownerId}:${kind}`;
+}
+
+export function isYandexPlaylistRouteId(id: string | undefined | null): boolean {
+  return !!id && id.startsWith('yandex:') && id.split(':').length === 3;
+}
+
 export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
   // Регистрируем сразу здесь -- единая точка регистрации вместо разброса
   // registerYandexTrack(...) по каждому вызывающему коду (легко забыть в новом месте).
@@ -40,7 +62,7 @@ export function yandexEntryToTrack(entry: YandexSearchEntry): YTMTrack {
     artists: entry.artist ? [entry.artist] : [],
     artistIds: entry.artistId ? [yandexArtistId(entry.artistId)] : undefined,
     album: '',
-    albumId: entry.albumId || undefined,
+    albumId: entry.albumId ? yandexAlbumRouteId(entry.albumId) : undefined,
     duration: formatYandexDuration(entry.duration),
     thumbUrl: entry.thumbUrl || '',
     source: 'yandex',
@@ -136,12 +158,25 @@ export async function yandexLogout(): Promise<void> {
 // --- Лайки (полностью серверные -- токен уже на бэкенде, offline-очередь как у SC не нужна) ---
 let yandexLikedSet = new Set<string>();
 
+// Треки, уже построенные до того как лайки подгрузились (поиск/волна/артист,
+// в любом месте кроме Liked Songs), никак не подписаны на пересчёт -- шлём
+// им точечно track-like-updated (тот же ивент, что на ручной лайк), чтобы
+// сердечко в уже отрисованных строках стало актуальным без перезахода.
+function broadcastYandexLikes(ids: Iterable<string>): void {
+  for (const id of ids) {
+    window.dispatchEvent(new CustomEvent('track-like-updated', {
+      detail: { id: `yandex:${id}`, status: 'success', likeStatus: 'LIKE' },
+    }));
+  }
+}
+
 export async function loadYandexLikedIds(): Promise<void> {
   try {
     const res = await (window as any).bridge.pyCall('yandex_liked_tracks', {});
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       yandexLikedSet = new Set(res.results.map((e: YandexSearchEntry) => e.yandexId));
       window.dispatchEvent(new CustomEvent('yandex-likes-loaded'));
+      broadcastYandexLikes(yandexLikedSet);
     }
   } catch (e) {
     console.warn('[yandex] loadYandexLikedIds failed', e);
@@ -177,6 +212,7 @@ export async function syncYandexLikedTracks(): Promise<YandexLikedEntry[]> {
     const res = await (window as any).bridge.pyCall('yandex_liked_tracks', {});
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       yandexLikedSet = new Set(res.results.map((e: YandexSearchEntry) => e.yandexId));
+      broadcastYandexLikes(yandexLikedSet);
       const entries: YandexLikedEntry[] = res.results.map((e: YandexSearchEntry) => {
         const track = yandexEntryToTrack(e);
         tracksStore.upsertTrack(track);
@@ -308,6 +344,7 @@ export interface YandexPlaylistResult {
   title: string;
   thumbUrl: string;
   trackCount?: number;
+  ownerId?: string;
 }
 
 // Собственные плейлисты пользователя (для "Коллекций" в режиме Yandex).
@@ -327,10 +364,10 @@ export interface YandexPlaylistDetail {
   tracks: YTMTrack[];
 }
 
-export async function getYandexPlaylistTracks(kind: string): Promise<YandexPlaylistDetail | null> {
+export async function getYandexPlaylistTracks(kind: string, ownerId?: string): Promise<YandexPlaylistDetail | null> {
   if (!kind) return null;
   try {
-    const res = await (window as any).bridge.pyCall('yandex_playlist_tracks', { kind });
+    const res = await (window as any).bridge.pyCall('yandex_playlist_tracks', { kind, ownerId });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: YandexSearchEntry) => yandexEntryToTrack(e));
       return { title: res.title || '', tracks };
@@ -345,6 +382,8 @@ export interface YandexArtistDetail {
   name: string;
   thumbUrl: string;
   topSongs: YTMTrack[];
+  monthlyListeners?: number;
+  playlists: YandexPlaylistResult[];
 }
 
 // artistId — префиксованный (yandex:12345, см. yandexArtistId/isYandexArtistId).
@@ -355,7 +394,19 @@ export async function getYandexArtist(artistId: string): Promise<YandexArtistDet
     const res = await (window as any).bridge.pyCall('yandex_artist', { artistId: rawId });
     if (res?.status === 'ok') {
       const tracks = (res.tracks || []).map((e: YandexSearchEntry) => yandexEntryToTrack(e));
-      return { name: res.name || '', thumbUrl: res.thumbUrl || '', topSongs: tracks };
+      const playlists: YandexPlaylistResult[] = (res.playlists || []).map((p: any) => ({
+        id: yandexPlaylistRouteId(p.ownerId || '', p.id),
+        title: p.title || '',
+        thumbUrl: p.thumbUrl || '',
+        trackCount: p.trackCount,
+      }));
+      return {
+        name: res.name || '',
+        thumbUrl: res.thumbUrl || '',
+        topSongs: tracks,
+        monthlyListeners: res.monthlyListeners ?? undefined,
+        playlists,
+      };
     }
   } catch (e) {
     console.warn('[yandex] getYandexArtist failed', e);

@@ -4738,18 +4738,44 @@ def handle_request(request):
                 if not client:
                     safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
                 else:
-                    artists = client.artists([artist_id])
-                    artist = artists[0] if artists else None
-                    top = client.artists_tracks(artist_id, page_size=20)
-                    tracks = [yandex_track_dict(t) for t in ((top.tracks if top else []) or [])]
+                    # brief-info -- один запрос вместо artists()+artists_tracks(): даёт ещё
+                    # stats.last_month_listeners (прослушивания) и playlists (плейлисты с артистом).
+                    info = client.artists_brief_info(artist_id)
+                    artist = info.artist if info else None
+                    pop_tracks = (info.popular_tracks if info else []) or []
+                    tracks = [yandex_track_dict(t) for t in pop_tracks]
                     cover = getattr(artist, 'cover', None) if artist else None
-                    cover_uri = getattr(cover, 'uri', None) if cover else None
-                    thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                    thumb = ''
+                    try:
+                        if cover:
+                            thumb = cover.get_url(size='400x400')
+                    except Exception:
+                        pass
+                    playlists = []
+                    for pl in ((info.playlists if info else []) or []):
+                        pl_cover = getattr(pl, 'cover', None)
+                        pl_thumb = ''
+                        try:
+                            if pl_cover:
+                                pl_thumb = pl_cover.get_url(size='400x400')
+                        except Exception:
+                            pass
+                        owner = getattr(pl, 'owner', None)
+                        playlists.append({
+                            'id': str(pl.kind),
+                            'ownerId': str(owner.uid) if owner and owner.uid is not None else '',
+                            'title': pl.title or '',
+                            'thumbUrl': pl_thumb,
+                            'trackCount': pl.track_count,
+                        })
+                    stats = info.stats if info else None
                     safe_print({
                         'status': 'ok',
                         'name': artist.name if artist else '',
                         'thumbUrl': thumb,
                         'tracks': tracks,
+                        'monthlyListeners': stats.last_month_listeners if stats else None,
+                        'playlists': playlists,
                         'callId': call_id,
                     })
             except Exception as e:
@@ -4766,8 +4792,12 @@ def handle_request(request):
                     playlists = client.users_playlists_list() or []
                     results = []
                     for pl in playlists:
-                        cover_uri = getattr(pl.cover, 'uri', None) if pl.cover else None
-                        thumb = ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else ''
+                        thumb = ''
+                        try:
+                            if pl.cover:
+                                thumb = pl.cover.get_url(size='400x400')
+                        except Exception:
+                            pass
                         results.append({
                             'id': str(pl.kind),
                             'title': pl.title or '',
@@ -4781,12 +4811,13 @@ def handle_request(request):
 
         elif command == 'yandex_playlist_tracks':
             kind = request.get('kind', '')
+            owner_id = request.get('ownerId') or None
             try:
                 client = get_yandex_client()
                 if not client:
                     safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
                 else:
-                    pl = client.users_playlists(kind)
+                    pl = client.users_playlists(kind, user_id=owner_id)
                     if isinstance(pl, list):
                         pl = pl[0] if pl else None
                     results = []

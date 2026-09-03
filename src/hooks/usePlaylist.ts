@@ -2,6 +2,7 @@ import { useMemo, useCallback, useState, useEffect, useTransition, useRef } from
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, YTMTrack } from '../api/yt';
 import { isSoundCloudId, getSoundCloudAlbum, getSoundCloudPlaylist } from '../api/soundcloud';
+import { isYandexAlbumRouteId, isYandexPlaylistRouteId, getYandexAlbumTracks, getYandexPlaylistTracks } from '../api/yandex';
 import { player } from '../api/player';
 import { likedStore, LikedEntry, ScLikedEntry, HydratedLikedEntry, HydratedScLikedEntry } from '../api/likedStore';
 import { likedManager } from '../api/likedManager';
@@ -149,6 +150,18 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       } 
       
       if (type === 'playlist' && id) {
+        if (isYandexPlaylistRouteId(id)) {
+          const [, ownerId, kind] = id.split(':');
+          const yd = await getYandexPlaylistTracks(kind, ownerId);
+          const metadata: PlaylistMetadata = {
+            id,
+            title: yd?.title || 'Playlist',
+            type: 'PLAYLIST',
+            thumbUrl: yd?.tracks[0]?.thumbUrl || '',
+            trackCount: yd?.tracks.length || 0,
+          };
+          return { tracks: yd?.tracks || [], continuation: null, totalCount: yd?.tracks.length || 0, metadata };
+        }
         if (isSoundCloudId(id)) {
           const sc = await getSoundCloudPlaylist(id);
           const metadata: PlaylistMetadata = {
@@ -181,6 +194,18 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
         };
         return { tracks: res.tracks, continuation: res.continuation || null, totalCount: res.trackCount, metadata };
       } else if (type === 'album' && id) {
+        if (isYandexAlbumRouteId(id)) {
+          const rawId = id.replace(/^yandex:/, '');
+          const yd = await getYandexAlbumTracks(rawId);
+          const metadata: PlaylistMetadata = {
+            id,
+            title: yd?.title || 'Album',
+            type: 'ALBUM',
+            thumbUrl: yd?.thumbUrl || '',
+            trackCount: yd?.tracks.length || 0,
+          };
+          return { tracks: yd?.tracks || [], continuation: null, totalCount: yd?.tracks.length || 0, metadata };
+        }
         if (isSoundCloudId(id)) {
           const sc = await getSoundCloudAlbum(id);
           const metadata: PlaylistMetadata = {

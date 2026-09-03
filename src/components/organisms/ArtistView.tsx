@@ -26,6 +26,7 @@ import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { likedStore } from '../../api/likedStore';
+import { SourceBadge } from '../atoms/SourceBadge';
 
 /** Парсит локализованное значение и форматирует как короткое число */
 function formatStatValue(raw: string | null | undefined): string {
@@ -269,6 +270,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
           name: yx.name,
           thumbUrl: yx.thumbUrl,
           topSongs: yx.topSongs,
+          monthlyListeners: yx.monthlyListeners ? String(yx.monthlyListeners) : undefined,
+          playlistsPreview: yx.playlists,
           isYandex: true,
         } as any;
       }
@@ -520,7 +523,14 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                   {detail.artistPro && <span className="pro-badge pro-badge--lg" data-tooltip="Artist PRO"><span>★</span></span>}
                   {detail.verified && <CheckCircle size={32} className={`verified-badge-lg ${styles.verifiedBadge}`} data-tooltip="Verified" />}
                 </div>
-                <h1 className={styles.name}>{detail.name}</h1>
+                <h1 className={styles.name}>
+                  {detail.name}
+                  {(detail.isSoundCloud || detail.isYandex) && (
+                    <span style={{ marginLeft: 10, verticalAlign: 'middle' }}>
+                      <SourceBadge source={detail.isYandex ? 'yandex' : 'soundcloud'} size={24} />
+                    </span>
+                  )}
+                </h1>
               <div className={styles.stats}>
                 {detail.monthlyListeners && <div className={styles.statItem}><Headphones size={16} /><span>{formatStatValue(detail.monthlyListeners)}</span></div>}
                 {detail.subscribers && <div className={styles.statItem}><Users size={16} /><span>{formatStatValue(detail.subscribers)}</span></div>}
