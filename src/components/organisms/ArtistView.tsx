@@ -20,7 +20,7 @@ import { player } from '../../api/player';
 import { 
   ChevronRight, ArrowLeft, Heart,
   Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle,
-  Music, Clock
+  Music, Clock, Play, Shuffle
 } from 'lucide-react';
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
@@ -363,6 +363,21 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     return detail.related || [];
   }, [detail]);
 
+  const yandexAlbumsMain = useMemo(() => {
+    if (!detail?.isYandex) return [];
+    return (detail.yandexAlbums || []).filter((a: any) => !a.type || (a.type !== 'single' && a.type !== 'compilation'));
+  }, [detail]);
+
+  const yandexSingles = useMemo(() => {
+    if (!detail?.isYandex) return [];
+    return (detail.yandexAlbums || []).filter((a: any) => a.type === 'single');
+  }, [detail]);
+
+  const yandexCompilations = useMemo(() => {
+    if (!detail?.isYandex) return [];
+    return (detail.yandexAlbums || []).filter((a: any) => a.type === 'compilation');
+  }, [detail]);
+
   // Handlers
   const handleSeeAllSongs = useCallback(() => {
     setViewModeWithNotification('all-songs');
@@ -548,6 +563,16 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                   </button>
                 </div>
               )}
+              {detail.isYandex && (
+                <div className={styles.headerActions}>
+                  <button className={styles.subscribeBtn} onClick={() => player.playTrackList(detail.topSongs, 0, 'yandex-artist-' + artistId)}>
+                    <Play size={18} /> Play
+                  </button>
+                  <button className={styles.subscribeBtn} onClick={() => { const shuffled = [...detail.topSongs].sort(() => Math.random() - 0.5); player.playTrackList(shuffled, 0, 'yandex-artist-' + artistId); }}>
+                    <Shuffle size={18} /> Shuffle
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -604,13 +629,67 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       )}
 
       {/* Yandex: Альбомы */}
-      {detail.isYandex && detail.yandexAlbums?.length > 0 && (
+      {detail.isYandex && yandexAlbumsMain.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Albums</h2>
           </div>
           <Carousel
-            items={detail.yandexAlbums}
+            items={yandexAlbumsMain}
+            renderItem={(item: any) => (
+              <MediaCard
+                key={item.albumId}
+                id={item.albumId}
+                title={item.title}
+                thumbUrl={item.thumbUrl}
+                year={item.year ? String(item.year) : undefined}
+                type="album"
+                onClick={() => onSelectAlbum(item.albumId)}
+                onPlayClick={async () => {
+                  const d = await getYandexAlbumTracks(item.albumId.replace(/^yandex:/, ''));
+                  if (d?.tracks?.length) player.playTrackList(d.tracks, 0, item.albumId);
+                }}
+              />
+            )}
+          />
+        </section>
+      )}
+
+      {/* Yandex: Синглы */}
+      {detail.isYandex && yandexSingles.length > 0 && (
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Singles</h2>
+          </div>
+          <Carousel
+            items={yandexSingles}
+            renderItem={(item: any) => (
+              <MediaCard
+                key={item.albumId}
+                id={item.albumId}
+                title={item.title}
+                thumbUrl={item.thumbUrl}
+                year={item.year ? String(item.year) : undefined}
+                type="album"
+                onClick={() => onSelectAlbum(item.albumId)}
+                onPlayClick={async () => {
+                  const d = await getYandexAlbumTracks(item.albumId.replace(/^yandex:/, ''));
+                  if (d?.tracks?.length) player.playTrackList(d.tracks, 0, item.albumId);
+                }}
+              />
+            )}
+          />
+        </section>
+      )}
+
+      {/* Yandex: Сборники */}
+      {detail.isYandex && yandexCompilations.length > 0 && (
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Compilations</h2>
+          </div>
+          <Carousel
+            items={yandexCompilations}
             renderItem={(item: any) => (
               <MediaCard
                 key={item.albumId}

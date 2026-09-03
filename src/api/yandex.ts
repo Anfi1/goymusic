@@ -384,6 +384,7 @@ export interface YandexArtistAlbum {
   title: string;
   thumbUrl: string;
   year?: number;
+  type?: string | null;
 }
 
 export interface YandexArtistRelated {
@@ -423,6 +424,7 @@ export async function getYandexArtist(artistId: string): Promise<YandexArtistDet
         title: a.title || '',
         thumbUrl: a.thumbUrl || '',
         year: a.year ?? undefined,
+        type: a.type ?? null,
       }));
       const related: YandexArtistRelated[] = (res.related || []).map((r: any) => ({
         id: yandexArtistId(r.id),
