@@ -102,10 +102,10 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
     }
   }, []);
 
+  // Переключатель источника стоит вплотную к заголовку, а не улетает в правый край:
+  // он относится именно к этой вкладке, а не к странице целиком.
   const yandexToggle = isYandexEnabled() ? (
-    <div style={{ marginLeft: 'auto' }}>
-      <HomeSourceToggle value={homeSource} onChange={handleSourceChange} />
-    </div>
+    <HomeSourceToggle value={homeSource} onChange={handleSourceChange} />
   ) : null;
 
   const header = (
@@ -114,6 +114,7 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
         <div className={styles.titleWrapper}>
           <Sparkles size={28} className={styles.icon} />
           <h1>New Releases</h1>
+          {yandexToggle}
         </div>
         {!yandexMode && isFetching && (
           <div className={styles.updatingBadge}>
@@ -122,7 +123,6 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
           </div>
         )}
       </div>
-      {yandexToggle}
     </div>
   );
 
@@ -140,7 +140,7 @@ export const NewReleasesView: React.FC<NewReleasesViewProps> = ({
                 id={a.albumId}
                 title={a.title}
                 thumbUrl={a.thumbUrl}
-                artists={a.artist ? [a.artist] : []}
+                artists={a.artists?.length ? a.artists : (a.artist ? [a.artist] : [])}
                 year={a.year ? String(a.year) : undefined}
                 artistIds={a.artistIds?.map((id: string) => `yandex:${id}`)}
                 onArtistClick={onSelectArtist}

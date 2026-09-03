@@ -17,7 +17,8 @@ export interface YandexSearchEntry {
   album?: string;
   albumId?: string | null;
   url?: string;
-  likedAt?: number;
+  // Бэкенд отдаёт ISO-строку ("2026-09-03T03:54:58+00:00"); number -- на случай старых данных.
+  likedAt?: string | number;
   // Гейн из Track.normalization (см. python: yandex_track_dict) -- уже готовая
   // нормализация от Яндекса, если есть; null/undefined -> фронт замерит сам через ffmpeg.
   loudness?: number | null;
@@ -219,11 +220,19 @@ export async function syncYandexLikedTracks(): Promise<YandexLikedEntry[]> {
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       yandexLikedSet = new Set(res.results.map((e: YandexSearchEntry) => e.yandexId));
       broadcastYandexLikes(yandexLikedSet);
+      const tracks: YTMTrack[] = [];
       const entries: YandexLikedEntry[] = res.results.map((e: YandexSearchEntry) => {
         const track = yandexEntryToTrack(e);
-        tracksStore.upsertTrack(track);
-        return { yandexId: e.yandexId, trackId: track.id, likedAt: Number(e.likedAt) || 0 };
+        tracks.push(track);
+        // likedAt приходит ISO-строкой ("2026-09-03T03:54:58+00:00"), а не числом:
+        // через Number() весь список получал 0 и терял сортировку по дате лайка.
+        const at = typeof e.likedAt === 'number' ? e.likedAt : Date.parse(e.likedAt || '');
+        return { yandexId: e.yandexId, trackId: track.id, likedAt: Number.isFinite(at) ? at : 0 };
       });
+      // Батчем и с await: раньше это были сотни независимых транзакций без ожидания,
+      // и hydrateYandexTracks успевал прочитать пустой tracksStore -- лайки Яндекса
+      // отфильтровывались подчистую и вкладка лайков оказывалась пустой.
+      await tracksStore.upsertTracksBatch(tracks);
       await likedStore.replaceYandexTracks(entries);
       return entries;
     }
@@ -438,6 +447,62 @@ export async function getYandexPlaylists(): Promise<YandexPlaylistResult[]> {
     if (res?.status === 'ok' && Array.isArray(res.results)) return res.results;
   } catch (e) {
     console.warn('[yandex] getYandexPlaylists failed', e);
+  }
+  return [];
+}
+
+// Лайкнутые альбомы и артисты Яндекса -- вкладки Albums/Artists в Collection, чтобы
+// в режиме Яндекса библиотека была своей целиком, а не только плейлистами.
+export interface YandexLibraryAlbum {
+  id: string;
+  title: string;
+  thumbUrl: string;
+  artist: string;
+  artistIds: string[];
+  year?: number;
+  trackCount?: number;
+}
+
+export interface YandexLibraryArtist {
+  id: string;
+  name: string;
+  thumbUrl: string;
+}
+
+export async function getYandexLikedAlbums(): Promise<YandexLibraryAlbum[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_liked_albums', {});
+    if (res?.status === 'ok' && Array.isArray(res.results)) {
+      return res.results.map((a: any) => ({
+        id: yandexAlbumRouteId(a.albumId),
+        title: a.title || '',
+        thumbUrl: a.thumbUrl || '',
+        artist: a.artist || '',
+        artistIds: (a.artistIds || []).map((id: string) => yandexArtistId(id)),
+        year: a.year ?? undefined,
+        trackCount: a.trackCount ?? undefined,
+      }));
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexLikedAlbums failed', e);
+  }
+  return [];
+}
+
+export async function getYandexLikedArtists(): Promise<YandexLibraryArtist[]> {
+  if (!isYandexEnabled()) return [];
+  try {
+    const res = await (window as any).bridge.pyCall('yandex_liked_artists', {});
+    if (res?.status === 'ok' && Array.isArray(res.results)) {
+      return res.results.map((a: any) => ({
+        id: yandexArtistId(a.artistId),
+        name: a.name || '',
+        thumbUrl: a.thumbUrl || '',
+      }));
+    }
+  } catch (e) {
+    console.warn('[yandex] getYandexLikedArtists failed', e);
   }
   return [];
 }

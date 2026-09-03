@@ -121,7 +121,8 @@ export const YandexHomeView: React.FC<{
         emptyText="Не удалось загрузить новинки."
         renderCard={(a) => (
           <MediaCard key={a.albumId} id={a.albumId} title={a.title} thumbUrl={a.thumbUrl}
-            artists={a.artist ? [a.artist] : []} year={a.year ? String(a.year) : undefined}
+            artists={a.artists?.length ? a.artists : (a.artist ? [a.artist] : [])}
+            year={a.year ? String(a.year) : undefined}
             artistIds={a.artistIds?.map((id: string) => `yandex:${id}`)} onArtistClick={onSelectArtist}
             type="album" className={styles.card} onClick={() => onSelectAlbum(yandexAlbumRouteId(a.albumId))} onPlayClick={() => playAlbum(a.albumId)} />
         )}

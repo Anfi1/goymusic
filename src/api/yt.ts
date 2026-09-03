@@ -456,8 +456,8 @@ export async function getTrackInfo(videoId: string): Promise<any> {
     return null;
 }
 
-export async function getLyrics(artist: string, title: string, duration?: number, videoId?: string): Promise<{ plainLyrics?: string, syncedLyrics?: string, instrumental?: boolean } | null> {
-    const res = await pyCall('get_lyrics', { artist, title, duration, videoId });
+export async function getLyrics(artist: string, title: string, duration?: number, videoId?: string, yandexId?: string): Promise<{ plainLyrics?: string, syncedLyrics?: string, instrumental?: boolean } | null> {
+    const res = await pyCall('get_lyrics', { artist, title, duration, videoId, yandexId });
     if (res.status === 'ok') {
         return {
             plainLyrics: res.plainLyrics,

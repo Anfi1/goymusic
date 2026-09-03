@@ -310,6 +310,9 @@ class LikedManager {
       const ok = await yandexSetLiked(track.yandexId, newStatus === 'LIKE');
       if (ok) {
         if (newStatus === 'LIKE') {
+          // Сам трек тоже кладём в стор: запись лайка ссылается на него по trackId, и без
+          // этого hydrateYandexTracks отфильтрует свежий лайк на следующем открытии вкладки.
+          await tracksStore.upsertTrack({ ...track, likeStatus: 'LIKE' });
           await likedStore.putYandexTrack({ yandexId: track.yandexId!, trackId: track.id, likedAt: Date.now() });
         } else if (track.yandexId) {
           await likedStore.deleteYandexTrack(track.yandexId);

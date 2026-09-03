@@ -8,7 +8,10 @@ import { TrackRow } from '../molecules/TrackRow';
 import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { Library, Disc, Mic2, Heart, Users, ChevronDown, Shuffle, Check, X, Play } from 'lucide-react';
 import { getHomeSource } from '../../api/homeSource';
-import { isYandexEnabled, getYandexPlaylists, getYandexPlaylistTracks, yandexPlaylistRouteId } from '../../api/yandex';
+import {
+  isYandexEnabled, getYandexPlaylists, getYandexPlaylistTracks, yandexPlaylistRouteId,
+  getYandexLikedAlbums, getYandexLikedArtists, getYandexAlbumTracks,
+} from '../../api/yandex';
 import styles from './LibraryView.module.css';
 
 interface LibraryViewProps {
@@ -153,7 +156,13 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
     window.addEventListener('home-source-changed', onChange);
     return () => window.removeEventListener('home-source-changed', onChange);
   }, []);
-  const yandexPlaylistsMode = activeTab === 'playlists' && homeSource === 'yandex' && isYandexEnabled();
+  // В режиме Яндекса библиотека своя целиком: плейлисты, лайкнутые альбомы и артисты.
+  // Раньше подменялись только плейлисты, и вкладки Albums/Artists показывали YouTube.
+  const yandexMode = homeSource === 'yandex' && isYandexEnabled();
+  const yandexPlaylistsMode = activeTab === 'playlists' && yandexMode;
+  const yandexAlbumsMode = activeTab === 'albums' && yandexMode;
+  const yandexArtistsMode = activeTab === 'artists' && yandexMode;
+  const yandexTabMode = yandexPlaylistsMode || yandexAlbumsMode || yandexArtistsMode;
 
   const { data: rawItems = [], isLoading, isFetching } = useQuery({
     queryKey: ['library', activeTab, order, fetchLimit],
@@ -165,7 +174,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
       return undefined;
     },
     staleTime: 5 * 60 * 1000,
-    enabled: !yandexPlaylistsMode,
+    enabled: !yandexTabMode,
   });
 
   const { data: yandexPlaylists = [], isLoading: isYandexPlaylistsLoading } = useQuery({
@@ -175,9 +184,28 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
     enabled: yandexPlaylistsMode,
   });
 
+  const { data: yandexAlbums = [], isLoading: isYandexAlbumsLoading } = useQuery({
+    queryKey: ['yandex-liked-albums'],
+    queryFn: getYandexLikedAlbums,
+    staleTime: 5 * 60 * 1000,
+    enabled: yandexAlbumsMode,
+  });
+
+  const { data: yandexArtists = [], isLoading: isYandexArtistsLoading } = useQuery({
+    queryKey: ['yandex-liked-artists'],
+    queryFn: getYandexLikedArtists,
+    staleTime: 5 * 60 * 1000,
+    enabled: yandexArtistsMode,
+  });
+
   const playYandexPlaylist = useCallback(async (kind: string) => {
     const detail = await getYandexPlaylistTracks(kind);
     if (detail?.tracks?.length) await player.playTrackList(detail.tracks, 0, `yandex-playlist-${kind}`, 'playlist');
+  }, []);
+
+  const playYandexAlbum = useCallback(async (routeId: string) => {
+    const detail = await getYandexAlbumTracks(routeId.replace(/^yandex:/, ''));
+    if (detail?.tracks?.length) await player.playTrackList(detail.tracks, 0, routeId, 'album');
   }, []);
 
   // IntersectionObserver — exact same prefetching pattern as HomeView
@@ -308,10 +336,17 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
     }
   }, [modalTracks, artistModalData]);
 
-  const showInitialSkeleton = yandexPlaylistsMode
-    ? (isYandexPlaylistsLoading && yandexPlaylists.length === 0)
+  const yandexItems: any[] = yandexPlaylistsMode ? yandexPlaylists
+    : yandexAlbumsMode ? yandexAlbums
+    : yandexArtistsMode ? yandexArtists
+    : [];
+  const isYandexTabLoading = (isYandexPlaylistsLoading && yandexPlaylistsMode)
+    || (isYandexAlbumsLoading && yandexAlbumsMode)
+    || (isYandexArtistsLoading && yandexArtistsMode);
+  const showInitialSkeleton = yandexTabMode
+    ? (isYandexTabLoading && yandexItems.length === 0)
     : (isLoading && rawItems.length === 0);
-  const displayItems = yandexPlaylistsMode ? yandexPlaylists : items;
+  const displayItems = yandexTabMode ? yandexItems : items;
 
   const availableOrders: LibraryOrder[] = activeTab === 'artists'
     ? ['recently_added', 'a_to_z', 'z_to_a', 'most_songs']
@@ -454,6 +489,33 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
                   onPlayClick={() => playYandexPlaylist(pl.id)}
                 />
               ))
+              : yandexAlbumsMode
+              ? yandexAlbums.map((al) => (
+                <MediaCard
+                  key={al.id}
+                  id={al.id}
+                  title={al.title}
+                  thumbUrl={al.thumbUrl}
+                  type="album"
+                  artists={al.artist ? [al.artist] : undefined}
+                  artistIds={al.artistIds}
+                  description={al.year ? String(al.year) : undefined}
+                  onClick={() => onSelectAlbum(al.id)}
+                  onPlayClick={() => playYandexAlbum(al.id)}
+                  onArtistClick={onSelectArtist}
+                />
+              ))
+              : yandexArtistsMode
+              ? yandexArtists.map((ar) => (
+                <MediaCard
+                  key={ar.id}
+                  id={ar.id}
+                  title={ar.name}
+                  thumbUrl={ar.thumbUrl}
+                  type="artist"
+                  onClick={() => onSelectArtist(ar.id)}
+                />
+              ))
               : items.map((item: any) => (
                 <MediaCard
                   key={item.id}
@@ -466,7 +528,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
               ))}
           </div>
           <div ref={sentinelRef} style={{ height: 1 }} />
-          {!yandexPlaylistsMode && isFetching && (
+          {!yandexTabMode && isFetching && (
             <div className={styles.grid} style={{ marginTop: 12 }}>
               {Array.from({ length: 4 }).map((_, i) => (
                 <MediaCardSkeleton key={`bottom-card-skel-${i}`} />

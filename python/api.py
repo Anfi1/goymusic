@@ -2862,6 +2862,33 @@ def handle_request(request):
                 except: pass
                 return None
 
+            # Для трека из Яндекса сначала спрашиваем сам Яндекс: он ищет по id трека,
+            # а не по строке "артист - название", и отдаёт готовый LRC с таймкодами.
+            yandex_id = request.get('yandexId')
+            if yandex_id:
+                try:
+                    yclient = get_yandex_client()
+                    if yclient:
+                        info = yclient.tracks_lyrics(str(yandex_id), format_='LRC')
+                        link = getattr(info, 'download_url', None) if info else None
+                        if link:
+                            lrc = requests.get(link, timeout=8).text.strip()
+                            if lrc:
+                                plain = '\n'.join(
+                                    re.sub(r'^\[\d+:\d+(?:\.\d+)?\]\s*', '', line).strip()
+                                    for line in lrc.splitlines()
+                                ).strip()
+                                safe_print({
+                                    'status': 'ok',
+                                    'plainLyrics': plain or None,
+                                    'syncedLyrics': lrc,
+                                    'source': 'yandex',
+                                    'callId': call_id,
+                                })
+                                return
+                except Exception as e:
+                    print(f"[lyrics] yandex source failed: {e}", file=sys.stderr)
+
             # LRCLIB (точный + поиск), NetEase и YT Music -- параллельно.
             # Как только один вернул synced -- берём его и отменяем остальные.
             result = None
@@ -4611,6 +4638,61 @@ def handle_request(request):
                 print(f"[error] yandex_set_liked: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
+        elif command == 'yandex_liked_albums':
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    results = []
+                    for item in (client.users_likes_albums() or []):
+                        a = getattr(item, 'album', None)
+                        if not a:
+                            continue
+                        artists = getattr(a, 'artists', None) or []
+                        cover_uri = getattr(a, 'cover_uri', None) or getattr(a, 'og_image', None)
+                        results.append({
+                            'albumId': str(a.id),
+                            'title': a.title or '',
+                            'thumbUrl': ('https://' + cover_uri.replace('%%', '400x400')) if cover_uri else '',
+                            'artist': artists[0].name if artists else '',
+                            'artists': [x.name for x in artists],
+                            'artistIds': [str(x.id) for x in artists],
+                            'year': getattr(a, 'year', None),
+                            'trackCount': getattr(a, 'track_count', None),
+                        })
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_liked_albums: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
+        elif command == 'yandex_liked_artists':
+            try:
+                client = get_yandex_client()
+                if not client:
+                    safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
+                else:
+                    results = []
+                    for item in (client.users_likes_artists() or []):
+                        ar = getattr(item, 'artist', None)
+                        if not ar:
+                            continue
+                        thumb = ''
+                        try:
+                            if getattr(ar, 'cover', None):
+                                thumb = ar.cover.get_url(size='400x400')
+                        except Exception:
+                            pass
+                        results.append({
+                            'artistId': str(ar.id),
+                            'name': ar.name or '',
+                            'thumbUrl': thumb,
+                        })
+                    safe_print({'status': 'ok', 'results': results, 'callId': call_id})
+            except Exception as e:
+                print(f"[error] yandex_liked_artists: {e}", file=sys.stderr)
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+
         elif command == 'yandex_wave_stations':
             # Персональный дашборд станций (как на странице радио в Яндекс.Музыке) --
             # "Моя волна" + жанровые/настроенческие станции, а не одна фиксированная.
@@ -4943,16 +5025,37 @@ def handle_request(request):
                 if not client:
                     safe_print({'status': 'error', 'message': 'not authenticated', 'callId': call_id})
                 else:
+                    # client.rotor_station_feedback() шлёт form-data, а эндпоинт принимает
+                    # только JSON и на форму отвечает 400 "condition is not met" -- поэтому
+                    # запрос собираем руками поверх токена клиента.
                     played = request.get('played')
-                    ok = client.rotor_station_feedback(
-                        station=request.get('station', ''),
-                        type_=request.get('type', ''),
-                        from_=request.get('from') or 'desktop_win',
-                        batch_id=request.get('batchId') or None,
-                        track_id=request.get('yandexId') or None,
-                        total_played_seconds=(float(played) if played is not None else None),
+                    station = request.get('station', '')
+                    body = {
+                        'type': request.get('type', ''),
+                        'timestamp': time.time(),
+                        'from': request.get('from') or 'desktop_win',
+                    }
+                    if request.get('yandexId'):
+                        body['trackId'] = str(request.get('yandexId'))
+                    if played is not None:
+                        body['totalPlayedSeconds'] = float(played)
+                    params = {}
+                    if request.get('batchId'):
+                        params['batch-id'] = request.get('batchId')
+                    resp = requests.post(
+                        f'https://api.music.yandex.net/rotor/station/{station}/feedback',
+                        headers={
+                            'Authorization': f'OAuth {client.token}',
+                            'X-Yandex-Music-Client': 'YandexMusicAndroid/24023621',
+                        },
+                        params=params,
+                        json=body,
+                        timeout=10,
                     )
-                    safe_print({'status': 'ok', 'ok': bool(ok), 'callId': call_id})
+                    ok = resp.status_code == 200
+                    if not ok:
+                        print(f"[yandex] rotor feedback {body.get('type')} -> {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+                    safe_print({'status': 'ok', 'ok': ok, 'callId': call_id})
             except Exception as e:
                 print(f"[error] yandex_rotor_feedback: {e}", file=sys.stderr)
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})

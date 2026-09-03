@@ -59,9 +59,12 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
       const durParts = track.duration.split(':').map(Number);
       const duration = durParts.length === 2 ? durParts[0] * 60 + durParts[1] : undefined;
       
-      // videoId нужен для текстов самого YT Music — у SoundCloud-треков id чужой
-      const videoId = track.source === 'soundcloud' ? undefined : track.id;
-      const res = await getLyrics(artist, title, duration, videoId);
+      // videoId нужен для текстов самого YT Music — у SC/Yandex-треков id чужой.
+      // Для яндексового трека бэкенд сначала спросит сам Яндекс: он ищет по id трека
+      // и отдаёт готовый LRC, где текстовый поиск по "артист - название" промахивается.
+      const isForeign = track.source === 'soundcloud' || track.source === 'yandex';
+      const videoId = isForeign ? undefined : track.id;
+      const res = await getLyrics(artist, title, duration, videoId, track.yandexId);
 
       if (!res) return { notFound: true, instrumental: false };
 
