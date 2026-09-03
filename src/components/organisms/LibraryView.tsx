@@ -8,7 +8,7 @@ import { TrackRow } from '../molecules/TrackRow';
 import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { Library, Disc, Mic2, Heart, Users, ChevronDown, Shuffle, Check, X, Play } from 'lucide-react';
 import { getHomeSource } from '../../api/homeSource';
-import { isYandexEnabled, getYandexPlaylists, getYandexPlaylistTracks } from '../../api/yandex';
+import { isYandexEnabled, getYandexPlaylists, getYandexPlaylistTracks, yandexPlaylistRouteId } from '../../api/yandex';
 import styles from './LibraryView.module.css';
 
 interface LibraryViewProps {
@@ -450,7 +450,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
                   thumbUrl={pl.thumbUrl}
                   type="playlist"
                   description={pl.trackCount ? `${pl.trackCount} tracks` : undefined}
-                  onClick={() => playYandexPlaylist(pl.id)}
+                  onClick={() => onSelectPlaylist(yandexPlaylistRouteId('', pl.id), pl.title)}
                   onPlayClick={() => playYandexPlaylist(pl.id)}
                 />
               ))

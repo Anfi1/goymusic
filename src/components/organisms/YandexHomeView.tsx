@@ -6,6 +6,7 @@ import {
   getYandexWaveTracks, getYandexNewReleases, getYandexAlbumTracks, YandexAlbumResult,
   getYandexPlaylists, getYandexPlaylistTracks, YandexPlaylistResult,
   getCachedYandexLikedTracks, syncYandexLikedTracks,
+  yandexAlbumRouteId, yandexPlaylistRouteId,
 } from '../../api/yandex';
 import { YTMTrack } from '../../api/yt';
 import styles from './HomeView.module.css';
@@ -44,7 +45,7 @@ function Shelf<T>({ title, items, emptyText, renderCard }: ShelfProps<T>) {
 // Лёгкая «Главная» на данных Yandex Music: волна, новинки, плейлисты, лайки.
 // Отдельный компонент, а не ветка внутри HomeView — чтобы не путать его
 // инфинит-скролл/пагинацию YT-ленты.
-export const YandexHomeView: React.FC = () => {
+export const YandexHomeView: React.FC<{ onSelectAlbum: (id: string) => void; onSelectPlaylist: (id: string, title: string) => void; onSelectArtist: (id: string) => void }> = ({ onSelectAlbum, onSelectPlaylist, onSelectArtist }) => {
   const [waveTracks, setWaveTracks] = useState<YTMTrack[] | null>(null);
   const [releases, setReleases] = useState<YandexAlbumResult[] | null>(null);
   const [playlists, setPlaylists] = useState<YandexPlaylistResult[] | null>(null);
@@ -89,6 +90,7 @@ export const YandexHomeView: React.FC = () => {
         emptyText="Не удалось загрузить волну."
         renderCard={(t) => (
           <MediaCard key={t.id} id={t.id} title={t.title} thumbUrl={t.thumbUrl} artists={t.artists}
+            artistIds={t.artistIds} onArtistClick={onSelectArtist}
             type="song" className={styles.card} onClick={playWave} onPlayClick={playWave} />
         )}
       />
@@ -99,7 +101,7 @@ export const YandexHomeView: React.FC = () => {
         renderCard={(a) => (
           <MediaCard key={a.albumId} id={a.albumId} title={a.title} thumbUrl={a.thumbUrl}
             artists={a.artist ? [a.artist] : []} year={a.year ? String(a.year) : undefined}
-            type="album" className={styles.card} onClick={() => playAlbum(a.albumId)} onPlayClick={() => playAlbum(a.albumId)} />
+            type="album" className={styles.card} onClick={() => onSelectAlbum(yandexAlbumRouteId(a.albumId))} onPlayClick={() => playAlbum(a.albumId)} />
         )}
       />
       <Shelf
@@ -109,7 +111,7 @@ export const YandexHomeView: React.FC = () => {
         renderCard={(pl) => (
           <MediaCard key={pl.id} id={pl.id} title={pl.title} thumbUrl={pl.thumbUrl}
             description={pl.trackCount ? `${pl.trackCount} tracks` : undefined}
-            type="playlist" className={styles.card} onClick={() => playPlaylist(pl.id)} onPlayClick={() => playPlaylist(pl.id)} />
+            type="playlist" className={styles.card} onClick={() => onSelectPlaylist(yandexPlaylistRouteId('', pl.id), pl.title)} onPlayClick={() => playPlaylist(pl.id)} />
         )}
       />
       <Shelf
@@ -120,6 +122,7 @@ export const YandexHomeView: React.FC = () => {
           const idx = (likedTracks || []).findIndex(lt => lt.id === t.id);
           return (
             <MediaCard key={t.id} id={t.id} title={t.title} thumbUrl={t.thumbUrl} artists={t.artists}
+              artistIds={t.artistIds} onArtistClick={onSelectArtist}
               type="song" className={styles.card} onClick={() => playLiked(idx)} onPlayClick={() => playLiked(idx)} />
           );
         }}

@@ -281,7 +281,7 @@ export const HomeView: React.FC<{
     return (
       <div style={{ position: 'relative' }}>
         {yandexToggle}
-        <YandexHomeView />
+        <YandexHomeView onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSelectArtist={onSelectArtist} />
       </div>
     );
   }
