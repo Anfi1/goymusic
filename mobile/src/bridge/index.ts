@@ -89,7 +89,32 @@ export async function installMobileBridge(): Promise<void> {
     winMinimize: noop, winMaximize: noop, winFullscreen: noop, winClose: noop,
     winSetBackgroundMaterial: noop,
     winGetBounds: async () => ({ width: window.innerWidth, height: window.innerHeight }),
-    setRPC: noop, clearRPC: noop, openLogs: noop,
+    setRPC: noop, clearRPC: noop, openLogs: noop, clearCache: async () => ({ status: 'ok' }),
+
+    // Локальные файлы: на десктопе есть папка songs и импорт треков с диска, на
+    // Android этого нет. Отвечаем «нет файла» -- рендерер такой ответ переживает,
+    // он же получает его на десктопе, пока папка не выбрана. Заглушки обязательны:
+    // отсутствующий метод роняет весь экран в ErrorBoundary
+    // ("window.bridge.getSongsPath is not a function").
+    getSongsPath: async () => null,
+    setSongsPath: async () => null,
+    songFileExists: async () => false,
+    getSongFileUrl: async () => null,
+    openSongsFolder: noop,
+    pickSongsFolder: async () => null,
+    deleteSongFile: async () => ({ status: 'error', message: 'недоступно на Android' }),
+    importSongFile: async () => ({ status: 'error', message: 'недоступно на Android' }),
+    getScProfileDir: async () => null,
+    pickScBrowser: async () => null,
+
+    // Обновления прилетают через переустановку APK, а не через electron-updater.
+    checkForUpdates: async () => ({ status: 'ok', available: false }),
+    downloadUpdate: noop,
+    installUpdate: noop,
+    onUpdateAvailable: () => noop,
+    onUpdateProgress: () => noop,
+    onUpdateDownloaded: () => noop,
+    onUpdateError: () => noop,
     // Запасной путь входа: перенести browser.json с компьютера (см. mobile/README).
     importAuth: async (json: string) => {
       const res = await nativeImportAuth(json);

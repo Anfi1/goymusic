@@ -131,53 +131,83 @@ public class PythonBackendPlugin extends Plugin {
                 web.getSettings().setUserAgentString(
                     "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) "
                     + "Chrome/122.0.0.0 Mobile Safari/537.36");
-                android.webkit.CookieManager.getInstance().setAcceptCookie(true);
-                android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+                final android.webkit.CookieManager cookies = android.webkit.CookieManager.getInstance();
+                cookies.setAcceptCookie(true);
+                cookies.setAcceptThirdPartyCookies(web, true);
+
+                android.widget.LinearLayout root = new android.widget.LinearLayout(getContext());
+                root.setOrientation(android.widget.LinearLayout.VERTICAL);
+                final android.widget.Button close = new android.widget.Button(getContext());
+                close.setText("Закрыть");
+                root.addView(close, new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+                root.addView(web, new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
                 final android.app.Dialog dialog = new android.app.Dialog(getActivity());
-                dialog.setContentView(web);
+                dialog.setContentView(root);
 
-                web.setWebViewClient(new android.webkit.WebViewClient() {
-                    private boolean done = false;
+                final boolean[] done = { false };
+                final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
 
+                // music.youtube.com -- SPA: onPageFinished после логина может не прийти
+                // вовсе, поэтому куки опрашиваем по таймеру, а не по событию страницы.
+                final Runnable poll = new Runnable() {
                     @Override
-                    public void onPageFinished(android.webkit.WebView view, String url) {
-                        if (done) return;
-                        String cookie = android.webkit.CookieManager.getInstance()
-                                .getCookie("https://music.youtube.com");
-                        if (cookie == null || !cookie.contains("SAPISID")) return;
-                        done = true;
-                        try {
-                            org.json.JSONObject data = new org.json.JSONObject();
-                            data.put("User-Agent", view.getSettings().getUserAgentString());
-                            data.put("Accept", "*/*");
-                            data.put("Accept-Language", "en-US,en;q=0.9");
-                            data.put("Content-Type", "application/json");
-                            data.put("X-Goog-AuthUser", "0");
-                            data.put("x-origin", "https://music.youtube.com");
-                            data.put("Cookie", cookie);
-                            writeAuthFile(data.toString(4));
-                            dialog.dismiss();
+                    public void run() {
+                        if (done[0]) return;
+                        String cookie = cookies.getCookie("https://music.youtube.com");
+                        if (cookie != null && cookie.contains("SAPISID")) {
+                            done[0] = true;
+                            cookies.flush();
+                            try {
+                                org.json.JSONObject data = new org.json.JSONObject();
+                                data.put("User-Agent", web.getSettings().getUserAgentString());
+                                data.put("Accept", "*/*");
+                                data.put("Accept-Language", "en-US,en;q=0.9");
+                                data.put("Content-Type", "application/json");
+                                data.put("X-Goog-AuthUser", "0");
+                                data.put("x-origin", "https://music.youtube.com");
+                                data.put("Cookie", cookie);
+                                writeAuthFile(data.toString(4));
+                                dialog.dismiss();
+                                JSObject res = new JSObject();
+                                res.put("status", "ok");
+                                call.resolve(res);
+                            } catch (Throwable t) {
+                                dialog.dismiss();
+                                call.reject(String.valueOf(t));
+                            }
+                            return;
+                        }
+                        handler.postDelayed(this, 1000);
+                    }
+                };
+
+                close.setOnClickListener(new android.view.View.OnClickListener() {
+                    @Override
+                    public void onClick(android.view.View v) {
+                        dialog.dismiss();
+                    }
+                });
+
+                dialog.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+                    @Override
+                    public void onDismiss(android.content.DialogInterface d) {
+                        handler.removeCallbacks(poll);
+                        if (!done[0]) {
+                            done[0] = true;
                             JSObject res = new JSObject();
-                            res.put("status", "ok");
+                            res.put("status", "cancelled");
                             call.resolve(res);
-                        } catch (Throwable t) {
-                            dialog.dismiss();
-                            call.reject(String.valueOf(t));
                         }
                     }
                 });
 
-                dialog.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
-                    @Override
-                    public void onCancel(android.content.DialogInterface d) {
-                        JSObject res = new JSObject();
-                        res.put("status", "cancelled");
-                        call.resolve(res);
-                    }
-                });
                 dialog.show();
                 web.loadUrl("https://accounts.google.com/ServiceLogin?service=youtube&continue=https://music.youtube.com/");
+                handler.postDelayed(poll, 2000);
             }
         });
     }

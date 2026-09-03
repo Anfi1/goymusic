@@ -1,50 +1,180 @@
-/* Мобильные поправки поверх десктопных стилей ../src. Сами десктопные файлы не трогаем:
-   всё, что нужно, переопределяем здесь -- этот файл грузится последним. */
+/* Мобильная вёрстка поверх десктопных стилей ../src. Сами десктопные файлы не трогаем:
+   всё переопределяется здесь, этот файл грузится последним.
 
-:root {
+   Десктоп сверстан гридом с жёстким минимумом 1024x700 (--app-min-width в theme.css,
+   minWidth окна в electron/main.ts). На телефоне этот минимум растягивает страницу
+   шире экрана -- отсюда и уехавший плеер. Поэтому минимум снимаем, а грид
+   перестраиваем в одну колонку: контент + плеер, сайдбар уезжает в выдвижную панель. */
+
+/* :root:root -- не опечатка. mobile.css импортируется раньше, чем ../src/styles/theme.css,
+   и при одинаковой специфичности выигрывает тема: высота плеера оставалась десктопной
+   (90px), а содержимое в неё не влезало. Двойной :root поднимает специфичность. */
+:root:root {
   color-scheme: dark;
+  --app-min-width: 0px;
+  --app-min-height: 0px;
+  --title-height: 0px;
+  --player-height: 108px;
+  --sidebar-width: 82vw;
+  --right-panel-width: 0px;
 }
 
 html, body, #root {
   height: 100%;
   margin: 0;
+  overflow: hidden;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-body {
-  /* Вырезы и системные панели Android. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  box-sizing: border-box;
+/* --- Каркас --- */
+
+[class*="appWindow"] {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: none !important;
+  grid-template-areas: "main" "player" !important;
+  grid-template-columns: 1fr !important;
+  grid-template-rows: 1fr var(--player-height) !important;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Кнопок окна на телефоне нет -- у TitleBar остаётся только перетаскивание, которое
-   на тач-экране бессмысленно, поэтому прячем всю полосу целиком. */
-[class*="titleBar"] {
+/* Полоса заголовка с кнопками окна на телефоне бессмысленна. */
+[class*="titleBar"] { display: none !important; }
+
+/* Правая панель (очередь) не помещается -- открывается отдельным экраном. */
+[class*="rightSidebar"] { display: none !important; }
+
+main[class*="main"] {
+  grid-area: main !important;
+  min-width: 0;
+}
+
+/* Кнопка меню висит поверх контента -- сдвигаем начало прокручиваемой области,
+   иначе она накрывает заголовок первой полки. */
+main[class*="main"] [class*="scrollContent"] {
+  padding-top: calc(env(safe-area-inset-top) + 46px) !important;
+}
+
+/* --- Сайдбар как выдвижная панель --- */
+
+[class*="sidebar"]:not([class*="rightSidebar"]) {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 60;
+  width: var(--sidebar-width) !important;
+  max-width: 320px;
+  transform: translateX(-102%);
+  transition: transform 0.22s ease;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  padding-top: calc(env(safe-area-inset-top) + 52px);
+}
+
+body.goy-nav-open [class*="sidebar"]:not([class*="rightSidebar"]) {
+  transform: translateX(0);
+}
+
+/* Затемнение под открытой панелью. */
+body.goy-nav-open::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 55;
+}
+
+/* Кнопка вызова панели (создаётся в main.tsx). */
+#goy-nav-toggle {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 10px;
+  z-index: 70;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  background: rgba(20, 20, 26, 0.72);
+  backdrop-filter: blur(12px);
+  color: var(--text-main, #e6e6ec);
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* --- Плеер --- */
+
+/* Десктопный плеер -- грид 1fr 2fr 1fr: слева трек, по центру прогресс с кнопками,
+   справа громкость. На 412px три колонки не живут, поэтому раскладываем в две строки:
+   сверху трек, снизу прогресс и кнопки. Класс goy-player вешает main.tsx. */
+.goy-player {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: 2px !important;
+  padding: 4px 12px calc(4px + env(safe-area-inset-bottom)) !important;
+  height: var(--player-height) !important;
+}
+
+.goy-player > [class*="nowPlaying"] {
+  width: 100%;
+  gap: 10px !important;
+}
+
+/* Обложка 52px съедает половину высоты полосы -- на телефоне хватает меньшей.
+   Картинку внутри тоже ужимаем: её размер задан не в процентах, и она вылезала
+   из обёртки прямо на строку прогресса. */
+.goy-player [class*="artWrapper"] {
+  width: 38px !important;
+  height: 38px !important;
+}
+
+.goy-player [class*="artWrapper"] > * {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.goy-player > [class*="controls"] {
+  width: 100%;
+  gap: 0 !important;
+}
+
+.goy-player [class*="progress"] {
+  max-width: none !important;
+  gap: 6px !important;
+}
+
+.goy-player [class*="buttons"] {
+  gap: 6px !important;
+}
+
+/* Громкость и прочая правая группа на телефоне не нужны -- звук у системы. */
+.goy-player > [class*="extra"] {
   display: none !important;
 }
 
-/* Десктопная сетка рассчитана на широкий экран: сайдбар и правая панель на телефоне
-   съедают всё место. Прячем их, оставляя основную колонку во всю ширину. */
+/* --- Списки и таблицы --- */
+
 @media (max-width: 820px) {
-  [class*="sidebar"]:not([class*="sidebarToggle"]) {
-    display: none !important;
-  }
-  [class*="rightPanel"] {
-    display: none !important;
-  }
-  [class*="mainContent"],
-  [class*="content"] {
-    width: 100% !important;
+  /* Колонка альбома съедает всю ширину строки трека. */
+  table col:nth-child(3) { width: 0 !important; }
+  table th:nth-child(3), table td:nth-child(3) { display: none !important; }
+
+  /* Крупные шапки плейлистов/альбомов рассчитаны на широкий экран. */
+  [class*="largeHeader"], [class*="header"] [class*="cover"] {
     max-width: 100% !important;
   }
-  /* Таблица треков: колонка альбома не помещается, время оставляем. */
-  table [class*="album"] {
-    display: none !important;
+
+  [class*="grid"] {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)) !important;
+    gap: 12px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
   }
 }
 
-/* Тач-прокрутка списков Virtuoso без резинки Android. */
-* {
-  -webkit-overflow-scrolling: touch;
-}
+/* Тач-прокрутка без резинки Android. */
+* { -webkit-overflow-scrolling: touch; }
