@@ -88,10 +88,11 @@ module.exports = async function handler(req, res) {
     fallbackUrl   = `https://music.youtube.com/browse/${id}`;
   }
 
-  const thumbDisplay  = ogImage ? `<img class="thumb" src="${escapeHtml(ogImage)}" alt="" />` : '';
+  const artDisplay    = ogImage ? `<img class="art" src="${escapeHtml(ogImage)}" alt="" />` : '<div class="art art--empty"></div>';
   const titleDisplay  = ogTitle !== 'GoyMusic' ? `<div class="track-title">${ogTitle}</div>` : '';
   const artistDisplay = ogDescription !== 'Listen on GoyMusic desktop app or YouTube Music' && ogDescription !== 'GoyMusic'
     ? `<div class="track-artists">${ogDescription}</div>` : '';
+  const bgDisplay     = ogImage ? `<div class="bg" style="background-image:url(&quot;${escapeHtml(ogImage)}&quot;)"></div>` : '';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -99,7 +100,7 @@ module.exports = async function handler(req, res) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${ogTitle} — GoyMusic</title>
-  <meta name="theme-color" content="#1e1e2e" />
+  <meta name="theme-color" content="#09090f" />
   <meta property="og:site_name" content="GoyMusic" />
   <meta property="og:type" content="music.song" />
   <meta property="og:title" content="${ogTitle}" />
@@ -109,57 +110,116 @@ module.exports = async function handler(req, res) {
   <meta name="twitter:title" content="${ogTitle}" />
   <meta name="twitter:description" content="${ogDescription}" />
   <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
+  <link rel="icon" href="/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
     body {
-      background: #1e1e2e; color: #cdd6f4;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; min-height: 100vh; gap: 24px; padding: 24px;
+      background: #09090f; color: #cdd6f4;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100svh; padding: 24px; overflow: hidden;
     }
-    .logo { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.5px; color: #cba6f7; }
+
+    /* Размытая обложка на фоне — как в «Моей волне» приложения */
+    .bg {
+      position: fixed; inset: -12%; z-index: 0;
+      background-size: cover; background-position: center;
+      filter: blur(80px) saturate(1.8) brightness(0.5);
+      transform: scale(1.3);
+    }
+    .bg-overlay {
+      position: fixed; inset: 0; z-index: 0;
+      background: radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.62) 62%, rgba(9,9,15,0.9) 100%);
+    }
+
     .card {
-      background: #313244; border-radius: 16px; padding: 28px 32px;
-      text-align: center; max-width: 380px; width: 100%;
-      display: flex; flex-direction: column; gap: 16px; align-items: center;
+      position: relative; z-index: 1;
+      width: 100%; max-width: 380px;
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      padding: 28px 26px 22px;
+      background: rgba(10, 10, 16, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 20px;
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      animation: cardIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
-    .thumb { width: 120px; height: 120px; border-radius: 10px; object-fit: cover; background: #45475a; }
-    .track-title { font-size: 1.05rem; font-weight: 600; color: #cdd6f4; }
-    .track-artists { font-size: 0.85rem; color: #a6adc8; }
-    .status { font-size: 0.9rem; color: #a6adc8; min-height: 1.4em; }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(12px) scale(0.97); } }
+
+    .logo { display: flex; align-items: center; gap: 8px; color: #cdd6f4; }
+    .logo svg { width: 22px; height: 22px; }
+    .logo span { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.2px; }
+
+    .art {
+      width: 168px; height: 168px; border-radius: 14px; object-fit: cover;
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+    }
+    .art--empty { display: block; }
+
+    .track-title { font-size: 1.05rem; font-weight: 600; text-align: center; line-height: 1.35; }
+    .track-artists { font-size: 0.85rem; color: #a6adc8; text-align: center; margin-top: -8px; }
+
+    .status { font-size: 0.85rem; color: #a6adc8; min-height: 1.4em; text-align: center; }
     .dot { display: inline-block; animation: blink 1.2s step-end infinite; }
     .dot:nth-child(2) { animation-delay: 0.2s; }
     .dot:nth-child(3) { animation-delay: 0.4s; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    .buttons { display: none; flex-direction: column; gap: 8px; width: 100%; }
     .btn {
-      display: inline-block; padding: 10px 20px; border-radius: 8px;
-      font-size: 0.9rem; font-weight: 600; text-decoration: none;
-      cursor: pointer; border: none; transition: opacity 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 11px 18px; border-radius: 12px; border: 1px solid transparent;
+      font-family: inherit; font-size: 0.88rem; font-weight: 600;
+      text-decoration: none; cursor: pointer;
+      transition: background 0.15s, transform 0.15s, color 0.15s;
     }
-    .btn:hover { opacity: 0.85; }
-    .btn-primary { background: #cba6f7; color: #1e1e2e; }
-    .btn-secondary { background: #45475a; color: #cdd6f4; }
-    .btn-download { background: #a6e3a1; color: #1e1e2e; font-size: 0.82rem; padding: 8px 16px; }
-    .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-    .sub { font-size: 0.78rem; color: #6c7086; }
+    .btn:active { transform: scale(0.985); }
+    .btn-primary { background: #89b4fa; color: #11111b; }
+    .btn-primary:hover { background: #b4befe; }
+    .btn-secondary { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.1); color: #cdd6f4; }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.09); }
+    .btn-download { background: transparent; color: #89b4fa; font-size: 0.82rem; padding: 6px; }
+    .btn-download:hover { color: #b4befe; }
+
+    .sub { font-size: 0.75rem; color: #6c7086; text-align: center; }
+
+    @media (max-width: 400px) {
+      .art { width: 132px; height: 132px; }
+    }
   </style>
 </head>
 <body>
-  <div class="logo">GoyMusic</div>
-  <div class="card">
-    ${thumbDisplay}
+  ${bgDisplay}
+  <div class="bg-overlay"></div>
+  <main class="card">
+    <div class="logo">
+      <svg viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="512" cy="512" r="512" fill="#09090f"/>
+        <g transform="translate(512, 512) scale(0.85) translate(-512, -512)">
+          <path d="M 800 512 A 288 288 0 1 1 680 230" stroke="#cdd6f4" stroke-width="180" stroke-linecap="round"/>
+          <path d="M 430 322 L 780 512 L 430 702 Z" fill="#FF3333" stroke="#FF3333" stroke-width="20" stroke-linejoin="round"/>
+        </g>
+      </svg>
+      <span>GoyMusic</span>
+    </div>
+    ${artDisplay}
     ${titleDisplay}
     ${artistDisplay}
     <div class="status" id="status">
       Opening app<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
     </div>
-    <div class="buttons" id="buttons" style="display:none">
+    <div class="buttons" id="buttons">
       <a class="btn btn-primary" href="${escapeHtml(protocolUrl)}">Open in GoyMusic</a>
       <a class="btn btn-secondary" href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener">${fallbackLabel}</a>
       <a class="btn btn-download" id="downloadBtn" href="/download" target="_blank" rel="noopener" style="display:none">Download GoyMusic</a>
     </div>
     <div class="sub" id="sub"></div>
-  </div>
+  </main>
   <script>
     var protocolUrl = ${JSON.stringify(protocolUrl)};
     var statusEl    = document.getElementById('status');
@@ -183,7 +243,7 @@ module.exports = async function handler(req, res) {
           subEl.textContent = 'Nothing happened? Try the buttons above.';
         } else {
           statusEl.textContent = 'GoyMusic not installed?';
-          downloadBtn.style.display = 'inline-block';
+          downloadBtn.style.display = 'flex';
           subEl.textContent = 'Download GoyMusic to open links directly.';
         }
       }, 1500);
