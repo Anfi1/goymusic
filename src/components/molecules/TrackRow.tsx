@@ -92,7 +92,7 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
   const [likeStatus, setLikeStatus] = useState<string | undefined>(trackData.likeStatus);
   const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
-  useEffect(() => { setLikeStatus(trackData.likeStatus); }, [trackData.likeStatus]);
+  useEffect(() => { setLikeStatus(trackData.likeStatus); }, [trackData.id, trackData.likeStatus]);
 
   useEffect(() => {
     if (!trackData.id) return;

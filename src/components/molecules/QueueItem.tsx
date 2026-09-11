@@ -58,7 +58,7 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
   const [likeStatus, setLikeStatus] = useState(initialLikeStatus);
   const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
-  useEffect(() => { setLikeStatus(initialLikeStatus); }, [initialLikeStatus]);
+  useEffect(() => { setLikeStatus(initialLikeStatus); }, [id, initialLikeStatus]);
 
   useEffect(() => {
     const handleGlobalLikeUpdated = (e: any) => {
