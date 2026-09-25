@@ -491,6 +491,11 @@ class PlayerStore {
     /** Догоняет громкость для стрима, у которого её не отдал источник. */
     private ensureLoudnessFor(trackId: string, entry: CacheEntry | null) {
         if (!entry || entry.loudness != null || entry.url.startsWith('file:///')) return;
+        // Пока меряем, стартуем с типичной громкости, а не с гейна 1.0: SC и YT-мастеринг
+        // лежит на +6..+9.7 дБ выше цели (замеры 2026-09-25), и без этого трек первые
+        // секунды звучит заметно громче соседей, а потом резко проседает. Берём нижний
+        // край, чтобы не утопить тихий трек.
+        this.applyNormalization(6);
         ensureLoudness(trackId, entry.url).then(l => {
             // трек мог смениться, пока мерили -- гейн применяем только если он всё ещё играет
             if (l != null && this.currentTrack?.id === trackId) this.applyNormalization(l);

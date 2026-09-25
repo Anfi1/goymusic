@@ -9,7 +9,12 @@ TRENDS = {"ARROW_DROP_UP": "up", "ARROW_DROP_DOWN": "down", "ARROW_CHART_NEUTRAL
 
 
 def parse_chart_song(data: JsonDict) -> JsonDict:
-    parsed = parse_song_flat(data, with_playlist_id=True)
+    video_type = nav(data, [*PLAY_BUTTON, "playNavigationEndpoint", *NAVIGATION_VIDEO_TYPE], True)
+    parsed = (
+        parse_episode_flat(data)
+        if video_type == "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+        else parse_song_flat(data, with_playlist_id=True)
+    )
     parsed.update(parse_ranking(data, none_if_absent=False))
     return parsed
 
@@ -26,7 +31,7 @@ def parse_chart_playlist(data: JsonDict) -> JsonDict:
     return {
         "title": nav(data, TITLE_TEXT),
         "playlistId": nav(data, TITLE + NAVIGATION_BROWSE_ID)[2:],
-        "thumbnails": nav(data, THUMBNAIL_RENDERER),
+        "thumbnails": nav(data, THUMBNAIL_RENDERER, True),
     }
 
 
@@ -47,7 +52,7 @@ def parse_chart_artist(data: JsonDict) -> JsonDict:
         "title": nav(get_flex_column_item(data, 0), TEXT_RUN_TEXT),
         "browseId": nav(data, NAVIGATION_BROWSE_ID),
         "subscribers": subscribers,
-        "thumbnails": nav(data, THUMBNAILS),
+        "thumbnails": nav(data, THUMBNAILS, True),
     }
     parsed.update(parse_ranking(data, none_if_absent=True))
     return parsed

@@ -399,26 +399,37 @@ def get_ffmpeg_exe():
             _ffmpeg_exe_path = 'ffmpeg'
     return _ffmpeg_exe_path
 
-def _ffmpeg_loudnorm(stream_url, ss=None, t=None, timeout=20):
-    """Разбор loudnorm=print_format=json для среза стрима. None при провале."""
+def _ffmpeg_loudness(stream_url, ss=None, t=None, timeout=20):
+    """(интегрированная громкость LUFS, true peak dBTP) для среза стрима, None при провале.
+
+    Фильтр ebur128, а не loudnorm: цифры те же (EBU R128, расхождение до 0.05 дБ на замере
+    2026-09-25), но loudnorm ради своей второй фазы апсемплит всё до 192 кГц и ест в 4-5 раз
+    больше CPU. Трек в 2.5 минуты: 2.9с против 0.6с, по сети упирается уже в загрузку."""
     import subprocess
     cmd = [get_ffmpeg_exe(), '-hide_banner', '-nostats', '-probesize', '64k', '-analyzeduration', '0']
     if ss is not None: cmd += ['-ss', str(int(ss))]
     cmd += ['-i', stream_url]
     if t is not None: cmd += ['-t', str(int(t))]
-    cmd += ['-vn', '-sn', '-dn', '-af', 'loudnorm=print_format=json', '-f', 'null', '-']
+    cmd += ['-vn', '-sn', '-dn', '-af', 'ebur128=peak=true:framelog=quiet', '-f', 'null', '-']
     r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                        text=True, timeout=timeout, encoding='utf-8', errors='ignore')
-    st = r.stderr or ''
-    j0, j1 = st.rfind('{'), st.rfind('}') + 1
-    if j0 != -1 and j1 > j0:
-        return json.loads(st[j0:j1])
-    return None
+    return _parse_ebur128(r.stderr or '')
 
-def _ffmpeg_loudnorm_i(stream_url, ss=None, t=None):
-    """input_i (интегрированная громкость, LUFS) для среза стрима. None при провале."""
-    d = _ffmpeg_loudnorm(stream_url, ss=ss, t=t)
-    return None if d is None else float(d.get('input_i', -14.0))
+def _parse_ebur128(stderr):
+    """Итоговая сводка ebur128 (Summary в конце stderr) -> (I, true peak) или None."""
+    _, sep, summary = stderr.rpartition('Summary:')
+    if not sep:  # ffmpeg оборвался до конца -- промежуточным цифрам не верим
+        return None
+    m_i = re.search(r'\bI:\s*(-?[\d.]+|-inf) LUFS', summary)
+    m_tp = re.search(r'\bPeak:\s*(-?[\d.]+|-inf) dBFS', summary)
+    if not m_i or not m_tp:
+        return None
+    return float(m_i.group(1)), float(m_tp.group(1))
+
+def _ffmpeg_loudness_i(stream_url, ss=None, t=None):
+    """Интегрированная громкость (LUFS) для среза стрима. None при провале."""
+    d = _ffmpeg_loudness(stream_url, ss=ss, t=t)
+    return None if d is None else d[0]
 
 def measure_loudness_full(stream_url):
     """Поправка до -14 LUFS для стрима без готовых метаданных (SoundCloud и YT-треки,
@@ -427,14 +438,10 @@ def measure_loudness_full(stream_url):
     экономить время больше незачем.
 
     Возвращает (loudness, true_peak) или (None, None)."""
-    d = _ffmpeg_loudnorm(stream_url, timeout=300)
+    d = _ffmpeg_loudness(stream_url, timeout=300)
     if not d:
         return None, None
-    try:
-        i = float(d['input_i'])
-        tp = float(d['input_tp'])
-    except (KeyError, TypeError, ValueError):
-        return None, None
+    i, tp = d
     if i <= -70:  # тишина / -inf
         return None, None
 
@@ -1834,11 +1841,67 @@ def _find_atv_twin(video_id, details, expected_sec):
     return twin
 
 
+# Бот-чек (LOGIN_REQUIRED "Sign in to confirm you're not a bot") -- это репутация IP (VPN)
+# или протухшие куки, а не устаревший base.js. Сбрасывать из-за него прогретое состояние
+# бессмысленно, а повторять тот же запрос на каждом треке стоило 4-7с до старта гонки
+# (лог 2026-09-25). Путь, словивший бот-чек, пропускаем на время.
+_BOT_CHECK_COOLDOWN = 15 * 60
+_bot_check_until = {'auth': 0.0, 'anon': 0.0}
+
+
+def _fast_paths_on_cooldown():
+    now = time.time()
+    return all(now < t for t in _bot_check_until.values())
+
+
+def _player_or_bot_check(path, video_id, request):
+    """player-ответ со streamingData или None. Бот-чек ставит путь path на паузу."""
+    resp = request()
+    if 'streamingData' in resp:
+        return resp
+    if (resp.get('playabilityStatus') or {}).get('status') == 'LOGIN_REQUIRED':
+        _bot_check_until[path] = time.time() + _BOT_CHECK_COOLDOWN
+        print(f"[warn] fast-path ({path}): бот-чек на {video_id} (VPN или протухшие куки?), "
+              f"путь пропускается {_BOT_CHECK_COOLDOWN // 60} мин", file=sys.stderr)
+    return None
+
+
+def _fast_player_response(video_id, visitor_data, sig_ts):
+    """(player-ответ со streamingData, PO-токен к нему или None), либо (None, None).
+
+    Первым идёт авторизованный WEB_REMIX самого ytmusicapi: ~0.2с, opus 251, и googlevideo
+    отдаёт его ссылки без PO-токена (замер 2026-09-25: ffmpeg декодирует трек целиком, 206 на
+    любом диапазоне). Анонимному WEB_MUSIC нужен токен botGuard под конкретный video_id, это
+    0.6-5с на трек, поэтому он запасной: кук нет или они протухли."""
+    now = time.time()
+    if try_load_auth() and now >= _bot_check_until['auth']:
+        try:
+            resp = _player_or_bot_check('auth', video_id, lambda: get_api()._send_request(
+                'player', {**sig_ts, 'video_id': video_id}))
+            if resp:
+                return resp, None
+        except Exception as e:
+            print(f"[debug] fast-path (auth) failed for {video_id}: {e}", file=sys.stderr)
+
+    if now < _bot_check_until['anon']:
+        return None, None
+    _, po_token = _pytubefix_pot(video_id)
+    it = _PtfInnerTube('WEB_MUSIC')
+    # innertube_context у pytubefix -- ОБЩИЙ изменяемый словарь из _default_clients,
+    # а не копия. Гонка потом мутирует его из нескольких потоков, поэтому работаем со своей.
+    it.innertube_context = copy.deepcopy(it.innertube_context)
+    # без signatureTimestamp часть треков приходит с playabilityStatus=UNPLAYABLE
+    it.innertube_context.update(sig_ts)
+    it.insert_po_token(visitor_data=visitor_data, po_token=po_token)
+    resp = _player_or_bot_check('anon', video_id, lambda: it.player(video_id))
+    return (resp, po_token) if resp else (None, None)
+
+
 def _resolve_fast(video_id, expected_sec=None, _swapped=False):
     """Самый быстрый путь: один innertube player-запрос + локальная расшифровка на
-    прогретом node. Замеры 2026-08-22: сам player-запрос ~0.3с, расшифровка 0.00-0.01с на
-    прогретом node, botGuard ~0.5с -- итого ~0.8с против ~1.9с у pytubefix и ~4с у
-    tv+cookies. Формат лучший из всех -- opus itag251 (145-168kbps) против itag140
+    прогретом node. С куками это авторизованный WEB_REMIX без botGuard (~0.3с), без них
+    анонимный WEB_MUSIC с PO-токеном (~0.8-5с), см. _fast_player_response. Для сравнения:
+    ~1.9с у pytubefix и 4-14с у tv+cookies. Формат лучший из всех -- opus itag251 (145-168kbps) против itag140
     (m4a 128k) у pytubefix и itag18 (склейка с видео, 96k) у tv.
 
     Возвращает (url, loudness, video_id) -- третий элемент это ФАКТИЧЕСКИ сыгранный id:
@@ -1855,18 +1918,13 @@ def _resolve_fast(video_id, expected_sec=None, _swapped=False):
             if url:
                 return url, loudness, eff
 
+    if _fast_paths_on_cooldown():
+        return None, None, video_id
     try:
         visitor_data, js, js_url, sig_ts = _pytubefix_state(video_id)
-        _, po_token = _pytubefix_pot(video_id)
-
-        it = _PtfInnerTube('WEB_MUSIC')
-        # innertube_context у pytubefix -- ОБЩИЙ изменяемый словарь из _default_clients,
-        # а не копия. Гонка потом мутирует его из нескольких потоков, поэтому работаем со своей.
-        it.innertube_context = copy.deepcopy(it.innertube_context)
-        # без signatureTimestamp часть треков приходит с playabilityStatus=UNPLAYABLE
-        it.innertube_context.update(sig_ts)
-        it.insert_po_token(visitor_data=visitor_data, po_token=po_token)
-        resp = it.player(video_id)
+        resp, po_token = _fast_player_response(video_id, visitor_data, sig_ts)
+        if resp is None:
+            return None, None, video_id
 
         # Клип вместо альбомной версии. Тип и длительность лежат в этом же ответе, так
         # что проверка бесплатна. Меняем ТОЛЬКО при расхождении с ожидаемой длительностью:
@@ -1885,7 +1943,8 @@ def _resolve_fast(video_id, expected_sec=None, _swapped=False):
                         return url, loudness, eff
 
         manifest = ptf_extract.apply_descrambler(resp['streamingData'])
-        ptf_extract.apply_po_token(manifest, resp, po_token)
+        if po_token:
+            ptf_extract.apply_po_token(manifest, resp, po_token)
         audio = [f for f in manifest if str(f.get('mimeType', '')).startswith('audio/')]
         if not audio:
             return None, None, video_id
@@ -4370,7 +4429,7 @@ def handle_request(request):
                     gain_db = 0.0
                     if os.path.exists(filepath):
                         try:
-                            res = _ffmpeg_loudnorm_i(filepath, ss=30, t=12)
+                            res = _ffmpeg_loudness_i(filepath, ss=30, t=12)
                             if res is not None:
                                 gain_db = float(res) + 14.0
                         except Exception:
@@ -4413,7 +4472,7 @@ def handle_request(request):
                 gain_db = 0.0
                 if os.path.exists(filepath):
                     try:
-                        res = _ffmpeg_loudnorm_i(filepath, ss=30, t=12)
+                        res = _ffmpeg_loudness_i(filepath, ss=30, t=12)
                         if res is not None:
                             gain_db = float(res) + 14.0
                     except Exception:

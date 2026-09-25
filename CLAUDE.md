@@ -21,7 +21,7 @@ npm run pack     # build + electron-builder --dir (без инсталлятор
 npm run dist     # build + установщик
 ```
 
-Python: зависимости в `requirements.txt`, venv в `venv/`. Electron при старте ищет интерпретатор: bundled `python.exe` → `venv` → системный `python3` (`electron/main.ts`).
+Python: зависимости в `requirements.txt`, venv в `venv/`. Electron при старте ищет интерпретатор: bundled `python/bin/python.exe` → `venv` → системный `python3` (`electron/main.ts`), **в dev тоже**: bundled в исключениях VPN, а `venv` запускает системный Python через VPN, и ссылки googlevideo (привязаны к IP резолвера) дают renderer'у 403. Пакеты в bundled: `python\bin\python.exe -m pip install -r python\requirements.txt`. Тестовые скрипты гонять им же.
 
 ## Архитектура и поток данных
 
@@ -32,14 +32,14 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 ```
 
 - Renderer вызывает Python: `window.bridge.pyCall('<command>', args)`; диспетчер команд — `handle_request` в `python/api.py` (≈стр. 1690+, ~60 команд).
-- Аудио играет **HTML5 `<audio>`** с двойной буферизацией и Web Audio (нормализация, 6-полосный EQ): `src/api/player.ts`. Поток — stream URL от `get_stream_url` (быстрый путь pytubefix WEB_MUSIC → гонка клиентов yt-dlp).
+- Аудио играет **HTML5 `<audio>`** с двойной буферизацией и Web Audio (нормализация, 6-полосный EQ): `src/api/player.ts`. Поток — stream URL от `get_stream_url` (быстрый путь: авторизованный WEB_REMIX player через ytmusicapi + расшифровка pytubefix, ~0.3с, opus 251, без PO-токена; без кук анонимный WEB_MUSIC с botGuard-токеном; путь, словивший бот-чек `LOGIN_REQUIRED`, пропускается 15 мин → гонка клиентов yt-dlp).
 
 ### Нормализация громкости
 
 Цель — **-14 LUFS** на обоих источниках, гейн `10^(-loudness/20)`.
 
 - YouTube: `loudnessDb` из ответа плеера, но его шкала целится в **-7 LUFS**, поэтому в `extract_loudness` прибавляется `+7`. Поле `perceptualLoudnessDb` (= `loudnessDb - 7`) для этого не подходит — смещает в другую сторону.
-- SoundCloud и YT-треки без `loudnessDb`: отдаём `loudness: null` сразу, замер идёт **фоном** командой `measure_loudness` (ffmpeg `loudnorm`, трек целиком), гейн применяется плавным рампом. Результат кэшируется в IndexedDB по id трека, без TTL — громкость свойство аудио, а не подписанной ссылки.
+- SoundCloud и YT-треки без `loudnessDb`: отдаём `loudness: null` сразу, замер идёт **фоном** командой `measure_loudness` (ffmpeg `ebur128=peak=true`, трек целиком: те же цифры, что `loudnorm`, но в 4-5 раз дешевле по CPU), до его прихода гейн стартует с типичных +6 дБ (≈0.5), не с 1.0; итог применяется плавным рампом. Результат кэшируется в IndexedDB по id трека, без TTL — громкость свойство аудио, а не подписанной ссылки.
 - Замерочный стенд: `python/test_loudness.py` (`--selfcheck` — офлайн).
 
 ## Ключевые модули

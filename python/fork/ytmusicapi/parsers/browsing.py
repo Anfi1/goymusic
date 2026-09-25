@@ -98,8 +98,12 @@ def parse_mixed_content(
                     if page_type is None:  # song or watch_playlist
                         if nav(data, NAVIGATION_WATCH_PLAYLIST_ID, True) is not None:
                             content = parse_watch_playlist(data)
-                        else:
+                        elif nav(data, NAVIGATION_VIDEO_ID, True) is not None:
                             content = parse_song(data)
+                        else:
+                            # Deleted uploads can still appear in Listen again
+                            # without a usable browse or playback destination.
+                            continue
                     elif page_type in ["MUSIC_PAGE_TYPE_ALBUM", "MUSIC_PAGE_TYPE_AUDIOBOOK"]:
                         content = parse_album(data)
                     elif page_type in ["MUSIC_PAGE_TYPE_ARTIST", "MUSIC_PAGE_TYPE_USER_CHANNEL"]:
@@ -190,7 +194,7 @@ def parse_album(result: JsonDict) -> JsonDict:
         ],
         "browseId": nav(result, TITLE + NAVIGATION_BROWSE_ID),
         "audioPlaylistId": parse_album_playlistid_if_exists(nav(result, THUMBNAIL_OVERLAY_NAVIGATION, True)),
-        "thumbnails": nav(result, THUMBNAIL_RENDERER),
+        "thumbnails": nav(result, THUMBNAIL_RENDERER, True),
         "isExplicit": nav(result, SUBTITLE_BADGE_LABEL, True) is not None,
     }
 
@@ -201,7 +205,7 @@ def parse_single(result: JsonDict) -> JsonDict:
     single = {
         "title": nav(result, TITLE_TEXT),
         "browseId": nav(result, TITLE + NAVIGATION_BROWSE_ID),
-        "thumbnails": nav(result, THUMBNAIL_RENDERER),
+        "thumbnails": nav(result, THUMBNAIL_RENDERER, True),
     }
 
     return _parse_album_single_subtitle(result, single)
@@ -212,7 +216,7 @@ def parse_song(result: JsonDict) -> JsonDict:
         "title": nav(result, TITLE_TEXT),
         "videoId": nav(result, NAVIGATION_VIDEO_ID),
         "playlistId": nav(result, NAVIGATION_PLAYLIST_ID, True),
-        "thumbnails": nav(result, THUMBNAIL_RENDERER),
+        "thumbnails": nav(result, THUMBNAIL_RENDERER, True),
     }
     song.update(parse_song_runs(nav(result, SUBTITLE_RUNS), skip_type_spec=True))
     return song
@@ -220,11 +224,16 @@ def parse_song(result: JsonDict) -> JsonDict:
 
 def parse_song_flat(data: JsonDict, with_playlist_id: bool = False) -> JsonDict:
     columns = [get_flex_column_item(data, i) for i in range(len(data["flexColumns"]))]
+    # podcast episodes link their title to the episode page instead of a watchEndpoint,
+    # so the playable videoId must come from the play button instead
+    video_id = nav(columns[0], TEXT_RUN + NAVIGATION_VIDEO_ID, True) or nav(
+        data, [*PLAY_BUTTON, "playNavigationEndpoint", *WATCH_VIDEO_ID], True
+    )
     song = {
         "title": nav(columns[0], TEXT_RUN_TEXT),
-        "videoId": nav(columns[0], TEXT_RUN + NAVIGATION_VIDEO_ID, True),
+        "videoId": video_id,
         "videoType": nav(data, [*PLAY_BUTTON, "playNavigationEndpoint", *NAVIGATION_VIDEO_TYPE], True),
-        "thumbnails": nav(data, THUMBNAILS),
+        "thumbnails": nav(data, THUMBNAILS, True),
         "isExplicit": nav(data, BADGE_LABEL, True) is not None,
     }
 
@@ -307,7 +316,7 @@ def parse_related_artist(data: JsonDict) -> JsonDict:
         "title": nav(data, TITLE_TEXT),
         "browseId": nav(data, TITLE + NAVIGATION_BROWSE_ID),
         "subscribers": subscribers,
-        "thumbnails": nav(data, THUMBNAIL_RENDERER),
+        "thumbnails": nav(data, THUMBNAIL_RENDERER, True),
     }
 
 
@@ -315,5 +324,5 @@ def parse_watch_playlist(data: JsonDict) -> JsonDict:
     return {
         "title": nav(data, TITLE_TEXT),
         "playlistId": nav(data, NAVIGATION_WATCH_PLAYLIST_ID),
-        "thumbnails": nav(data, THUMBNAIL_RENDERER),
+        "thumbnails": nav(data, THUMBNAIL_RENDERER, True),
     }

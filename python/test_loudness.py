@@ -111,6 +111,27 @@ def selfcheck():
         if loud < 0:
             loud = max(loud, tp + 1.0)
         assert tp - loud <= -1.0 + 1e-9, (i, tp, loud, tp - loud)
+
+    # сводка ebur128 из реального прогона: берём итоговые I и true peak, а не промежуточные
+    summary = ('[Parsed_ebur128_0 @ 0] t: 1.0 M: -9.1 S: -120.7 I: -9.2 LUFS\r\n'
+               '[Parsed_ebur128_0 @ 0] Summary:\r\n\r\n  Integrated loudness:\r\n'
+               '    I:          -7.0 LUFS\r\n    Threshold: -17.1 LUFS\r\n\r\n'
+               '  Loudness range:\r\n    LRA:         2.6 LU\r\n\r\n'
+               '  True peak:\r\n    Peak:        3.1 dBFS\r\n')
+    assert api._parse_ebur128(summary) == (-7.0, 3.1), api._parse_ebur128(summary)
+    assert api._parse_ebur128('I: -70.0 LUFS\nPeak: -inf dBFS') is None  # нет Summary
+    assert api._parse_ebur128('Summary:\n I: -70.0 LUFS\n Peak: -inf dBFS')[1] == float('-inf')
+
+    # бот-чек ставит путь быстрого резолва на паузу, обычный отказ -- нет
+    api._bot_check_until.update(auth=0.0, anon=0.0)
+    assert api._player_or_bot_check('auth', 'x', lambda: {'streamingData': {}}) == {'streamingData': {}}
+    assert api._player_or_bot_check('auth', 'x', lambda: {'playabilityStatus': {'status': 'UNPLAYABLE'}}) is None
+    assert not api._fast_paths_on_cooldown() and api._bot_check_until['auth'] == 0.0
+    assert api._player_or_bot_check('auth', 'x', lambda: {'playabilityStatus': {'status': 'LOGIN_REQUIRED'}}) is None
+    assert api._bot_check_until['auth'] > 0 and not api._fast_paths_on_cooldown()
+    api._player_or_bot_check('anon', 'x', lambda: {'playabilityStatus': {'status': 'LOGIN_REQUIRED'}})
+    assert api._fast_paths_on_cooldown()
+    api._bot_check_until.update(auth=0.0, anon=0.0)
     print('selfcheck ok')
 
 

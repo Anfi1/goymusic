@@ -175,17 +175,17 @@ function scheduleRPCRetry() {
 const pendingCalls = new Map<string, { resolve: Function, reject: Function, timeout: NodeJS.Timeout }>()
 
 function createPyProc() {
-  const isPackaged = app.isPackaged
   const root = getAppRoot();
   const scriptPath = join(root, 'python', 'api.py')
   
-  // Priority: Venv -> Bundled portable Python -> System Python
-  // В dev-режиме venv содержит pip-пакеты (nodriver), bundled — нет.
+  // Priority: Bundled portable Python -> Venv -> System Python, и в dev тоже.
+  // venv\Scripts\python.exe лишь запускает системный Python, а тот идёт через VPN: ссылки
+  // googlevideo привязаны к IP резолвера, и renderer, который ходит напрямую, получает на
+  // них 403. Встроенный python.exe в исключениях VPN. Пакеты в него ставить так:
+  // python\bin\python.exe -m pip install -r python\requirements.txt
   const bundledPython = join(root, 'python', 'bin', 'python.exe')
   const venvPython = join(root, 'venv', 'Scripts', 'python.exe')
-  const candidates = isPackaged
-    ? [bundledPython, venvPython, 'python', 'python3', 'py']
-    : [venvPython, bundledPython, 'python', 'python3', 'py'];
+  const candidates = [bundledPython, venvPython, 'python', 'python3', 'py'];
   
   logToFile(`Searching for Python interpreter...`);
   logToFile(`Bundled path: ${bundledPython} (exists: ${existsSync(bundledPython)})`);
