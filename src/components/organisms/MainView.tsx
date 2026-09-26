@@ -216,14 +216,24 @@ function useFitTitle(ref: React.RefObject<HTMLElement | null>, text?: string) {
     const fit = () => {
       el.style.fontSize = '';
       let size = parseFloat(getComputedStyle(el).fontSize);
-      while (el.scrollHeight > el.clientHeight + 1 && size > MIN_TITLE_PX) {
+      // ширина тоже: одно длинное слово line-clamp не переносит, а режет многоточием
+      while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > MIN_TITLE_PX) {
         size = Math.max(MIN_TITLE_PX, size - 2);
         el.style.fontSize = size + 'px';
       }
     };
     fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    // ширина заголовка меняется и после первого кадра (догружается шапка, шрифт),
+    // поэтому следим за ней самой; высоту не слушаем -- её меняет сама подгонка
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    ro.observe(el);
+    document.fonts?.ready.then(fit);
+    return () => ro.disconnect();
   }, [ref, text]);
 }
 
