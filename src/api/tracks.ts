@@ -1,5 +1,11 @@
 import { YTMTrack } from './yt';
 
+// Прослушивания и молнии -- свойство страницы альбома, а не трека. В сохранённой
+// копии они утекали в лайки и историю, где популярность ни при чём.
+function stripPopularity({ views, best, tier, ...track }: YTMTrack): YTMTrack {
+  return track;
+}
+
 class TracksStore {
   private db: IDBDatabase | null = null;
   private readonly DB_NAME = 'goymusic-tracks';
@@ -47,7 +53,7 @@ class TracksStore {
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
       const tx = this.db!.transaction(this.STORE_NAME, 'readwrite');
-      tx.objectStore(this.STORE_NAME).put(track);
+      tx.objectStore(this.STORE_NAME).put(stripPopularity(track));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -60,7 +66,7 @@ class TracksStore {
       const tx = this.db!.transaction(this.STORE_NAME, 'readwrite');
       const store = tx.objectStore(this.STORE_NAME);
       for (const track of tracks) {
-        store.put(track);
+        store.put(stripPopularity(track));
       }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -73,7 +79,7 @@ class TracksStore {
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction(this.STORE_NAME, 'readonly');
       const request = tx.objectStore(this.STORE_NAME).get(id);
-      request.onsuccess = () => resolve(request.result ?? null);
+      request.onsuccess = () => resolve(request.result ? stripPopularity(request.result) : null);
       request.onerror = () => reject(request.error);
     });
   }
@@ -90,7 +96,7 @@ class TracksStore {
       for (const id of ids) {
         const req = store.get(id);
         req.onsuccess = () => {
-          if (req.result) map.set(id, req.result);
+          if (req.result) map.set(id, stripPopularity(req.result));
           if (--pending === 0) resolve(map);
         };
         req.onerror = () => {
