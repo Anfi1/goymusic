@@ -3,7 +3,7 @@ import { join, dirname } from 'path'
 import { pathToFileURL } from 'url'
 import { spawn, exec, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
-import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync } from 'fs'
+import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
 import { autoUpdater, NsisUpdater } from 'electron-updater'
 
@@ -1102,6 +1102,25 @@ ipcMain.handle('songs:pick-folder', async () => {
   return result.filePaths[0];
 })
 
+ipcMain.handle('songs:list-files', () => {
+  return readdirSync(getSongsPath(), { withFileTypes: true }).filter(e => e.isFile()).map(e => e.name);
+})
+
+// Копия привязок рядом с файлами: переживает переустановку и сброс данных приложения.
+const OVERRIDES_MANIFEST = 'goymusic-overrides.json';
+
+ipcMain.handle('songs:read-manifest', () => {
+  try {
+    return JSON.parse(readFileSync(join(getSongsPath(), OVERRIDES_MANIFEST), 'utf8'));
+  } catch {
+    return null;
+  }
+})
+
+ipcMain.handle('songs:write-manifest', (event, data: unknown) => {
+  writeFileSync(join(getSongsPath(), OVERRIDES_MANIFEST), JSON.stringify(data, null, 1));
+})
+
 ipcMain.handle('songs:delete-file', async (event, filename: string) => {
   try {
     const songsPath = getSongsPath();
@@ -1114,7 +1133,7 @@ ipcMain.handle('songs:delete-file', async (event, filename: string) => {
   }
 })
 
-ipcMain.handle('songs:import-file', async () => {
+ipcMain.handle('songs:import-file', async (event, filePrefix?: string) => {
   try {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -1129,8 +1148,7 @@ ipcMain.handle('songs:import-file', async () => {
     const sourcePath = result.filePaths[0];
     const songsPath = getSongsPath();
     const ext = sourcePath.split('.').pop() || 'audio';
-    const id = nextSongsFileId();
-    const filename = `local_${id}.${ext}`;
+    const filename = filePrefix ? `${filePrefix}_${Date.now()}.${ext}` : `local_${nextSongsFileId()}.${ext}`;
     const destPath = join(songsPath, filename);
 
     copyFileSync(sourcePath, destPath);

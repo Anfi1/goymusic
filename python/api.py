@@ -4184,12 +4184,11 @@ def handle_request(request):
             try:
                 suffix = str(int(time.time() * 1000))  # numeric-ish id to avoid collisions
                 
-                # Для SoundCloud video_id это URL, скачиваем во временный файл, потом переименуем в {artist}-{title}_{suffix}.ext
                 is_sc = url and 'soundcloud.com' in url
-                if is_sc:
-                    output_template = os.path.join(songs_path, f'sc_tmp_{suffix}.%(ext)s')
-                else:
-                    output_template = os.path.join(songs_path, f'{video_id}_{suffix}.%(ext)s')
+                # id трека в имени файла: по нему привязку можно восстановить без базы приложения.
+                # У SC-трека id это URL, без sanitize слэши превращаются в подпапки.
+                safe_id = sanitize(video_id)
+                output_template = os.path.join(songs_path, f"{safe_id.replace('%', '%%')}_{suffix}.%(ext)s")
                     
                 ydl_opts = {
                     'format': 'bestaudio/best',
@@ -4211,33 +4210,16 @@ def handle_request(request):
                     info = ydl.extract_info(url, download=True)
                     ext = info.get('ext') or 'webm'
                 
-                if is_sc:
-                    # Формируем имя файла {artist}-{title}_{suffix}.ext
-                    artist = info.get('uploader') or info.get('artist', 'Unknown Artist')
-                    title = info.get('title', 'Unknown Title')
-
-                    artist_s = sanitize(artist)
-                    title_s = sanitize(title)
-                    
-                    filename = f'{artist_s}-{title_s}_{suffix}.{ext}'
-                    filepath = os.path.join(songs_path, filename)
-                else:
-                    filename = f'{video_id}_{suffix}.{ext}'
-                    filepath = os.path.join(songs_path, filename)
+                filename = f'{safe_id}_{suffix}.{ext}'
+                filepath = os.path.join(songs_path, filename)
 
                 # Resolve actual file (yt-dlp may rename extension)
                 if not os.path.exists(filepath):
                     for f in os.listdir(songs_path):
-                        if is_sc:
-                            if f.startswith(f'sc_tmp_{suffix}.'):
-                                filename = f
-                                filepath = os.path.join(songs_path, f)
-                                break
-                        else:
-                            if f.startswith(video_id + '_' + suffix + '.'):
-                                filename = f
-                                filepath = os.path.join(songs_path, f)
-                                break
+                        if f.startswith(safe_id + '_' + suffix + '.'):
+                            filename = f
+                            filepath = os.path.join(songs_path, f)
+                            break
 
                 # Loudness analysis via ffmpeg
                 gain_db = 0.0

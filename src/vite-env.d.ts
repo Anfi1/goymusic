@@ -37,7 +37,10 @@ interface Window {
     openSongsFolder: (filename?: string) => Promise<any>;
     pickSongsFolder: () => Promise<string | null>;
     deleteSongFile: (filename: string) => Promise<any>;
-    importSongFile: () => Promise<any>;
+    importSongFile: (filePrefix?: string) => Promise<any>;
+    listSongFiles: () => Promise<string[]>;
+    readOverridesManifest: () => Promise<unknown>;
+    writeOverridesManifest: (data: unknown) => Promise<void>;
     checkForUpdates: () => Promise<{ version: string } | null>;
     downloadUpdate: () => Promise<void>;
     installUpdate: () => Promise<void>;

@@ -5,7 +5,8 @@ import { historyStore } from '../../api/history';
 import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
-import { clearAllOverrides } from '../../api/localOverrides';
+import { clearAllOverrides, restoreOverridesFromFolder } from '../../api/localOverrides';
+import { tracksStore } from '../../api/tracks';
 import { streamCache } from '../../api/cache';
 import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath } from '../../api/soundcloud';
 import { isYandexEnabled, setYandexEnabled, yandexAuthStart, yandexAuthPoll, yandexAuthStatus, yandexLogout, YandexDeviceCode } from '../../api/yandex';
@@ -46,6 +47,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [likedEnabled, setLikedEnabled] = useState(likedManager.isEnabled);
     const [songsPath, setSongsPath] = useState<string>('');
     const [pathWarning, setPathWarning] = useState(false);
+    const [restoreProgress, setRestoreProgress] = useState<string | null>(null);
 
     useEffect(() => {
         const unsubscribe = player.subscribe((event) => {
@@ -308,6 +310,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
             await likedStore.clearYtImport();
             await likedStore.setVirtualCount(0);
             alert('Liked songs cache cleared.');
+        }
+    };
+
+    const handleRestoreOverrides = async () => {
+        setRestoreProgress('Scanning...');
+        try {
+            const count = await restoreOverridesFromFolder(
+                await tracksStore.getAllIds(),
+                (done, total) => setRestoreProgress(`${done}/${total}`),
+            );
+            alert(count > 0 ? `Restored ${count} overrides.` : 'Nothing to restore: all files in the folder are already bound.');
+        } catch (e: any) {
+            alert(`Restore failed: ${e?.message || e}`);
+        } finally {
+            setRestoreProgress(null);
         }
     };
 
@@ -657,6 +674,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                     <span className={styles.subtitle}>
                         If saving fails, run the app as administrator or choose a folder that doesn't require admin rights.
                     </span>
+                </div>
+
+                <div className={styles.row}>
+                    <div className={styles.col}>
+                        <span>Restore Local Overrides</span>
+                        <span className={styles.subtitle}>
+                            Rebinds files from the Songs folder to their tracks, e.g. after reinstalling the app.
+                        </span>
+                    </div>
+                    <button className={styles.btnSecondary} onClick={handleRestoreOverrides} disabled={restoreProgress !== null}>
+                        {restoreProgress ?? 'Restore'}
+                    </button>
                 </div>
 
                 <div className={styles.row}>

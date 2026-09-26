@@ -39,7 +39,10 @@ contextBridge.exposeInMainWorld('bridge', {
   openSongsFolder: (filename?: string) => ipcRenderer.invoke('songs:open-folder', filename),
   pickSongsFolder: () => ipcRenderer.invoke('songs:pick-folder'),
   deleteSongFile: (filename: string) => ipcRenderer.invoke('songs:delete-file', filename),
-  importSongFile: () => ipcRenderer.invoke('songs:import-file'),
+  importSongFile: (filePrefix?: string) => ipcRenderer.invoke('songs:import-file', filePrefix),
+  listSongFiles: () => ipcRenderer.invoke('songs:list-files'),
+  readOverridesManifest: () => ipcRenderer.invoke('songs:read-manifest'),
+  writeOverridesManifest: (data: unknown) => ipcRenderer.invoke('songs:write-manifest', data),
   getScProfileDir: () => ipcRenderer.invoke('sc:profile-path'),
   pickScBrowser: () => ipcRenderer.invoke('sc:pick-browser'),
 

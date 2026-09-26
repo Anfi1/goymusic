@@ -4,7 +4,7 @@ import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save, 
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { streamCache } from '../../api/cache';
-import { getOverride, setOverride, deleteOverride, LocalOverride } from '../../api/localOverrides';
+import { getOverride, setOverride, deleteOverride, LocalOverride, songFileId } from '../../api/localOverrides';
 import { createCallId } from '../../api/callId';
 import { MiniPreviewPlayer } from '../molecules/MiniPreviewPlayer';
 import styles from './TrackOverrideDialog.module.css';
@@ -293,7 +293,7 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
     setStatusText('Importing local file...');
     setDialogState('downloading');
     try {
-      const res = await (window as any).bridge.importSongFile();
+      const res = await (window as any).bridge.importSongFile(songFileId(track.id));
       if (!res || res.status === 'cancelled') {
         setDialogState('idle');
         return;
