@@ -152,12 +152,16 @@ class LikedManager {
         await this.notify(entries);
       }
 
+      // YouTube не отдаёт дату лайка, а у SC она есть всегда. Без даты лайк с телефона
+      // уезжал в конец вкладки под все SC-треки, поэтому новому лайку ставим время,
+      // когда синк его впервые увидел. При первом импорте новыми были бы все -- там не ставим.
+      const known = new Set(currentLocal.map(entry => entry.trackId));
       const now = Date.now();
       const finalEntries: LikedEntry[] = entries.map((entry, index) => ({
         ...entry,
         originalIndex: index,
         syncedAt: now,
-        likedAt: likedAtMap.get(entry.trackId),
+        likedAt: likedAtMap.get(entry.trackId) ?? (known.size > 0 && !known.has(entry.trackId) ? now : undefined),
       }));
       await likedStore.commitYtImport(finalEntries, ytTotal);
     } catch (error) {
