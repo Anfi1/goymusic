@@ -460,6 +460,23 @@ export async function getTrackInfo(videoId: string): Promise<any> {
     return null;
 }
 
+// Карточка YouTube-трека по одному id, когда его нет ни в лайках, ни в истории
+export async function getTrackCard(videoId: string): Promise<YTMTrack | null> {
+    const v = (await getTrackInfo(videoId).catch(() => null))?.videoDetails;
+    if (!v?.title) return null;
+    const s = Number(v.lengthSeconds) || 0;
+    return {
+        id: videoId,
+        title: v.title,
+        artists: v.author ? [v.author.replace(/ - Topic$/, '')] : [],
+        artistIds: v.channelId ? [v.channelId] : [],
+        album: '',
+        duration: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`,
+        thumbUrl: v.thumbnail?.thumbnails?.at(-1)?.url || '',
+        source: 'youtube',
+    };
+}
+
 export async function getLyrics(artist: string, title: string, duration?: number, videoId?: string, yandexId?: string): Promise<{ plainLyrics?: string, syncedLyrics?: string, instrumental?: boolean } | null> {
     const res = await pyCall('get_lyrics', { artist, title, duration, videoId, yandexId });
     if (res.status === 'ok') {

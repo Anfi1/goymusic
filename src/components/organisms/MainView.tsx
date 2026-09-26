@@ -19,6 +19,7 @@ import { getAlbumLink } from '../../api/trackLink';
 import { usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
 import { likedManager } from '../../api/likedManager';
 import { likedStore } from '../../api/likedStore';
+import { LOCAL_PLAYLIST_ID } from '../../api/localOverrides';
 import { ActiveView } from '../../types';
 import { useToast } from '../atoms/Toast';
 import { SearchView } from './SearchView';
@@ -269,7 +270,8 @@ const LargeHeader = memo(({
   const isPlaylist = !isAlbum && !isLikedSongs;
   const isOwned = !!metadata?.owned;
 
-  const targetRatingId = metadata?.audioPlaylistId || metadata?.id;
+  const isLocal = metadata?.id === LOCAL_PLAYLIST_ID;
+  const targetRatingId = isLocal ? undefined : metadata?.audioPlaylistId || metadata?.id;
   const isYandexMeta = isYandexAlbumRouteId(metadata?.id) || isYandexPlaylistRouteId(metadata?.id);
   const displayCount = showSkeletons ? '...' : 
     (tracks.length >= totalReportedCount || !totalReportedCount) ? `${tracks.length} songs` : `${tracks.length} of ${totalReportedCount}`;
@@ -442,7 +444,7 @@ const LargeHeader = memo(({
                       />
                     </>
                   )}
-                  {!isLikedSongs && (
+                  {!isLikedSongs && !isLocal && (
                     <IconButton icon={Share2} size={42} iconSize={20} onClick={handleShare} title="Copy Link" />
                   )}
                   {isLikedSongsView && (

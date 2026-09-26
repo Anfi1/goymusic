@@ -1,12 +1,14 @@
 import { useMemo, useCallback, useState, useEffect, useTransition, useRef } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, YTMTrack } from '../api/yt';
+import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, getTrackCard, YTMTrack } from '../api/yt';
 import { isSoundCloudId, getSoundCloudAlbum, getSoundCloudPlaylist } from '../api/soundcloud';
 import { isYandexAlbumRouteId, isYandexPlaylistRouteId, getYandexAlbumTracks, getYandexPlaylistTracks } from '../api/yandex';
 import { player } from '../api/player';
 import { likedStore, LikedEntry, ScLikedEntry, HydratedLikedEntry, HydratedScLikedEntry } from '../api/likedStore';
 import { likedManager } from '../api/likedManager';
 import { scLikedManager } from '../api/scLikedManager';
+import { tracksStore } from '../api/tracks';
+import { LOCAL_PLAYLIST_ID, getAllOverrides, onOverrideChanged } from '../api/localOverrides';
 
 export type PlaylistType = 'liked' | 'playlist' | 'album';
 export type SortMode = 'date' | 'album';
@@ -97,9 +99,15 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       };
     } else {
       setIsLocalLoading(false);
-      return () => triggerGC();
+      const unsubOverrides = id === LOCAL_PLAYLIST_ID
+        ? onOverrideChanged(() => queryClient.invalidateQueries({ queryKey: ['playlist-infinite', type, id] }))
+        : undefined;
+      return () => {
+        unsubOverrides?.();
+        triggerGC();
+      };
     }
-  }, [isLiked]);
+  }, [isLiked, id, type, queryClient]);
 
   const {
     data,
@@ -149,6 +157,30 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
         };
       } 
       
+      if (id === LOCAL_PLAYLIST_ID) {
+        const overrides = (await getAllOverrides()).sort((a, b) => b.addedAt - a.addedAt);
+        const trackMap = await tracksStore.getTracks(overrides.map(o => o.videoId));
+        for (const o of overrides) {
+          if (trackMap.has(o.videoId) || isSoundCloudId(o.videoId)) continue;
+          const card = await getTrackCard(o.videoId);
+          if (!card) continue;
+          trackMap.set(o.videoId, card);
+          tracksStore.upsertTrack(card);
+        }
+        // Трек удалён с площадки и нигде не сохранён: показываем имя файла, играет он всё равно из файла
+        const tracks = overrides.map(o => trackMap.get(o.videoId)
+          ?? { id: o.videoId, title: o.filename.replace(/\.[^.]+$/, ''), artists: [], album: '', duration: '', thumbUrl: '' });
+        const metadata: PlaylistMetadata = {
+          id,
+          title: 'Local',
+          type: 'LOCAL FILES',
+          description: 'Tracks that play from files in your Songs folder',
+          thumbUrl: tracks[0]?.thumbUrl || '',
+          trackCount: tracks.length,
+        };
+        return { tracks, continuation: null, totalCount: tracks.length, metadata };
+      }
+
       if (type === 'playlist' && id) {
         if (isYandexPlaylistRouteId(id)) {
           const [, ownerId, kind] = id.split(':');

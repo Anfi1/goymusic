@@ -6,8 +6,13 @@ import { player } from '../../api/player';
 import { streamCache } from '../../api/cache';
 import { getOverride, setOverride, deleteOverride, LocalOverride, songFileId } from '../../api/localOverrides';
 import { createCallId } from '../../api/callId';
+import { tracksStore } from '../../api/tracks';
 import { MiniPreviewPlayer } from '../molecules/MiniPreviewPlayer';
 import styles from './TrackOverrideDialog.module.css';
+
+// Карточку трека сохраняем, чтобы вкладка Local показала и трек не из лайков
+const bindOverride = (track: YTMTrack, override: LocalOverride) =>
+  Promise.all([setOverride(override), tracksStore.upsertTrack(track)]);
 
 interface Props {
   track: YTMTrack;
@@ -155,7 +160,7 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
         gainDb: cached.loudness ?? 0,
         addedAt: Date.now(),
       };
-      await setOverride(override);
+      await bindOverride(track, override);
       setExistingOverride(override);
       setDialogState('done');
       setTimeout(onClose, 1200);
@@ -267,7 +272,7 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
         gainDb: res.gainDb ?? 0,
         addedAt: Date.now(),
       };
-      await setOverride(override);
+      await bindOverride(track, override);
       setExistingOverride(override);
       setDialogState('done');
       setTimeout(onClose, 1200);
@@ -317,7 +322,7 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
         gainDb,
         addedAt: Date.now(),
       };
-      await setOverride(override);
+      await bindOverride(track, override);
       setExistingOverride(override);
       setDialogState('done');
       setTimeout(onClose, 1200);

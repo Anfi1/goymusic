@@ -3,7 +3,7 @@ import type { TrackSource } from './source';
 import { streamCache, CacheEntry } from './cache';
 import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, registerYandexTrack, ensureLoudness } from './stream';
 import { likedManager } from './likedManager';
-import { deleteOverride, onOverrideChanged } from './localOverrides';
+import { deleteOverride, onOverrideChanged, LOCAL_PLAYLIST_ID } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
 import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks, yandexRotorFeedback, yandexPlayAudio } from './yandex';
 
@@ -776,10 +776,10 @@ class PlayerStore {
     }
 
     private resolveContextId(track: YTMTrack, recId: string | null, sourceId: string | null): string | null {
-        if (recId && !recId.startsWith('MPREb') && recId !== 'LM' && recId !== 'library-songs') return recId;
+        if (recId && !recId.startsWith('MPREb') && recId !== 'LM' && recId !== 'library-songs' && recId !== LOCAL_PLAYLIST_ID) return recId;
         const candidates = [track.audioPlaylistId, track.playlistId, sourceId];
         for (const id of candidates) {
-            if (id && !id.startsWith('MPREb') && id !== 'LM' && id !== 'library-songs') return id;
+            if (id && !id.startsWith('MPREb') && id !== 'LM' && id !== 'library-songs' && id !== LOCAL_PLAYLIST_ID) return id;
         }
         if (sourceId?.startsWith('MPREb') && track.audioPlaylistId) return track.audioPlaylistId;
         return null;

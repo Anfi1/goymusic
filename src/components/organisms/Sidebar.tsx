@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Zap, Radio, AudioLines } from 'lucide-react';
+import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Zap, Radio, AudioLines, HardDrive } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
 import { YTMPlaylist, YTMUser, createPlaylist } from '../../api/yt';
 import { player } from '../../api/player';
 import { ActiveView } from '../../types';
+import { LOCAL_PLAYLIST_ID } from '../../api/localOverrides';
 import { Skeleton } from '../atoms/Skeleton';
 import { LazyImage } from '../atoms/LazyImage';
 import { useToast } from '../atoms/Toast';
@@ -374,6 +375,13 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           active={isLikedActive}
           onClick={handleNavigateLiked}
           tooltip={collapsed ? 'Liked Songs' : undefined}
+        />
+        <NavLink
+          icon={HardDrive}
+          label={collapsed ? '' : 'Local'}
+          active={activePlaylistId === LOCAL_PLAYLIST_ID}
+          onClick={() => onSelectView?.({ type: 'playlist', playlistId: LOCAL_PLAYLIST_ID, playlistTitle: 'Local' })}
+          tooltip={collapsed ? 'Local' : undefined}
         />
         <NavLink
           icon={AudioLines}

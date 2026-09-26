@@ -7,6 +7,9 @@ export interface LocalOverride {
   addedAt: number;
 }
 
+// Вкладка Local в сайдбаре: виртуальный плейлист из треков с привязкой
+export const LOCAL_PLAYLIST_ID = 'LOCAL';
+
 const OVERRIDE_EVENT = 'local-override-changed';
 
 type OverrideChangeAction = 'set' | 'delete' | 'reset';
