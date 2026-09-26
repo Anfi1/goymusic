@@ -8,7 +8,7 @@ import { player } from '../../api/player';
 import { LazyImage } from '../atoms/LazyImage';
 import { Skeleton } from '../atoms/Skeleton';
 import { ArtistCard } from '../molecules/ArtistCard';
-import { TrackRow } from '../molecules/TrackRow';
+import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
 import { QueueItem } from '../molecules/QueueItem';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
 import { Play, ChevronLeft, ChevronRight, MoveRight, ListMusic } from 'lucide-react';
@@ -400,12 +400,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                 Songs <MoveRight size={15} className={styles.sectionArrow} />
               </button>
               <table className={styles.trackList} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%' }}>
-                <colgroup>
-                  <col style={{ width: 48 }} />
-                  <col style={{ width: '45%' }} />
-                  <col style={{ width: '35%' }} />
-                  <col style={{ width: 100 }} />
-                </colgroup>
+                <TrackColumnGroup />
                 <tbody>
                   {tracks.map((track, i) => (
                     <TrackRow

@@ -164,9 +164,25 @@
     flex-shrink: 0;
 }
 
+.bestBadge.hot {
+    color: #f9e2af;
+}
+
+/* красный, но не розовый #f38ba8 сердечка рядом */
+.bestBadge.top {
+    color: #ff5f57;
+}
+
 .row.active .title {
     color: var(--accent);
     font-weight: 600;
+}
+
+.subLine {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
 }
 
 .artist {
@@ -175,6 +191,18 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.plays {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 11px;
+    opacity: 0.45;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 .link:hover {
@@ -185,7 +213,7 @@
 
 .album {
     opacity: 0.6;
-    width: 30%;
+    width: 25%;
     max-width: 250px;
 }
 
@@ -194,6 +222,16 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.metaCell {
+    padding-right: 24px !important;
+}
+
+.metaCell .albumText {
+    flex: 1;
+    min-width: 0;
+    opacity: 0.6;
 }
 
 .durationCell {
@@ -206,7 +244,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: 8px;
 }
 
 .overrideIcon {
@@ -246,6 +284,22 @@ tr:hover .likeBtnGroup,
     opacity: 1;
     pointer-events: auto;
     transition: opacity 0.15s ease, max-width 0s 0s;
+}
+
+/* как в очереди: без наведения видна только нажатая кнопка, на наведении обе */
+.likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
+.likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
+    display: none;
+}
+
+tr:hover .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
+tr:hover .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
+    display: flex;
+}
+
+/* молния стоит на месте кнопок лайка и уступает им место при наведении */
+tr:hover .bestBadge {
+    display: none;
 }
 
 .likeBtn {

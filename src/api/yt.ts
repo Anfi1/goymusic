@@ -1,5 +1,6 @@
 import { createCallId } from './callId';
 import type { TrackSource } from './source';
+import { markPopularTracks } from '../utils/popularTracks';
 
 export interface YTMTrack {
     id: string;
@@ -29,6 +30,7 @@ export interface YTMTrack {
     yandexId?: string;
     yandexAlbumId?: string;
     best?: boolean;
+    tier?: 'hot' | 'top';
     // Когда лайкнут (ms). Нужен, чтобы слить лайки разных источников по дате.
     likedAt?: number;
 }
@@ -325,7 +327,7 @@ export async function getAlbum(albumId: string, signal?: AbortSignal): Promise<Y
             likeStatus: res.likeStatus,
             menu_tokens: res.menu_tokens,
             isPinned: res.isPinned,
-            tracks: res.tracks || [],
+            tracks: markPopularTracks(res.tracks || []),
             continuation: res.continuation
         };
     }

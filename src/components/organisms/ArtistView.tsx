@@ -10,7 +10,7 @@ import {
   getContinuation,
   YTMTrack 
 } from '../../api/yt';
-import { TrackRow } from '../molecules/TrackRow';
+import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
 import { MediaCard } from '../molecules/MediaCard';
 import { Carousel } from '../molecules/Carousel';
 import { Skeleton } from '../atoms/Skeleton';
@@ -27,74 +27,7 @@ import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { likedStore } from '../../api/likedStore';
 import { SourceBadge } from '../atoms/SourceBadge';
-
-/** Парсит локализованное значение и форматирует как короткое число */
-function formatStatValue(raw: string | null | undefined): string {
-  if (!raw) return '';
-
-  const UNITS: Record<string, number> = {
-    // Русские
-    'тыс': 1_000, 'млн': 1_000_000, 'млрд': 1_000_000_000,
-    // Английские
-    'b': 1_000_000_000, 'm': 1_000_000, 'k': 1_000,
-    // Немецкие и прочие
-    'mrd': 1_000_000_000, 'mio': 1_000_000,
-  };
-
-  // Убираем всё до первой цифры
-  const stripped = raw.replace(/^[^\d]*/, '');
-  if (!stripped) return raw;
-
-  // Ищем единицу измерения в оставшейся строке
-  const lower = stripped.toLowerCase();
-  let multiplier = 1;
-  let numPart = stripped;
-
-  for (const [unit, mult] of Object.entries(UNITS)) {
-    const idx = lower.indexOf(unit);
-    if (idx > 0) {
-      multiplier = mult;
-      numPart = stripped.substring(0, idx).trim();
-      break;
-    }
-  }
-
-  // Убираем пробелы/неразрывные пробелы (разделители разрядов)
-  numPart = numPart.replace(/[\s\u00a0]/g, '');
-
-  // Определяем десятичный разделитель
-  if (numPart.includes(',') && numPart.includes('.')) {
-    if (numPart.lastIndexOf(',') > numPart.lastIndexOf('.')) {
-      numPart = numPart.replace(/\./g, '').replace(',', '.');
-    } else {
-      numPart = numPart.replace(/,/g, '');
-    }
-  } else if (numPart.includes(',')) {
-    const parts = numPart.split(',');
-    if (parts.length === 2 && parts[1].length <= 2) {
-      numPart = numPart.replace(',', '.');
-    } else {
-      numPart = numPart.replace(/,/g, '');
-    }
-  }
-
-  const value = parseFloat(numPart) * multiplier;
-  if (isNaN(value)) return raw;
-
-  if (value >= 1_000_000_000) {
-    return (value / 1_000_000_000)
-      .toFixed(1).replace(/\.0$/, '') + 'B';
-  }
-  if (value >= 1_000_000) {
-    return (value / 1_000_000)
-      .toFixed(1).replace(/\.0$/, '') + 'M';
-  }
-  if (value >= 1_000) {
-    return (value / 1_000)
-      .toFixed(1).replace(/\.0$/, '') + 'K';
-  }
-  return value.toString();
-}
+import { formatStatValue } from '../../utils/formatStatValue';
 
 function extractDominantColor(url: string): Promise<string> {
   return new Promise((resolve) => {
@@ -115,15 +48,6 @@ function extractDominantColor(url: string): Promise<string> {
   });
 }
 
-const AllSongsColumnGroup = memo(() => (
-  <colgroup>
-    <col style={{ width: 48 }} />
-    <col />
-    <col style={{ width: '30%', maxWidth: 250 }} />
-    <col style={{ width: 110 }} />
-  </colgroup>
-));
-
 const AllSongsTable = React.forwardRef<HTMLTableElement, any>((props, ref) => (
   <table 
     {...props} 
@@ -131,7 +55,7 @@ const AllSongsTable = React.forwardRef<HTMLTableElement, any>((props, ref) => (
     className={styles.trackList} 
     style={{ ...props.style, tableLayout: 'fixed', borderCollapse: 'collapse', width: '100%' }}
   >
-    <AllSongsColumnGroup />
+    <TrackColumnGroup />
     {props.children}
   </table>
 ));
@@ -588,6 +512,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
             {detail.seeAllSongsId && <button className={styles.seeAllBtn} onClick={handleSeeAllSongs}>See all <ChevronRight size={16} /></button>}
           </div>
           <table className={styles.trackList}>
+            <TrackColumnGroup />
             <tbody>{detail.topSongs.map((track: YTMTrack, i: number) => (
               <TrackRow 
                 key={track.id} 
@@ -872,7 +797,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
             {isSongsInitialLoading ? (
               <div className={styles.allSongsTrackList}>
                 <table className={styles.trackList} style={{ tableLayout: 'fixed' }}>
-                  <AllSongsColumnGroup />
+                  <TrackColumnGroup />
                   <thead>
                     <tr className={`${styles.tableHeaderRow} ${isTableScrolled ? styles.scrolled : ''}`}>
                       <th style={{ textAlign: 'center' }}>#</th>

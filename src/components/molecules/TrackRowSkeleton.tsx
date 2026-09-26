@@ -4,9 +4,10 @@ import styles from './TrackRow.module.css'; // Reuse table row layout styles
 
 interface TrackRowSkeletonProps {
     index: number;
+    hideAlbum?: boolean;
 }
 
-export const TrackRowSkeleton = forwardRef<HTMLTableRowElement, TrackRowSkeletonProps>(({ index }, ref) => {
+export const TrackRowSkeleton = forwardRef<HTMLTableRowElement, TrackRowSkeletonProps>(({ index, hideAlbum }, ref) => {
     return (
         <tr
             ref={ref}
@@ -27,11 +28,9 @@ export const TrackRowSkeleton = forwardRef<HTMLTableRowElement, TrackRowSkeleton
                     </div>
                 </div>
             </td>
-            <td className={styles.album}>
-                <Skeleton width="80%" height={16} borderRadius={4} />
-            </td>
-            <td className="text-right" style={{ paddingRight: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <td colSpan={hideAlbum ? 1 : 2} className={styles.metaCell}>
+                <div className={styles.durationWrapper}>
+                    {!hideAlbum && <div style={{ flex: 1 }}><Skeleton width="60%" height={16} borderRadius={4} /></div>}
                     <Skeleton width={32} height={16} borderRadius={4} />
                 </div>
             </td>

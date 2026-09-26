@@ -252,6 +252,7 @@ def parse_playlist_item(
     album_index = 3 if is_collaborative else 2 if use_preset_columns else None
     user_channel_indexes = []
     unrecognized_index = None
+    views_index = None
 
     for index in range(len(data["flexColumns"])):
         flex_column_item = get_flex_column_item(data, index)
@@ -263,6 +264,9 @@ def parse_playlist_item(
                 parsed = parse_song_run(run)
                 if parsed["type"] == "duration":
                     duration_index = index
+                # у артиста (топ и «все песни») прослушивания идут колонкой без ссылки
+                elif parsed["type"] == "views":
+                    views_index = index
                 else:
                     unrecognized_index = index if unrecognized_index is None else unrecognized_index
 
@@ -309,6 +313,8 @@ def parse_playlist_item(
     album = parse_song_album(data, album_index) if album_index is not None else None
 
     views = get_item_text(data, 2) if is_album else None
+    if views is None and views_index is not None:
+        views = get_item_text(data, views_index)
 
     duration = get_item_text(data, duration_index) if duration_index else None
     if "fixedColumns" in data:

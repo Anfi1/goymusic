@@ -1,5 +1,5 @@
 import React, { useState, forwardRef, Fragment, useEffect, memo, useCallback } from 'react';
-import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload, Zap } from 'lucide-react';
+import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload, Zap, Headphones } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
 import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
@@ -10,6 +10,7 @@ import { getOverride, onOverrideChanged } from '../../api/localOverrides';
 import styles from './TrackRow.module.css';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { resolveSource } from '../../api/source';
+import { formatStatValue } from '../../utils/formatStatValue';
 
 interface TrackRowProps {
   id?: string;
@@ -36,6 +37,7 @@ interface TrackRowProps {
   onDrop?: (e: React.DragEvent) => void;
   hideDuration?: boolean;
   hideDislike?: boolean;
+  hideAlbum?: boolean;
   className?: string;
   renderOnlyCells?: boolean;
   extraCells?: React.ReactNode[];
@@ -43,6 +45,8 @@ interface TrackRowProps {
   yandexId?: string;
   yandexAlbumId?: string;
   best?: boolean;
+  tier?: 'hot' | 'top';
+  views?: string;
 }
 
 const MemoizedPlayIcon = memo(() => <Play size={14} className={styles.playIcon} fill="currentColor" />);
@@ -212,6 +216,17 @@ const OverrideIndicator = memo(({ id }: { id?: string }) => {
 
 const ThumbPlaceholder = <div className={styles.thumbPlaceholder} />;
 
+// Общая раскладка таблиц треков: название забирает всё свободное место.
+// Внутри альбома колонка альбома не нужна -- её место тоже уходит названию.
+export const TrackColumnGroup = memo(({ hideAlbum }: { hideAlbum?: boolean }) => (
+  <colgroup>
+    <col style={{ width: 40 }} />
+    <col />
+    {!hideAlbum && <col style={{ width: '25%' }} />}
+    <col style={{ width: 112 }} />
+  </colgroup>
+));
+
 export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((props, ref) => {
   const { 
     id, index, title, artists = [], artistIds = [], album, albumId, duration, thumbUrl,
@@ -227,11 +242,14 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     onDrop,
     hideDuration = false,
     hideDislike = false,
+    hideAlbum = false,
     className,
     renderOnlyCells = false,
     extraCells = [],
     source,
-    best
+    best,
+    tier,
+    views
   } = props;
 
   // Still need active status for row styling, but isolated from playback state
@@ -278,6 +296,26 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     else onClick?.();
   }, [isActive, onClick]);
 
+  const albumText = !hideAlbum && (
+    <span className={`${styles.albumText} ${albumId ? styles.link : ''}`} data-tooltip={album} data-tooltip-overflow="" onClick={handleAlbumClick}>{album}</span>
+  );
+
+  const durationContent = (
+    <>
+      <OverrideIndicator id={id} />
+      {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike || resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex'} /></div>}
+      {best && (
+        <Zap
+          size={14}
+          className={`${styles.bestBadge} ${tier ? styles[tier] : ''}`}
+          fill={tier ? 'currentColor' : 'none'}
+          data-tooltip={tier === 'top' ? 'Top hit' : tier === 'hot' ? 'Hit' : 'Popular'}
+        />
+      )}
+      <span className={styles.durationText}>{duration}</span>
+    </>
+  );
+
   const cells = (
     <>
       <td className={styles.indexCell}>
@@ -310,33 +348,47 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
           )}
           <div className={styles.titleWrapper}>
             <div className={styles.titleLine}>
-              {best && <Zap size={13} className={styles.bestBadge} data-tooltip="Popular" />}
               <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
             </div>
-            <div className={styles.artist}>
-              {artists.map((artist, i) => {
-                const aid = artistIds[i];
-                return (
-                  <Fragment key={i}>
-                    <span className={aid ? styles.link : ''} onClick={(e) => handleArtistClick(e, aid)} data-tooltip={artist} data-tooltip-overflow="">{artist}</span>
-                    {i < artists.length - 1 && ', '}
-                  </Fragment>
-                );
-              })}
+            <div className={styles.subLine}>
+              <div className={styles.artist}>
+                {artists.map((artist, i) => {
+                  const aid = artistIds[i];
+                  return (
+                    <Fragment key={i}>
+                      <span className={aid ? styles.link : ''} onClick={(e) => handleArtistClick(e, aid)} data-tooltip={artist} data-tooltip-overflow="">{artist}</span>
+                      {i < artists.length - 1 && ', '}
+                    </Fragment>
+                  );
+                })}
+              </div>
+              {views && (
+                <span className={styles.plays} data-tooltip="Plays">
+                  <Headphones size={11} />
+                  {formatStatValue(views)}
+                </span>
+              )}
             </div>
           </div>
         </div>
       </td>
-      <td className={styles.album}>
-        <span className={`${styles.albumText} ${albumId ? styles.link : ''}`} data-tooltip={album} data-tooltip-overflow="" onClick={handleAlbumClick}>{album}</span>
-      </td>
-      {extraCells}
-      {!hideDuration && (
-        <td className={styles.durationCell}>
+      {extraCells.length > 0 ? (
+        <>
+          <td className={styles.album}>{albumText}</td>
+          {extraCells}
+          {!hideDuration && (
+            <td className={styles.durationCell}>
+              <div className={styles.durationWrapper}>{durationContent}</div>
+            </td>
+          )}
+        </>
+      ) : (
+        // альбом и время в одной ячейке: название альбома доходит до кнопок лайка
+        // и занимает их место, пока они скрыты
+        <td colSpan={hideAlbum ? 1 : 2} className={styles.metaCell}>
           <div className={styles.durationWrapper}>
-            <OverrideIndicator id={id} />
-            {id && <div className={styles.likeBtnGroup}><LikeButton trackData={props} hideDislike={hideDislike || resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex'} /></div>}
-            <span className={styles.durationText}>{duration}</span>
+            {albumText}
+            {!hideDuration && durationContent}
           </div>
         </td>
       )}

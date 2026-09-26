@@ -4,7 +4,7 @@ import { getLibrary, LibraryTab, LibraryOrder, getAlbum, getPlaylistTracks, shuf
 import { player } from '../../api/player';
 import { MediaCard } from '../molecules/MediaCard';
 import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
-import { TrackRow } from '../molecules/TrackRow';
+import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
 import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { Library, Disc, Mic2, Heart, Users, ChevronDown, Shuffle, Check, X, Play } from 'lucide-react';
 import { getHomeSource } from '../../api/homeSource';
@@ -448,6 +448,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
       ) : activeTab === 'songs' ? (
         <>
           <table className={styles.trackList}>
+            <TrackColumnGroup />
             <tbody>
               {items.map((track: YTMTrack, index: number) => (
                 <TrackRow
@@ -614,6 +615,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
               ) : (
                 <>
                   <table className={styles.modalTable}>
+                    <TrackColumnGroup />
                     <tbody>
                       {modalTracks.map((track: YTMTrack, idx: number) => (
                         <TrackRow

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Fragment } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Fragment } from 'react';
 import { TableVirtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useQueryClient } from '@tanstack/react-query';
-import { TrackRow } from '../molecules/TrackRow';
+import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
 import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { Skeleton } from '../atoms/Skeleton';
 import { LazyImage } from '../atoms/LazyImage';
@@ -60,15 +60,6 @@ const HEADER_HEIGHT = 320;
 const STICKY_THRESHOLD = 160;
 const AUTO_SCROLL_THRESHOLD = 100;
 const MAX_SCROLL_SPEED = 12;
-
-const ColumnGroup = memo(() => (
-  <colgroup>
-    <col style={{ width: 48 }} />
-    <col style={{ width: '45%' }} />
-    <col style={{ width: '35%' }} />
-    <col style={{ width: 100 }} />
-  </colgroup>
-));
 
 const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, context, ...props }, ref) => (
   <div 
@@ -129,7 +120,7 @@ const VirtuosoTable = React.forwardRef<HTMLTableElement, any>(({ context, ...pro
       willChange: 'transform'
     }}
   >
-    <ColumnGroup />
+    <TrackColumnGroup hideAlbum={context?.playlistType === 'album'} />
     {props.children}
   </table>
 ));
@@ -160,7 +151,7 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
     });
   }, [track?.id]);
 
-  if (context.showSkeletons) return <TrackRowSkeleton {...rest} ref={ref} index={props['data-index']} />;
+  if (context.showSkeletons) return <TrackRowSkeleton {...rest} ref={ref} index={props['data-index']} hideAlbum={context.playlistType === 'album'} />;
   
   const index = props['data-index'];
   const isAvailable = track?.isAvailable !== false;
@@ -216,6 +207,26 @@ const VirtuosoFooter = memo(({ context }: any) => (
   </tfoot>
 ));
 
+// Длинное название уменьшаем, пока не влезет в отведённые строки (line-clamp).
+const MIN_TITLE_PX = 18;
+function useFitTitle(ref: React.RefObject<HTMLElement | null>, text?: string) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      while (el.scrollHeight > el.clientHeight + 1 && size > MIN_TITLE_PX) {
+        size = Math.max(MIN_TITLE_PX, size - 2);
+        el.style.fontSize = size + 'px';
+      }
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [ref, text]);
+}
+
 const LargeHeader = memo(({
   metadata, tracks, totalReportedCount, showSkeletons,
   isFetchingNextPage, handleHeaderAction, isHeaderActionLoading,
@@ -223,6 +234,8 @@ const LargeHeader = memo(({
   isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource
 }: any) => {
   const { showToast } = useToast();
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  useFitTitle(titleRef, metadata?.title);
   
   const handleShare = useCallback(() => {
     const id = metadata?.id ?? '';
@@ -333,7 +346,7 @@ const LargeHeader = memo(({
               )}
             </div>
 
-            <h1 className={styles.title} data-tooltip={metadata?.title}>{metadata?.title}</h1>
+            <h1 ref={titleRef} className={styles.title} data-tooltip={metadata?.title}>{metadata?.title}</h1>
             
             {description && (
               <div className={styles.descriptionText} data-tooltip={description} data-tooltip-overflow="">
@@ -470,10 +483,10 @@ const StickyTitlePanel = memo(({
   );
 });
 
-const RenderTrackRow = memo(({ index, track, onSelectArtist, onSelectAlbum }: any) => (
+const RenderTrackRow = memo(({ index, track, hideAlbum, onSelectArtist, onSelectAlbum }: any) => (
   <TrackRow 
     index={index + 1} {...track}
-    renderOnlyCells={true}
+    renderOnlyCells={true} hideAlbum={hideAlbum}
     onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum}
   />
 ));
@@ -849,7 +862,7 @@ export const MainView = memo<MainViewProps>(({
           fixedItemHeight={56}
           endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }} 
           computeItemKey={(index, track) => track.id || index}
-          itemContent={(index, track) => <RenderTrackRow index={index} track={track} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />} 
+          itemContent={(index, track) => <RenderTrackRow index={index} track={track} hideAlbum={playlistType === 'album'} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />} 
         />
       </div>
       <TrackContextMenu ref={trackMenuRef} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} playlistId={playlistId || undefined} isOwnedPlaylist={!!playlistMetadata?.owned} />
