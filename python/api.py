@@ -1719,6 +1719,74 @@ def _pytubefix_state(video_id):
         return _ptf_state[:4]
 
 
+_bg_proc = None  # (Popen, очередь строк stdout, started_at)
+_bg_lock = threading.Lock()
+_BG_SERVER_JS = os.path.join(USER_DATA_DIR, 'botguard_server.js')
+# Хвост botGuard.js из pytubefix: минт одного токена по argv и выход
+_BG_TAIL = 'A=t,C=await x.mintAsWebsafeString(A);var D,O;console.info(C)}'
+_BG_LOOP = ('A=t;var D,O;console.info("POT:");for await(const l of require("readline")'
+            '.createInterface({input:process.stdin})){try{console.info("POT:"+await '
+            'x.mintAsWebsafeString(l.trim()))}catch(e){console.info("POT:")}}}')
+
+
+def _bg_read(lines):
+    while True:
+        line = lines.get(timeout=20)
+        if line is None:
+            raise RuntimeError('botGuard node exited')
+        if line.startswith('POT:'):
+            return line[4:].strip()
+
+
+def _bg_pump(proc, lines):
+    for line in proc.stdout:
+        lines.put(line)
+    lines.put(None)
+
+
+def _bg_mint(video_id):
+    """botGuard.js pytubefix на каждый токен заново стартует node, качает youtube.com и гоняет
+    VM: 3.7с на трек (замер 2026-09-27). Но дорогой здесь только integrity token, а минт под
+    video_id из него мгновенный. Поэтому держим один процесс с патченным хвостом: он читает
+    video_id из stdin и отвечает токеном за ~1мс. Хвост не нашёлся (обновили pytubefix) или
+    процесс умер: старый путь."""
+    global _bg_proc
+    import subprocess, queue
+    try:
+        with _bg_lock:
+            # ponytail: перезапуск раз в час вместо слежения за estimatedTtlSecs integrity token
+            if not (_bg_proc and _bg_proc[0].poll() is None and time.time() - _bg_proc[2] < 3600):
+                if _bg_proc:
+                    _bg_proc[0].kill()
+                    _bg_proc = None
+                src = open(_ptf_bot_guard.VM_PATH, encoding='utf-8').read()
+                if _BG_TAIL not in src:
+                    raise RuntimeError('botGuard.js tail changed')
+                with open(_BG_SERVER_JS, 'w', encoding='utf-8') as f:
+                    f.write(src.replace(_BG_TAIL, _BG_LOOP))
+                proc = subprocess.Popen([_ptf_bot_guard.NODE_PATH, _BG_SERVER_JS], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        text=True, encoding='utf-8', errors='ignore')
+                lines = queue.Queue()
+                threading.Thread(target=_bg_pump, args=(proc, lines), daemon=True).start()
+                _bg_proc = (proc, lines, time.time())
+                _bg_read(lines)
+            proc, lines, _ = _bg_proc
+            proc.stdin.write(video_id + '\n')
+            proc.stdin.flush()
+            pot = _bg_read(lines)
+            if pot:
+                return pot
+            raise RuntimeError('empty token')
+    except Exception as e:
+        print(f"[warn] botGuard server: {e}, fallback to one-shot mint", file=sys.stderr)
+        with _bg_lock:
+            if _bg_proc:
+                _bg_proc[0].kill()
+                _bg_proc = None
+    return _ptf_bot_guard.generate_po_token(video_id=video_id)
+
+
 def _pytubefix_pot(video_id):
     """PO-токен минтится НА КАЖДЫЙ video_id -- переиспользовать его между треками нельзя.
 
@@ -1726,16 +1794,15 @@ def _pytubefix_pot(video_id):
       * identifier=video_id  -> играет ровно тот ролик, для которого намолот, остальные
         падают в MEDIA_ELEMENT_ERROR Format error;
       * identifier=visitor_data -> не играет ни один.
-    То есть googlevideo сверяет pot с video_id. Цена -- ~0.5с на трек (spawn node +
-    botGuard VM), и она неустранима: без валидного pot ссылка выдаётся, но не
-    воспроизводится. Кэш по video_id нужен для повторного резолва того же трека
+    То есть googlevideo сверяет pot с video_id. Цена -- ~1мс на трек через прогретый
+    node, см. _bg_mint. Кэш по video_id нужен для повторного резолва того же трека
     (prefetch, перезаход, сброс кэша ссылок в renderer)."""
     visitor_data = _pytubefix_state(video_id)[0]
     with _ptf_pot_lock:
         hit = _ptf_pot_cache.get(video_id)
         if hit and time.time() - hit[1] < 3 * 3600:
             return visitor_data, hit[0]
-    po_token = _ptf_bot_guard.generate_po_token(video_id=video_id)
+    po_token = _bg_mint(video_id)
     with _ptf_pot_lock:
         if len(_ptf_pot_cache) > 256:
             # ponytail: примитивная эвикция вместо LRU -- список на 256 треков живёт минуты,
@@ -1869,19 +1936,21 @@ def _player_or_bot_check(path, video_id, request):
 def _fast_player_response(video_id, visitor_data, sig_ts):
     """(player-ответ со streamingData, PO-токен к нему или None), либо (None, None).
 
-    Первым идёт авторизованный WEB_REMIX самого ytmusicapi: ~0.2с, opus 251, и googlevideo
-    отдаёт его ссылки без PO-токена (замер 2026-09-25: ffmpeg декодирует трек целиком, 206 на
-    любом диапазоне). Анонимному WEB_MUSIC нужен токен botGuard под конкретный video_id, это
-    0.6-5с на трек, поэтому он запасной: кук нет или они протухли."""
+    Первым идёт авторизованный WEB_REMIX самого ytmusicapi: ~0.2с, opus 251. С 2026-09-27
+    googlevideo без PO-токена отдаёт по его ссылке только первые ~800 КБ, дальше 403 (и кусками
+    не обойти: лимит по смещению), поэтому токен botGuard под video_id нужен и ему. Минтим его
+    параллельно с player-запросом. Анонимный WEB_MUSIC запасной: кук нет или они протухли."""
     now = time.time()
     if try_load_auth() and now >= _bot_check_until['auth']:
-        try:
-            resp = _player_or_bot_check('auth', video_id, lambda: get_api()._send_request(
-                'player', {**sig_ts, 'video_id': video_id}))
-            if resp:
-                return resp, None
-        except Exception as e:
-            print(f"[debug] fast-path (auth) failed for {video_id}: {e}", file=sys.stderr)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pot = pool.submit(_pytubefix_pot, video_id)
+            try:
+                resp = _player_or_bot_check('auth', video_id, lambda: get_api()._send_request(
+                    'player', {**sig_ts, 'video_id': video_id}))
+                if resp:
+                    return resp, pot.result()[1]
+            except Exception as e:
+                print(f"[debug] fast-path (auth) failed for {video_id}: {e}", file=sys.stderr)
 
     if now < _bot_check_until['anon']:
         return None, None
