@@ -489,6 +489,16 @@ export async function getLyrics(artist: string, title: string, duration?: number
     return null;
 }
 
+export interface TrackComment { author: string; text: string; likes: string; published: string; timestamp?: number | null }
+
+// Описание и комментарии: у YouTube-ролика по videoId, у SC-трека по ссылке (там комментарий привязан к моменту)
+export async function getComments(track: YTMTrack, continuation?: string | null): Promise<{ description: string, comments: TrackComment[], continuation: string | null }> {
+    const args = track.source === 'soundcloud' ? { scUrl: track.scUrl || track.id } : { videoId: track.id };
+    const res = await pyCall('get_comments', { ...args, continuation });
+    if (res.status !== 'ok') throw new Error(res.message || 'Could not load comments');
+    return { description: res.description || '', comments: res.comments || [], continuation: res.continuation || null };
+}
+
 export async function rateSong(videoId: string, status: 'LIKE' | 'DISLIKE' | 'INDIFFERENT'): Promise<boolean> {
     const res = await pyCall('rate_song', { videoId, status });
     return res.status === 'ok';

@@ -2026,6 +2026,73 @@ def _resolve_fast(video_id, expected_sec=None, _swapped=False):
         return None, None, video_id
 
 
+def _find_key(o, key):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k == key:
+                yield v
+            yield from _find_key(v, key)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _find_key(v, key)
+
+
+def _yt_comments(video_id, continuation=None):
+    """Описание и страница топ-комментариев ролика через next-запросы WEB-клиента, ~1с.
+    WEB_REMIX комментариев не отдаёт, поэтому обычный YouTube. Без continuation это первая
+    страница вместе с описанием, с ним следующая."""
+    it = _PtfInnerTube('WEB')
+    description = ''
+    if not continuation:
+        r = it.next(video_id)
+        description = next((d.get('content') for d in _find_key(r, 'attributedDescription')), '')
+        continuation = next((next(_find_key(sec, 'token'), None) for sec in _find_key(r, 'itemSectionRenderer')
+                             if sec.get('sectionIdentifier') == 'comment-item-section'), None)
+    if not continuation:
+        return {'description': description, 'comments': [], 'continuation': None}
+    page = it.next(continuation=continuation)
+    comments = []
+    for m in page.get('frameworkUpdates', {}).get('entityBatchUpdate', {}).get('mutations', []):
+        c = m.get('payload', {}).get('commentEntityPayload')
+        if not c:
+            continue
+        props = c.get('properties', {})
+        comments.append({
+            'author': c.get('author', {}).get('displayName', ''),
+            'text': props.get('content', {}).get('content', ''),
+            'likes': c.get('toolbar', {}).get('likeCountNotliked', ''),
+            'published': props.get('publishedTime', ''),
+        })
+    # Следующая страница: continuationItemRenderer в конце списка. Такие же токены есть
+    # у веток ответов внутри тредов, поэтому смотрим только на последний элемент.
+    items = next(_find_key((page.get('onResponseReceivedEndpoints') or [{}])[-1], 'continuationItems'), [])
+    last = items[-1] if items else {}
+    token = next(_find_key(last, 'token'), None) if 'continuationItemRenderer' in last else None
+    return {'description': description, 'comments': comments, 'continuation': token}
+
+
+def _sc_comments(sc_url, continuation=None):
+    """У SoundCloud комментарий привязан к моменту трека: timestamp в мс.
+    continuation это next_href предыдущей страницы."""
+    description = ''
+    if continuation:
+        data = _sc_api_get(continuation.replace('https://api-v2.soundcloud.com', ''), {}) or {}
+    else:
+        track = _sc_api_get('/resolve', {'url': sc_url}) or {}
+        if not track.get('id'):
+            return None
+        description = track.get('description') or ''
+        data = _sc_api_get(f"/tracks/{track['id']}/comments", {'threaded': 0, 'limit': 50}) or {}
+    comments = [{
+        'author': (c.get('user') or {}).get('username', ''),
+        'text': c.get('body', ''),
+        'likes': '',
+        'published': (c.get('created_at') or '')[:10],
+        'timestamp': c['timestamp'] / 1000 if c.get('timestamp') is not None else None,
+    } for c in data.get('collection', [])]
+    return {'description': description, 'comments': comments, 'continuation': data.get('next_href')}
+
+
 def handle_request(request):
     global _auth_data, _auth_type, _yandex_client
     command = request.get('command')
@@ -2912,6 +2979,14 @@ def handle_request(request):
             except Exception as e:
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
+        elif command == 'get_comments':
+            sc_url = request.get('scUrl')
+            cont = request.get('continuation')
+            res = _sc_comments(sc_url, cont) if sc_url else _yt_comments(request.get('videoId'), cont)
+            if res is None:
+                safe_print({'status': 'error', 'message': 'Track not found', 'callId': call_id})
+            else:
+                safe_print({'status': 'ok', **res, 'callId': call_id})
         elif command == 'get_lyrics':
             artist = _clean_artist(request.get('artist'))
             title = _normalize_lyric_title(request.get('title'))

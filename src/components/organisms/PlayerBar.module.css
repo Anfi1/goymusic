@@ -167,6 +167,43 @@
 
 .progressBar {
     flex: 1;
+    position: relative;
+}
+
+/* A-B повтор поверх полосы: сама полоса остаётся кликабельной, ловят мышь только маркеры */
+.loop {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+}
+
+.loopRange {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.loopMarker {
+    position: absolute;
+    top: 50%;
+    width: 4px;
+    height: 16px;
+    transform: translate(-50%, -50%);
+    background: var(--accent);
+    border-radius: 2px;
+    cursor: ew-resize;
+    pointer-events: auto;
+    box-shadow: 0 0 0 2px var(--bg-crust);
+}
+
+.loopMarker::before {
+    content: '';
+    position: absolute;
+    inset: -4px -6px;
 }
 
 .extra {

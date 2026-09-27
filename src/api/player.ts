@@ -1601,6 +1601,26 @@ class PlayerStore {
         }
     }
 
+    // A-B повтор: отрезок [a, b] в секундах играет по кругу, пока его не снимут или не сменится трек
+    loop: { a: number; b: number } | null = null;
+    private loopTrackId: string | null = null;
+    private loopTimer: ReturnType<typeof setInterval> | undefined;
+
+    setLoop(range: { a: number; b: number } | null) {
+        const toggled = !this.loop !== !range;
+        this.loop = range;
+        if (!toggled) return;
+        clearInterval(this.loopTimer);
+        this.loopTrackId = range ? this.currentTrack?.id ?? null : null;
+        // Тик плеера раз в 600мс: на отрезке в пару секунд перелёт за B был бы слышен
+        if (range) this.loopTimer = setInterval(() => {
+            if (this.currentTrack?.id !== this.loopTrackId) return this.setLoop(null);
+            const audio = this.activeAudio;
+            if (this.loop && !audio.paused && audio.currentTime >= this.loop.b) this.seek(this.loop.a);
+        }, 50);
+        this.notify('state');
+    }
+
     setVolume(vol: number) {
         const newVol = Math.max(0, Math.min(100, vol));
         if (this.volume === newVol) return;

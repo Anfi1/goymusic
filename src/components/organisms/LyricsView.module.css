@@ -80,6 +80,7 @@
 
 .viewControls {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     gap: 0.5rem;
     padding: 1rem;
@@ -229,4 +230,135 @@
     color: var(--text-main);
     opacity: 0.7;
     margin-bottom: 0.6rem;
+}
+
+/* Состояния «грузится / не найдено» под чипами: занимают остаток панели */
+.wrapper > .empty {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+}
+
+/* Статичный текст можно выделять и копировать; синхронный остаётся кликабельным для перемотки */
+.container.staticMode {
+    user-select: text;
+    cursor: text;
+}
+
+.comments {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 1rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    animation: lyricsStateIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.description {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 0.75rem;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+}
+
+.descriptionText {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    align-self: stretch;
+}
+
+.descriptionClamped {
+    max-height: 6rem;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.descriptionToggle {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.descriptionToggle:hover {
+    color: var(--accent);
+}
+
+.moreLoader {
+    align-self: center;
+    flex-shrink: 0;
+}
+
+.comment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.commentMeta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.commentAuthor {
+    font-weight: 600;
+    color: var(--text-main);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.commentText {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: var(--text-main);
+}
+
+.commentLikes {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.timestamp {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.timestamp:hover {
+    text-decoration: underline;
+}
+
+.noComments {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
 }

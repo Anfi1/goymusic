@@ -279,17 +279,64 @@ const TimeProgress = memo(() => {
     }
   }, []);
 
+  const [loop, setLoop] = useState(player.loop);
+  useEffect(() => player.subscribe((ev) => { if (ev === 'state') setLoop(player.loop); }), []);
+
+  // Конец отрезка держим чуть раньше конца трека, иначе 'ended' уведёт на следующий
+  const maxB = () => player.duration - 0.3;
+
+  const toggleLoop = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (player.loop) return player.setLoop(null);
+    if (!player.duration) return;
+    const b = Math.min(player.currentTime + 10, maxB());
+    player.setLoop({ a: Math.max(0, b - 10), b });
+  };
+
+  const dragMarker = (which: 'a' | 'b') => (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rect = progressBarRef.current?.container?.getBoundingClientRect();
+    if (!rect) return;
+    const move = (ev: MouseEvent) => {
+      const cur = player.loop;
+      if (!cur) return;
+      const t = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width)) * player.duration;
+      const next = which === 'a'
+        ? { a: Math.min(t, cur.b - 0.5), b: cur.b }
+        : { a: cur.a, b: Math.min(maxB(), Math.max(t, cur.a + 0.5)) };
+      player.setLoop(next);
+      setLoop(next);
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
+
+  const pct = (t: number) => `${player.duration ? (t / player.duration) * 100 : 0}%`;
+
   return (
-    <div className={styles.progress}>
+    <div className={styles.progress} onContextMenu={toggleLoop}>
       <span ref={currentRef} className={styles.time}>{formatTime(player.currentTime)}</span>
-      <ProgressBar
-        ref={progressBarRef}
-        buffered={player.buffered}
-        onSeek={handleSeek}
-        className={styles.progressBar}
-        nyanMode={true}
-        isPlaying={player.isPlaying}
-      />
+      <div className={styles.progressBar}>
+        <ProgressBar
+          ref={progressBarRef}
+          buffered={player.buffered}
+          onSeek={handleSeek}
+          nyanMode={true}
+          isPlaying={player.isPlaying}
+        />
+        {loop && (
+          <div className={styles.loop}>
+            <div className={styles.loopRange} style={{ left: pct(loop.a), width: pct(loop.b - loop.a) }} />
+            <div className={styles.loopMarker} style={{ left: pct(loop.a) }} onMouseDown={dragMarker('a')} data-tooltip={formatTime(loop.a)} />
+            <div className={styles.loopMarker} style={{ left: pct(loop.b) }} onMouseDown={dragMarker('b')} data-tooltip={formatTime(loop.b)} />
+          </div>
+        )}
+      </div>
       <span ref={durationRef} className={styles.time}>{formatTime(player.duration)}</span>
     </div>
   );
