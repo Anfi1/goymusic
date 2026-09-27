@@ -2042,6 +2042,9 @@ def _yt_comments(video_id, continuation=None):
     WEB_REMIX комментариев не отдаёт, поэтому обычный YouTube. Без continuation это первая
     страница вместе с описанием, с ним следующая."""
     it = _PtfInnerTube('WEB')
+    # next(continuation=...) пишет токен в innertube_context, а это общий словарь клиента на
+    # весь процесс: без копии все следующие ролики уходили со старым токеном и без комментариев
+    it.innertube_context = copy.deepcopy(it.innertube_context)
     description = ''
     if not continuation:
         r = it.next(video_id)
