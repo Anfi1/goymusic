@@ -27,7 +27,7 @@
 
 .wrapper.waveMode .modeBtn.active {
     background: rgba(255, 255, 255, 0.18);
-    color: #fff;
+    color: var(--text-main);
     border-color: rgba(255, 255, 255, 0.25);
 }
 
@@ -93,10 +93,10 @@
 .modeBtn {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-subtle);
-    color: var(--text-muted);
+    color: var(--text-dim);
     padding: 0.4rem 0.8rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
+    border-radius: var(--radius-xl);
+    font-size: var(--fs-md);
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -111,7 +111,7 @@
 
 .modeBtn.active {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
     border-color: var(--accent);
 }
 
@@ -145,14 +145,14 @@
     justify-content: center;
     align-items: center;
     height: 100%;
-    color: var(--text-muted);
+    color: var(--text-dim);
     text-align: center;
     padding: 2rem;
 }
 
 .empty p {
     margin-top: 1rem;
-    font-size: 0.9rem;
+    font-size: var(--fs-base);
 }
 
 .retryBtn {
@@ -161,8 +161,8 @@
     border: 1px solid var(--border-subtle);
     color: var(--text-main);
     padding: 0.5rem 1rem;
-    border-radius: 8px;
-    font-size: 0.85rem;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-base);
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -172,7 +172,7 @@
 
 .retryBtn:hover {
     background: rgba(255, 255, 255, 0.1);
-    border-color: var(--text-muted);
+    border-color: var(--text-dim);
 }
 
 .loaderIcon {
@@ -189,7 +189,7 @@
     /* в узкой панели 1.35rem жирным переносилось по 4-5 раз — считаем от ширины панели */
     font-size: clamp(0.95rem, 5.5cqi, 1.5rem);
     font-weight: 700;
-    color: white;
+    color: var(--text-main);
     cursor: pointer;
     transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
                 color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -216,7 +216,7 @@
 
 .line.active {
     opacity: 1;
-    color: white;
+    color: var(--text-main);
     text-shadow: 0 0 24px rgba(255, 255, 255, 0.3);
 }
 
@@ -225,7 +225,7 @@
 }
 
 .plainLine {
-    font-size: 0.95rem;
+    font-size: var(--fs-lg);
     line-height: 1.6;
     color: var(--text-main);
     opacity: 0.7;
@@ -259,7 +259,7 @@
 .description {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     padding: 0.75rem;
     flex-shrink: 0;
     display: flex;
@@ -271,9 +271,9 @@
 .descriptionText {
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 0.8rem;
+    font-size: var(--fs-md);
     line-height: 1.5;
-    color: var(--text-muted);
+    color: var(--text-dim);
     align-self: stretch;
 }
 
@@ -287,7 +287,7 @@
     background: none;
     border: none;
     padding: 0;
-    font-size: 0.75rem;
+    font-size: var(--fs-sm);
     font-weight: 600;
     color: var(--text-main);
     cursor: pointer;
@@ -314,8 +314,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.72rem;
-    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
     white-space: nowrap;
 }
 
@@ -331,7 +331,7 @@
 .commentText {
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 0.85rem;
+    font-size: var(--fs-base);
     line-height: 1.45;
     color: var(--text-main);
 }
@@ -340,8 +340,8 @@
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    font-size: 0.72rem;
-    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
 }
 
 .timestamp {
@@ -359,6 +359,6 @@
 
 .noComments {
     text-align: center;
-    color: var(--text-muted);
-    font-size: 0.85rem;
+    color: var(--text-dim);
+    font-size: var(--fs-base);
 }

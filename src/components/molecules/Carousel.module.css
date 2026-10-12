@@ -29,9 +29,9 @@
     top: 82px; 
     transform: translateY(-50%);
     z-index: 100;
-    background: rgba(15, 15, 20, 0.85);
+    background: color-mix(in srgb, var(--solid-mantle) 85%, transparent);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
+    color: var(--text-main);
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -55,7 +55,7 @@
 
 .scrollBtn:hover {
     background: var(--accent);
-    color: #11111b;
+    color: var(--on-accent);
     transform: translateY(-50%) scale(1.1);
 }
 

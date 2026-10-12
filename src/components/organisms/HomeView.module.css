@@ -5,7 +5,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem; /* Reduced from 1.5rem */
-    background: linear-gradient(180deg, rgba(137, 180, 250, 0.05) 0%, transparent 500px);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 500px);
     transition: padding 0.3s ease;
 }
 
@@ -62,12 +62,12 @@
     top: 50%;
     transform: translateY(-50%);
     color: var(--accent);
-    filter: drop-shadow(0 0 8px rgba(137, 180, 250, 0.4));
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 40%, transparent));
     opacity: 0.9;
 }
 
 .sectionTitle {
-    font-size: 1.45rem;
+    font-size: var(--fs-3xl);
     font-weight: 800;
     color: var(--text-main);
     letter-spacing: -0.01em;
@@ -86,12 +86,12 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.65rem;
+    font-size: var(--fs-2xs);
     color: var(--accent);
     font-weight: 700;
-    background: rgba(137, 180, 250, 0.1);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     padding: 0.15rem 0.6rem;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     animation: fadeIn 0.3s ease;
@@ -152,9 +152,9 @@
     top: 80px; 
     transform: translateY(-50%);
     z-index: 10;
-    background: rgba(15, 15, 20, 0.85);
+    background: color-mix(in srgb, var(--solid-mantle) 85%, transparent);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
+    color: var(--text-main);
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -182,7 +182,7 @@
 
 .scrollBtn:hover {
     background: var(--accent);
-    color: #11111b;
+    color: var(--on-accent);
     transform: translateY(-50%) scale(1.1);
 }
 

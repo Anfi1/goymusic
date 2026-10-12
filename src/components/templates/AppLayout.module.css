@@ -102,5 +102,5 @@
 
 .scrollContent::-webkit-scrollbar-thumb {
     background: var(--border-subtle);
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
 }

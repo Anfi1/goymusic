@@ -108,7 +108,7 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
         disabled={!!loadingAction}
         data-tooltip={isLiked ? 'Unlike' : 'Like'}
       >
-        {loadingAction === 'like' ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />}
+        {loadingAction === 'like' ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? 'var(--danger)' : 'var(--text-sub)'} fill={isLiked ? 'var(--danger)' : 'none'} />}
       </button>
       {!hideDislike && <button
         className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
@@ -116,7 +116,7 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
         disabled={!!loadingAction}
         data-tooltip={isDisliked ? 'Remove dislike' : 'Dislike'}
       >
-        {loadingAction === 'dislike' ? <Loader2 size={14} className={styles.spinner} /> : <HeartCrack size={14} color={isDisliked ? '#fab387' : 'var(--text-sub)'} />}
+        {loadingAction === 'dislike' ? <Loader2 size={14} className={styles.spinner} /> : <HeartCrack size={14} color={isDisliked ? 'var(--warning)' : 'var(--text-sub)'} />}
       </button>}
     </>
   );

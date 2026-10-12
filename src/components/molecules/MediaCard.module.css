@@ -4,7 +4,7 @@
   cursor: pointer;
   transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s ease;
   padding: 0.5rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 
 .card:hover {
@@ -34,7 +34,7 @@
 }
 
 .row .title {
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
 }
 
 .row .subtitle {
@@ -47,7 +47,7 @@
   aspect-ratio: 1;
   margin-bottom: 0.5rem;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -95,14 +95,14 @@
 .thumbPlaceholder {
   width: 100%;
   height: 100%;
-  background: #282828;
+  background: var(--bg-raised);
 }
 
 .pinnedBadge {
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(15, 15, 15, 0.9); /* Opaque background instead of blur */
+  background: color-mix(in srgb, var(--solid-base) 90%, transparent); /* Opaque background instead of blur */
   color: rgba(255, 255, 255, 0.9);
   padding: 4px;
   border-radius: 50%;
@@ -168,7 +168,7 @@
 
 .playOverlay:hover svg {
   transform: scale(1.1);
-  color: #fff;
+  color: var(--text-main);
 }
 
 /* Spinner logic - animation handles both scale and rotation */
@@ -188,9 +188,9 @@
 }
 
 .title {
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   font-weight: 600;
-  color: #fff;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -198,8 +198,8 @@
 }
 
 .subtitle {
-  font-size: 0.85rem;
-  color: #b3b3b3;
+  font-size: var(--fs-base);
+  color: var(--text-sub);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -219,12 +219,12 @@
 }
 
 .artistLink:hover {
-  color: #fff;
+  color: var(--text-main);
   text-decoration: underline;
 }
 
 .yearTag {
-    font-size: 0.75rem;
+    font-size: var(--fs-sm);
     font-weight: 700;
     opacity: 0.4;
     margin-top: 2px;
@@ -237,9 +237,9 @@
     top: 4px;
     z-index: 3;
     padding: 2px;
-    background: #1d9bf0 !important;
-    border: 1px solid #1d9bf0 !important;
-    color: white !important;
+    background: var(--badge-verified-bg) !important;
+    border: 1px solid var(--badge-verified-bg) !important;
+    color: var(--text-main) !important;
 }
 
 .verifiedBadge:hover {
@@ -250,5 +250,5 @@
 .verifiedBadge svg {
     width: 18px !important;
     height: 18px !important;
-    fill: white !important;
+    fill: var(--text-main) !important;
 }

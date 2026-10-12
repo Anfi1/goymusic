@@ -1,38 +1,45 @@
-/* GoyMusic Official Theme Variables */
+/* Нейтральная тёмная палитра: серые как в теме Steam simply-dark. Правила и причины в DESIGN.md */
 :root,
 [data-theme="dark"] {
-    /* Colors - Catppuccin Mocha inspired palette */
-    --bg-base: #09090f;
-    --bg-mantle: #11111b;
-    --bg-crust: #000000;
+    --bg-crust: #141414;
+    --bg-base: #191919;
+    --bg-mantle: #212121;
 
-    --text-main: #cdd6f4;
-    --text-sub: #a6adc8;
-    --text-dim: rgba(205, 214, 244, 0.4);
+    --text-main: #ffffff;
+    --text-sub: rgba(255, 255, 255, 0.66);
+    --text-dim: rgba(255, 255, 255, 0.4);
 
-    --accent: #89b4fa;
-    --accent-soft: rgba(137, 180, 250, 0.1);
+    --accent: #ffffff;
+    --accent-hover: #dcdcdc;
+    --accent-soft: rgba(255, 255, 255, 0.1);
+    /* текст и значки на заливке акцентом */
+    --on-accent: #141414;
     --danger: #f38ba8;
+    --success: #a6e3a1;
+    --warning: #f9e2af;
+    /* значок самого популярного трека: красный, а не розовый --danger */
+    --badge-top: #ff5f57;
 
-    --panel-bg: rgba(10, 10, 16, 0.85);
+    --panel-bg: rgba(25, 25, 25, 0.85);
     --border-color: rgba(255, 255, 255, 0.05);
+    --hover: rgba(255, 255, 255, 0.06);
 
     /* Glassmorphism */
-    --glass-blur: 24px; /* Restoring the beautiful blur */
+    --glass-blur: 24px;
     --wave-bg-blur: 80px;
     --wave-bg-saturate: 1.8;
     --wave-bg-brightness: 0.5;
-    --glass-opacity: 0.015; 
+    --glass-opacity: 0.015;
     --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
     --border-subtle: rgba(255, 255, 255, 0.05);
-    --glass-popover-bg: rgba(9, 9, 15, 0.85);
+    --glass-popover-bg: rgba(33, 33, 33, 0.9);
     --glass-popover-blur: 16px;
 
-    /* Enhanced Glass Surfaces */
-    --glass-surface: rgba(10, 10, 16, 0.3);
-    --glass-surface-main: rgba(10, 10, 16, 0.4);
-    --bg-main-glass: rgba(10, 10, 16, 0.6);
-    --glass-surface-player: rgba(10, 10, 16, 0.7);
+    /* Поверхности поверх размытой обложки (ambientBlur): панели светлее основной области */
+    --glass-surface: rgba(33, 33, 33, 0.45);
+    --glass-surface-main: rgba(25, 25, 25, 0.4);
+    --bg-main-glass: rgba(25, 25, 25, 0.6);
+    --glass-surface-player: rgba(33, 33, 33, 0.75);
 
     /* Badge colors */
     --badge-pro-color: #f59e0b;
@@ -55,31 +62,31 @@
     --badge-verified-border-lg-hover: rgba(29, 155, 240, 0.6);
     --badge-verified-lg-shadow: 0 0 18px rgba(29, 155, 240, 0.15);
 
-    --badge-icon-color: #1a1a1a;
+    --badge-icon-color: var(--on-accent);
 }
 
 /* Стеклянная тема (эксперимент): использует нативный Windows Acrylic/Mica за окном
    вместо непрозрачного фона, поэтому все фоновые токены здесь -- полупрозрачные.
    Текст/акценты наследуются от :root (тёмная палитра) -- переопределяем только фоны. */
 [data-theme="glass"] {
-    --bg-base: rgba(9, 9, 15, 0.35);
-    --bg-mantle: rgba(17, 17, 27, 0.35);
+    --bg-base: rgba(25, 25, 25, 0.35);
+    --bg-mantle: rgba(33, 33, 33, 0.35);
     --bg-crust: rgba(0, 0, 0, 0.25);
 
-    --panel-bg: rgba(10, 10, 16, 0.35);
+    --panel-bg: rgba(25, 25, 25, 0.35);
     --border-color: rgba(255, 255, 255, 0.08);
 
     /* Glassmorphism - Glass Adjustments */
     --glass-opacity: 0.05;
     --glass-bg: rgba(255, 255, 255, var(--glass-opacity));
     --border-subtle: rgba(255, 255, 255, 0.08);
-    --glass-popover-bg: rgba(9, 9, 15, 0.45);
+    --glass-popover-bg: rgba(25, 25, 25, 0.45);
 
     /* Enhanced Glass Surfaces - Glass */
-    --glass-surface: rgba(10, 10, 16, 0.18);
-    --glass-surface-main: rgba(10, 10, 16, 0.22);
-    --bg-main-glass: rgba(10, 10, 16, 0.3);
-    --glass-surface-player: rgba(10, 10, 16, 0.35);
+    --glass-surface: rgba(25, 25, 25, 0.18);
+    --glass-surface-main: rgba(25, 25, 25, 0.22);
+    --bg-main-glass: rgba(25, 25, 25, 0.3);
+    --glass-surface-player: rgba(25, 25, 25, 0.35);
 }
 
 :root {
@@ -91,10 +98,40 @@
     --app-min-width: 1024px;
     --app-min-height: 700px;
 
+    /* Непрозрачные поверхности: диалоги, тултипы, подложки. Стеклянная тема их не переопределяет,
+       иначе окна поверх Acrylic стали бы нечитаемыми */
+    --solid-base: #191919;
+    --solid-mantle: #212121;
+    --bg-raised: #282828;
+
+    /* Цвета сервисов */
+    --brand-soundcloud: #ff5500;
+    --brand-spotify: #1db954;
+    /* «Подборка» в Моей волне */
+    --curate: #a855f7;
+    --curate-from: #7c3aed;
+    --curate-to: #ec4899;
+
+    /* Размеры шрифта: других значений в модулях быть не должно (кроме clamp у крупных заголовков) */
+    --fs-2xs: 10px;
+    --fs-xs: 11px;
+    --fs-sm: 12px;
+    --fs-md: 13px;
+    --fs-base: 14px;
+    --fs-lg: 16px;
+    --fs-xl: 18px;
+    --fs-2xl: 20px;
+    --fs-3xl: 24px;
+    --fs-4xl: 28px;
+    --fs-5xl: 32px;
+
     /* Spacing & Radii */
+    --radius-full: 999px;
+    --radius-xl: 20px;
     --radius-lg: 16px;
     --radius-md: 12px;
     --radius-sm: 8px;
+    --radius-xs: 4px;
     --space-xl: 40px;
     --space-lg: 24px;
     --space-md: 16px;
@@ -128,7 +165,7 @@
 
 .scroll-area::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
 }
 
 /* --- Global Animations --- */

@@ -2,7 +2,7 @@
     padding: 1.25rem 1.75rem;
     height: 100%;
     overflow-y: auto;
-    background: linear-gradient(180deg, rgba(137, 180, 250, 0.05) 0%, transparent 600px);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 600px);
 }
 
 .header {
@@ -13,7 +13,7 @@
 }
 
 .header h1 {
-    font-size: 1.8rem;
+    font-size: var(--fs-4xl);
     font-weight: 800;
     margin: 0;
     letter-spacing: -0.03em;
@@ -22,7 +22,7 @@
 
 .icon {
     color: var(--accent);
-    filter: drop-shadow(0 0 12px rgba(137, 180, 250, 0.6));
+    filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 60%, transparent));
 }
 
 .backBtn {
@@ -63,11 +63,11 @@
 .emptyState {
     padding: 4rem 2rem;
     text-align: center;
-    color: var(--text-secondary);
+    color: var(--text-sub);
 }
 
 .emptyText {
-    font-size: 1.2rem;
+    font-size: var(--fs-2xl);
     font-weight: 600;
     color: var(--text-main);
 }

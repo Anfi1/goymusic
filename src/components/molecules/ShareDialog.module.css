@@ -13,9 +13,9 @@
 }
 
 .dialog {
-  background: #1e1e2e;
+  background: var(--bg-raised);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 24px;
   width: 100%;
   max-width: 460px;
@@ -30,9 +30,9 @@
 
 .title {
   margin: 0 0 16px;
-  font-size: 18px;
+  font-size: var(--fs-xl);
   font-weight: 700;
-  color: #cdd6f4;
+  color: var(--text-main);
 }
 
 .playerRow {
@@ -47,8 +47,8 @@
   height: 36px;
   border-radius: 50%;
   border: none;
-  background: #89b4fa;
-  color: #11111b;
+  background: var(--accent);
+  color: var(--on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -58,7 +58,7 @@
 }
 
 .playBtn:hover {
-  background: #b4befe;
+  background: var(--accent-hover);
   transform: scale(1.05);
 }
 
@@ -67,8 +67,8 @@
 }
 
 .time {
-  font-size: 12px;
-  color: #a6adc8;
+  font-size: var(--fs-sm);
+  color: var(--text-sub);
   font-variant-numeric: tabular-nums;
   min-width: 32px;
   user-select: none;
@@ -83,8 +83,8 @@
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  font-size: 14px;
-  color: #a6adc8;
+  font-size: var(--fs-base);
+  color: var(--text-sub);
   margin-bottom: 16px;
   user-select: none;
   position: relative;
@@ -101,7 +101,7 @@
   width: 18px;
   height: 18px;
   border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -110,21 +110,21 @@
 }
 
 .checkbox input:checked + .checkmark {
-  background: #89b4fa;
-  border-color: #89b4fa;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .checkbox input:checked + .checkmark::after {
   content: '';
   width: 5px;
   height: 9px;
-  border: solid #11111b;
+  border: solid var(--on-accent);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg) translate(-1px, -1px);
 }
 
 .checkbox input:focus-visible + .checkmark {
-  outline: 2px solid #89b4fa;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -145,21 +145,21 @@
   width: 80px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
-  color: #cdd6f4;
-  font-size: 13px;
+  color: var(--text-main);
+  font-size: var(--fs-md);
   outline: none;
   transition: border-color 0.2s;
 }
 
 .timeInput:focus {
-  border-color: #89b4fa;
+  border-color: var(--accent);
 }
 
 .timeHint {
-  font-size: 12px;
-  color: #6c7086;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
 }
 
 .linkRow {
@@ -170,10 +170,10 @@
   width: 100%;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px 14px;
-  color: #a6adc8;
-  font-size: 13px;
+  color: var(--text-sub);
+  font-size: var(--fs-md);
   outline: none;
   font-family: monospace;
 }
@@ -186,8 +186,8 @@
 
 .cancelBtn, .copyBtn {
   padding: 10px 20px;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -199,20 +199,20 @@
 
 .cancelBtn {
   background: transparent;
-  color: #a6adc8;
+  color: var(--text-sub);
 }
 
 .cancelBtn:hover {
   background: rgba(255, 255, 255, 0.05);
-  color: #cdd6f4;
+  color: var(--text-main);
 }
 
 .copyBtn {
-  background: #89b4fa;
-  color: #11111b;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .copyBtn:hover {
-  background: #b4befe;
+  background: var(--accent-hover);
   transform: translateY(-1px);
 }

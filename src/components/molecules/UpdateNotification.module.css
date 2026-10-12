@@ -3,9 +3,9 @@
   bottom: 92px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(137, 180, 250, 0.15);
-  border: 1px solid rgba(137, 180, 250, 0.3);
-  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--radius-md);
   padding: 10px 16px;
   display: flex;
   align-items: center;
@@ -28,19 +28,19 @@
 }
 
 .icon {
-  color: var(--accent, #89b4fa);
+  color: var(--accent);
   flex-shrink: 0;
 }
 
 .text {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--fs-md);
   color: rgba(255, 255, 255, 0.9);
   min-width: 0;
 }
 
 .version {
-  color: var(--accent, #89b4fa);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -48,15 +48,15 @@
   width: 100%;
   height: 4px;
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   margin-top: 6px;
   overflow: hidden;
 }
 
 .progressBar {
   height: 100%;
-  background: var(--accent, #89b4fa);
-  border-radius: 2px;
+  background: var(--accent);
+  border-radius: var(--radius-xs);
   transition: width 0.3s ease;
 }
 
@@ -68,17 +68,17 @@
 
 .btn {
   padding: 5px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .btnPrimary {
-  background: var(--accent, #89b4fa);
-  color: #09090f;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .btnPrimary:hover {

@@ -145,8 +145,8 @@ const CanvasVisualizer: React.FC<{
 
         // Background
         const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-        bgGrad.addColorStop(0, '#0c0c14');
-        bgGrad.addColorStop(1, '#11111b');
+        bgGrad.addColorStop(0, '#141414');
+        bgGrad.addColorStop(1, '#212121');
         ctx.fillStyle = bgGrad;
         ctx.fillRect(0, 0, width, height);
 
@@ -177,13 +177,13 @@ const CanvasVisualizer: React.FC<{
                 for (const [x, y] of pts) ctx.lineTo(x, y);
                 ctx.lineTo(pts[pts.length - 1][0], height); ctx.closePath();
                 const fillGrad = ctx.createLinearGradient(0, 0, 0, height);
-                fillGrad.addColorStop(0, 'rgba(137,180,250,0.16)');
-                fillGrad.addColorStop(0.5, 'rgba(137,180,250,0.06)');
-                fillGrad.addColorStop(1, 'rgba(137,180,250,0)');
+                fillGrad.addColorStop(0, 'rgba(255,255,255,0.16)');
+                fillGrad.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+                fillGrad.addColorStop(1, 'rgba(255,255,255,0)');
                 ctx.fillStyle = fillGrad; ctx.fill();
                 ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
                 for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-                ctx.strokeStyle = 'rgba(137,180,250,0.35)'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
+                ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
             }
         } catch {}
 
@@ -194,7 +194,7 @@ const CanvasVisualizer: React.FC<{
         // 0dB line (center)
         const zeroDbY = getYfromGain(0) * scaleY;
         ctx.beginPath(); ctx.moveTo(0, zeroDbY); ctx.lineTo(width, zeroDbY);
-        ctx.strokeStyle = 'rgba(137, 180, 250, 0.15)'; ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255,255,255, 0.15)'; ctx.lineWidth = 1;
         ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
 
         // dB lines + labels
@@ -203,16 +203,16 @@ const CanvasVisualizer: React.FC<{
             const y = getYfromGain(db) * scaleY;
             if (y < 8 || y > height - 8) continue;
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y);
-            ctx.strokeStyle = db === 0 ? 'rgba(205,214,244,0.1)' : 'rgba(205,214,244,0.03)';
+            ctx.strokeStyle = db === 0 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)';
             ctx.lineWidth = 0.5; ctx.setLineDash([]); ctx.stroke();
             let label = db === 0 ? '0 dB' : `${db > 0 ? '+' : ''}${db}dB`;
             ctx.save(); ctx.translate(8, y);
             ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
             const metrics = ctx.measureText(label);
             const pw = metrics.width + 12; const ph = 18;
-            ctx.fillStyle = 'rgba(9, 9, 15, 0.75)';
+            ctx.fillStyle = 'rgba(20, 20, 20, 0.75)';
             ctx.beginPath(); ctx.roundRect(0, -ph / 2, pw, ph, 4); ctx.fill();
-            ctx.fillStyle = db === 0 ? 'rgba(137,180,250,0.7)' : 'rgba(205,214,244,0.55)';
+            ctx.fillStyle = db === 0 ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.55)';
             ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
             ctx.fillText(label, 6, 1); ctx.restore();
         }
@@ -222,12 +222,12 @@ const CanvasVisualizer: React.FC<{
         for (const f of freqLabels) {
             const x = getXfromFreq(f) * scaleX;
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height);
-            ctx.strokeStyle = 'rgba(205,214,244,0.03)'; ctx.lineWidth = 0.5; ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 0.5; ctx.stroke();
             let label = f >= 1000 ? `${f / 1000}k` : `${f}`;
             label += 'Hz';
             ctx.save(); ctx.translate(x, height - 18);
             ctx.font = '11px system-ui, -apple-system, sans-serif';
-            ctx.fillStyle = 'rgba(205,214,244,0.35)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
             ctx.fillText(label, 0, 0); ctx.restore();
         }
 
@@ -241,9 +241,9 @@ const CanvasVisualizer: React.FC<{
         ctx.lineTo((EQ_W + 1000) * scaleX, height + 100);
         ctx.lineTo(-100 * scaleX, height + 100); ctx.closePath();
         const fillGrad = ctx.createLinearGradient(0, 0, 0, height);
-        fillGrad.addColorStop(0, 'rgba(137,180,250,0.15)');
-        fillGrad.addColorStop(0.5, 'rgba(137,180,250,0.04)');
-        fillGrad.addColorStop(1, 'rgba(137,180,250,0.0)');
+        fillGrad.addColorStop(0, 'rgba(255,255,255,0.15)');
+        fillGrad.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+        fillGrad.addColorStop(1, 'rgba(255,255,255,0.0)');
         ctx.fillStyle = fillGrad; ctx.fill();
         // Stroke
         ctx.beginPath();
@@ -252,8 +252,8 @@ const CanvasVisualizer: React.FC<{
             if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.save();
-        ctx.shadowColor = 'rgba(137,180,250,0.5)'; ctx.shadowBlur = 8;
-        ctx.strokeStyle = 'rgba(137,180,250,0.9)'; ctx.lineWidth = 2.5;
+        ctx.shadowColor = 'rgba(255,255,255,0.5)'; ctx.shadowBlur = 8;
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2.5;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
         ctx.restore();
 
@@ -268,7 +268,7 @@ const CanvasVisualizer: React.FC<{
             const radius = isSelected ? 8 : (isHovered ? 7 : 6);
 
             ctx.beginPath(); ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(9, 9, 15, 0.6)'; ctx.fill();
+            ctx.fillStyle = 'rgba(20, 20, 20, 0.6)'; ctx.fill();
 
             ctx.beginPath(); ctx.moveTo(px, zeroDbY); ctx.lineTo(px, py);
             ctx.strokeStyle = color + (isSelected ? '60' : '30');

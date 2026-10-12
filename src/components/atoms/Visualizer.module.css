@@ -15,7 +15,7 @@
 .bar {
     width: 3px;
     background-color: var(--accent);
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     transform-origin: bottom;
     opacity: 1;
     min-height: 3px;

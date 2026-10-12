@@ -116,7 +116,6 @@ const VirtuosoTable = React.forwardRef<HTMLTableElement, any>(({ context, ...pro
       zIndex: 2, 
       position: 'relative',
       transform: context?.isSearch ? 'none' : `translate3d(0, ${HEADER_HEIGHT}px, 0)`,
-      background: 'var(--bg-main)',
       tableLayout: 'fixed',
       willChange: 'transform'
     }}
@@ -409,8 +408,8 @@ const LargeHeader = memo(({
                       isLoading={isHeaderActionLoading === 'like'}
                       onClick={() => handleHeaderAction('like')}
                       title={metadata.likeStatus === 'LIKE' ? 'Remove from library' : 'Save to library'}
-                      color={metadata.likeStatus === 'LIKE' ? '#ff4b4b' : undefined}
-                      fill={metadata.likeStatus === 'LIKE' ? '#ff4b4b' : 'none'}
+                      color={metadata.likeStatus === 'LIKE' ? 'var(--danger)' : undefined}
+                      fill={metadata.likeStatus === 'LIKE' ? 'var(--danger)' : 'none'}
                     />
                   )}
                   {!isLikedSongs && metadata.menu_tokens && (

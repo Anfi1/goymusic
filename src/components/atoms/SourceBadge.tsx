@@ -15,7 +15,7 @@ export const SourceBadge = memo(({ source, size = 14 }: SourceBadgeProps) => {
   if (resolved === 'soundcloud') {
     return (
       <span className={styles.badge} data-tooltip="SoundCloud">
-        <Cloud size={size} color="#ff5500" />
+        <Cloud size={size} color="var(--brand-soundcloud)" />
       </span>
     );
   }

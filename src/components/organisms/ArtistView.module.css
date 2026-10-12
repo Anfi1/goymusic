@@ -19,10 +19,10 @@
 .bannerWrapper {
     height: 250px;
     width: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     position: relative;
     overflow: hidden;
-    background-color: var(--bg-layer-2);
+    background-color: var(--bg-mantle);
     box-shadow: 
         -15px 20px 50px -10px var(--shadow-color, rgba(0, 0, 0, 0.4)),
         0 15px 40px rgba(0, 0, 0, 0.3);
@@ -38,13 +38,13 @@
 .bannerPlaceholder {
     width: 100%;
     height: 100%;
-    background: var(--bg-layer-2);
+    background: var(--bg-mantle);
 }
 
 .bannerOverlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(45deg, rgba(9, 9, 15, 0.7) 0%, rgba(9, 9, 15, 0.3) 35%, transparent 65%);
+    background: linear-gradient(45deg, color-mix(in srgb, var(--solid-base) 70%, transparent) 0%, color-mix(in srgb, var(--solid-base) 30%, transparent) 35%, transparent 65%);
     display: flex;
     align-items: flex-end;
     padding: 2.5rem;
@@ -53,7 +53,7 @@
 .name {
     font-size: 4rem;
     font-weight: 900;
-    color: #fff;
+    color: var(--text-main);
     text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     line-height: 1.1;
     margin: 0;
@@ -72,19 +72,19 @@
 }
 
 .sectionTitle {
-    font-size: 1.5rem;
+    font-size: var(--fs-3xl);
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--text-main);
     margin: 0;
 }
 
 .seeAllBtn {
     background: transparent;
     border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
+    color: var(--text-sub);
     padding: 0.4rem 1rem;
-    border-radius: 20px;
-    font-size: 0.85rem;
+    border-radius: var(--radius-xl);
+    font-size: var(--fs-base);
     font-weight: 600;
     cursor: pointer;
     display: flex;
@@ -94,9 +94,9 @@
 }
 
 .seeAllBtn:hover {
-    background: var(--hover-bg);
+    background: var(--hover);
     color: var(--text-main);
-    border-color: var(--text-secondary);
+    border-color: var(--text-sub);
 }
 
 .scrollWrapper {
@@ -124,7 +124,7 @@
     z-index: 10;
     background: rgba(0, 0, 0, 0.6);
     border: none;
-    color: #fff;
+    color: var(--text-main);
     width: 40px;
     height: 40px;
     border-radius: 50%;
@@ -143,6 +143,7 @@
 
 .scrollNavBtn:hover {
     background: var(--accent);
+    color: var(--on-accent);
     transform: translateY(-50%) scale(1.1);
 }
 
@@ -162,7 +163,7 @@
 }
 
 .tableHeader {
-    background: #09090f;
+    background: var(--solid-base);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -172,7 +173,7 @@
     padding: 8px 12px 14px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     opacity: 0.5;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     text-transform: uppercase;
     letter-spacing: 1.5px;
     font-weight: 600;
@@ -276,7 +277,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    background: rgba(9, 9, 15, 0.5);
+    background: color-mix(in srgb, var(--solid-base) 50%, transparent);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border-subtle);
@@ -289,11 +290,11 @@
     align-items: center;
     gap: 0.45rem;
     padding: 0.4rem 0.85rem;
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     background: var(--glass-surface);
     border: 1px solid var(--border-subtle);
     color: var(--text-dim);
-    font-size: 0.8rem;
+    font-size: var(--fs-md);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -308,14 +309,14 @@
 }
 
 .likesOnlyBtn.active {
-    background: rgba(243, 139, 168, 0.15);
-    border-color: rgba(243, 139, 168, 0.4);
-    color: #f38ba8;
-    box-shadow: 0 0 12px rgba(243, 139, 168, 0.25);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
 .allSongsTitle {
-    font-size: 1.25rem;
+    font-size: var(--fs-2xl);
     font-weight: 700;
     color: var(--text-main);
     margin: 0;
@@ -340,17 +341,17 @@
 }
 
 .allSongsArtistName {
-    font-size: 0.9rem;
+    font-size: var(--fs-base);
     font-weight: 600;
     color: var(--text-sub);
 }
 
 .allSongsTrackCount {
-    font-size: 0.8rem;
+    font-size: var(--fs-md);
     color: var(--text-dim);
     padding: 0.25rem 0.75rem;
     background: var(--glass-surface);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     border: 1px solid var(--border-subtle);
 }
 
@@ -405,7 +406,7 @@
 .discoSkeletonArt {
     width: 100%;
     aspect-ratio: 1;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: var(--glass-surface);
     animation: skeletonPulse 1.5s ease-in-out infinite;
 }
@@ -413,7 +414,7 @@
 .discoSkeletonText {
     width: 80%;
     height: 12px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     background: var(--glass-surface);
     animation: skeletonPulse 1.5s ease-in-out infinite;
     animation-delay: 0.1s;
@@ -422,7 +423,7 @@
 .discoSkeletonTextShort {
     width: 50%;
     height: 10px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     background: var(--glass-surface);
     animation: skeletonPulse 1.5s ease-in-out infinite;
     animation-delay: 0.2s;
@@ -467,13 +468,13 @@
 }
 
 .allSongsEmptyText {
-    font-size: 1.1rem;
+    font-size: var(--fs-xl);
     font-weight: 500;
     color: var(--text-sub);
 }
 
 .allSongsEmptyHint {
-    font-size: 0.9rem;
+    font-size: var(--fs-base);
     color: var(--text-dim);
 }
 
@@ -492,21 +493,21 @@
     position: sticky;
     top: 0;
     z-index: 10;
-    background: rgba(9, 9, 15, 0.5);
+    background: color-mix(in srgb, var(--solid-base) 50%, transparent);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     transition: background 0.2s ease;
 }
 
 .tableHeaderRow.scrolled {
-    background: rgba(9, 9, 15, 0.85);
+    background: color-mix(in srgb, var(--solid-base) 85%, transparent);
 }
 
 .tableHeaderRow th {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border-subtle);
     opacity: 0.5;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     text-transform: uppercase;
     letter-spacing: 1.5px;
     font-weight: 600;
@@ -528,7 +529,7 @@
 
 .allSongsContent::-webkit-scrollbar-thumb {
     background: var(--glass-surface);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
 }
 
 .allSongsContent::-webkit-scrollbar-thumb:hover {
@@ -540,18 +541,18 @@
     gap: 0.25rem;
     background: var(--glass-surface);
     padding: 0.25rem;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     width: fit-content;
     border: 1px solid var(--border-subtle);
 }
 
 .viewTab {
     padding: 0.4rem 0.9rem;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     border: none;
     background: transparent;
     color: var(--text-dim);
-    font-size: 0.8rem;
+    font-size: var(--fs-md);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -564,10 +565,10 @@
 }
 
 .viewTab.active {
-    background: var(--bg-layer-3);
+    background: var(--bg-raised);
     color: var(--accent);
     border-color: var(--accent);
-    box-shadow: 0 0 12px rgba(137, 180, 250, 0.25);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent);
     animation: tabSlide 0.2s ease;
 }
 
@@ -577,7 +578,7 @@
 }
 
 .backBtn {
-    background: var(--bg-layer-2);
+    background: var(--bg-mantle);
     border: none;
     color: var(--text-main);
     width: 40px;
@@ -598,13 +599,13 @@
 }
 
 .subscribeBtn {
-    background: #fff;
-    color: #000;
+    background: var(--accent);
+    color: var(--on-accent);
     border: none;
     padding: 0.7rem 2rem;
-    border-radius: 24px;
+    border-radius: var(--radius-xl);
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: var(--fs-lg);
     cursor: pointer;
     transition: all 0.2s;
     display: flex;
@@ -616,12 +617,12 @@
 
 .subscribeBtn:hover {
     transform: scale(1.05);
-    background: #f0f0f0;
+    background: var(--accent-hover);
 }
 
 .subscribeBtn.subscribed {
     background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    color: var(--text-main);
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
@@ -629,7 +630,7 @@
     display: flex;
     gap: 1.5rem;
     margin-top: 0.5rem;
-    font-size: 0.95rem;
+    font-size: var(--fs-lg);
     color: rgba(255, 255, 255, 0.7);
     font-weight: 500;
 }
@@ -648,7 +649,7 @@
 .bio {
     opacity: 0.7;
     line-height: 1.8;
-    font-size: 1rem;
+    font-size: var(--fs-lg);
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
@@ -667,7 +668,7 @@
     border: none;
     color: var(--accent);
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: var(--fs-base);
     cursor: pointer;
     padding: 0.5rem 0;
     margin-top: 0.25rem;
@@ -697,8 +698,8 @@
     height: 44px;
     padding: 2px;
     flex-shrink: 0;
-    background: #1d9bf0 !important;
-    border: 1px solid #1d9bf0 !important;
+    background: var(--badge-verified-bg) !important;
+    border: 1px solid var(--badge-verified-bg) !important;
 }
 
 .verifiedBadge:hover {
@@ -709,6 +710,6 @@
 .verifiedBadge svg {
     width: 28px !important;
     height: 28px !important;
-    fill: white !important;
+    fill: var(--text-main) !important;
 }
 

@@ -7,7 +7,7 @@
     background: var(--glass-surface);
     backdrop-filter: blur(var(--glass-blur));
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     cursor: pointer;
     transition: all 0.2s ease;
     width: 160px;
@@ -25,7 +25,8 @@
     width: 100px;
     height: 100px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    background-color: var(--bg-layer-2);
+    border-radius: 50%;
+    background-color: var(--bg-mantle);
     position: relative;
 }
 
@@ -45,9 +46,9 @@
     height: 20px;
     padding: 2px;
     border-radius: 50%;
-    background: #1d9bf0 !important;
-    border: 1px solid #1d9bf0 !important;
-    color: white !important;
+    background: var(--badge-verified-bg) !important;
+    border: 1px solid var(--badge-verified-bg) !important;
+    color: var(--text-main) !important;
     cursor: default;
     transition: all 0.2s ease;
 }
@@ -60,7 +61,7 @@
 .verified-badge--sm svg {
     width: 18px !important;
     height: 18px !important;
-    fill: white !important;
+    fill: var(--text-main) !important;
 }
 
 .thumbnail {
@@ -74,13 +75,13 @@
 .thumbnailPlaceholder {
     width: 100%;
     height: 100%;
-    background: var(--bg-layer-3);
+    background: var(--bg-raised);
 }
 
 .name {
-    font-size: 0.95rem;
+    font-size: var(--fs-lg);
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--text-main);
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
@@ -101,7 +102,7 @@
     border-radius: 50%;
     background: rgba(29, 155, 240, 0.2);
     border: 1px solid rgba(29, 155, 240, 0.35);
-    color: #1a1a1a;
+    color: var(--on-accent);
     cursor: default;
     transition: all 0.2s ease;
     padding: 2px;

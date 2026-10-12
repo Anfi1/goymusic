@@ -75,13 +75,13 @@
 }
 
 .solid {
-    background: #fff;
-    color: #000;
+    background: var(--accent);
+    color: var(--on-accent);
     opacity: 1;
 }
 
 .solid:hover:not(:disabled) {
-    background: #fff;
+    background: var(--accent);
     transform: scale(1.05);
 }
 

@@ -14,25 +14,25 @@
 .headerIcon {
     width: 52px;
     height: 52px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #89b4fa 0%, #b4befe 100%);
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #1e1e2e;
+    color: var(--on-accent);
     flex-shrink: 0;
 }
 
 .heading {
-    font-size: 22px;
+    font-size: var(--fs-2xl);
     font-weight: 700;
-    color: #cdd6f4;
+    color: var(--text-main);
     margin: 0 0 2px 0;
 }
 
 .subheading {
-    font-size: 12px;
-    color: #6c7086;
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
     margin: 0;
 }
 
@@ -45,7 +45,7 @@
 
 .groupCard {
     background: rgba(255, 255, 255, 0.03);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.06);
     transition: background 0.15s;
@@ -90,14 +90,14 @@
 }
 
 .playIcon {
-    color: #ffffff;
+    color: var(--text-main);
 }
 
 .spinner {
     width: 24px;
     height: 24px;
     border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: #ffffff;
+    border-top-color: var(--text-main);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
 }
@@ -114,17 +114,17 @@
 }
 
 .cardTitle {
-    font-size: 13px;
+    font-size: var(--fs-md);
     font-weight: 600;
-    color: #cdd6f4;
+    color: var(--text-main);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .cardSub {
-    font-size: 11px;
-    color: #6c7086;
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -149,36 +149,36 @@
 }
 
 .subPlayIcon {
-    color: #89b4fa;
+    color: var(--accent);
     flex-shrink: 0;
 }
 
 .subTitle {
-    font-size: 12px;
-    color: #a6adc8;
+    font-size: var(--fs-sm);
+    color: var(--text-sub);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .error {
-    color: #f38ba8;
-    font-size: 14px;
+    color: var(--danger);
+    font-size: var(--fs-base);
 }
 
 /* ── Active card indicator ───────────────────────────────────────────────── */
 
 .groupCardActive {
-    border-color: rgba(137, 180, 250, 0.4) !important;
-    background: rgba(137, 180, 250, 0.06) !important;
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent) !important;
+    background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
 }
 
 .activeIndicator {
     position: absolute;
     bottom: 6px;
     right: 6px;
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: var(--accent);
+    color: var(--on-accent);
     border-radius: 50%;
     width: 20px;
     height: 20px;
@@ -188,7 +188,7 @@
 }
 
 .subItemActive .subPlayIcon {
-    color: #89b4fa;
+    color: var(--accent);
 }
 
 /* ── Mode toggle ─────────────────────────────────────────────────────────── */
@@ -198,11 +198,11 @@
     align-items: center;
     gap: 6px;
     padding: 6px 14px;
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.04);
-    color: #a6adc8;
-    font-size: 12px;
+    color: var(--text-sub);
+    font-size: var(--fs-sm);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
@@ -211,7 +211,7 @@
 
 .modeToggle:hover {
     background: rgba(255, 255, 255, 0.08);
-    color: #cdd6f4;
+    color: var(--text-main);
 }
 
 /* ── Simple mode: two-column layout ─────────────────────────────────────── */
@@ -234,11 +234,11 @@
     align-items: center;
     gap: 5px;
     padding: 5px 11px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     border: 1px solid transparent;
     background: rgba(255, 255, 255, 0.05);
-    color: #6c7086;
-    font-size: 12px;
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -247,17 +247,17 @@
 
 .genrePill:hover {
     background: rgba(255, 255, 255, 0.08);
-    color: #a6adc8;
+    color: var(--text-sub);
 }
 
 .genrePillActive {
     background: color-mix(in srgb, var(--mood-color) 12%, transparent) !important;
     border-color: color-mix(in srgb, var(--mood-color) 35%, transparent) !important;
-    color: color-mix(in srgb, var(--mood-color) 90%, #cdd6f4) !important;
+    color: color-mix(in srgb, var(--mood-color) 90%, var(--text-main)) !important;
 }
 
 .genreEmoji {
-    font-size: 14px;
+    font-size: var(--fs-base);
     flex-shrink: 0;
 }
 
@@ -266,7 +266,7 @@
 }
 
 .genrePlaying {
-    color: #89b4fa;
+    color: var(--accent);
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -283,7 +283,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: background 0.12s;
     min-width: 0;
@@ -295,29 +295,29 @@
 }
 
 .mixRowActive {
-    background: rgba(137, 180, 250, 0.08) !important;
+    background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
 }
 
 .mixThumb {
     position: relative;
     width: 56px;
     height: 56px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     flex-shrink: 0;
 }
 
 .mixThumbSuper {
-    box-shadow: 0 0 0 2px #f9e2af;
+    box-shadow: 0 0 0 2px var(--warning);
 }
 
 .mixSuperStar {
     position: absolute;
     top: 2px;
     left: 2px;
-    font-size: 16px;
+    font-size: var(--fs-lg);
     line-height: 1;
-    color: #f9e2af;
+    color: var(--warning);
     text-shadow: 0 0 6px rgba(0,0,0,0.95);
 }
 
@@ -339,8 +339,8 @@
 
 .mixBar {
     width: 4px;
-    background: #ffffff;
-    border-radius: 2px;
+    background: var(--accent);
+    border-radius: var(--radius-xs);
     transform-origin: bottom;
     animation: mixBarBounce 0.8s infinite ease-in-out alternate;
 }
@@ -369,9 +369,9 @@
 
 .mixTitle {
     display: block;
-    font-size: 13px;
+    font-size: var(--fs-md);
     font-weight: 500;
-    color: #cdd6f4;
+    color: var(--text-main);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -394,7 +394,7 @@
 }
 
 .mixPlayIcon {
-    color: #89b4fa;
+    color: var(--accent);
     opacity: 0;
     transition: opacity 0.12s;
 }
@@ -419,8 +419,8 @@
 .moodTile {
     position: relative;
     height: 100px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--mood-color) 25%, #1e1e2e), color-mix(in srgb, var(--mood-color) 10%, #09090f));
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mood-color) 25%, var(--bg-raised)), color-mix(in srgb, var(--mood-color) 10%, var(--solid-base)));
     border: 1px solid color-mix(in srgb, var(--mood-color) 30%, transparent);
     display: flex;
     flex-direction: column;
@@ -434,7 +434,7 @@
 }
 
 .moodTile:hover {
-    background: linear-gradient(135deg, color-mix(in srgb, var(--mood-color) 35%, #1e1e2e), color-mix(in srgb, var(--mood-color) 18%, #09090f));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mood-color) 35%, var(--bg-raised)), color-mix(in srgb, var(--mood-color) 18%, var(--solid-base)));
     transform: translateY(-2px);
 }
 
@@ -446,14 +446,14 @@
     position: absolute;
     top: 12px;
     left: 14px;
-    font-size: 26px;
+    font-size: var(--fs-3xl);
     line-height: 1;
 }
 
 .moodLabel {
-    font-size: 13px;
+    font-size: var(--fs-md);
     font-weight: 600;
-    color: #cdd6f4;
+    color: var(--text-main);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -465,14 +465,14 @@
     position: absolute;
     top: 12px;
     right: 12px;
-    color: color-mix(in srgb, var(--mood-color) 80%, #ffffff);
+    color: color-mix(in srgb, var(--mood-color) 80%, var(--text-main));
     opacity: 0.8;
 }
 
 .moodStar {
     margin-left: auto;
-    font-size: 11px;
-    color: #f9e2af;
+    font-size: var(--fs-xs);
+    color: var(--warning);
     flex-shrink: 0;
 }
 
@@ -483,7 +483,7 @@
     width: 16px;
     height: 16px;
     border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: #ffffff;
+    border-top-color: var(--text-main);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
 }
@@ -492,7 +492,7 @@
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-top: none;
-    border-radius: 0 0 10px 10px;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
     padding: 4px 0;
     margin-top: -4px;
 }

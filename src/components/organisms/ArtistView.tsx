@@ -818,7 +818,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
             ) : displayedSongs.length === 0 ? (
               <div className={styles.allSongsEmpty}>
                 {likesOnly ? (
-                  <Heart size={64} className={styles.allSongsEmptyIcon} style={{ color: '#f38ba8', opacity: 0.6 }} />
+                  <Heart size={64} className={styles.allSongsEmptyIcon} style={{ color: 'var(--danger)', opacity: 0.6 }} />
                 ) : (
                   <Music size={64} className={styles.allSongsEmptyIcon} />
                 )}
