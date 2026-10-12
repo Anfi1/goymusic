@@ -28,7 +28,7 @@
     background-size: cover;
     background-position: center;
     filter: blur(80px) saturate(1.5) brightness(0.6); /* Reduced from 120px for HUGE performance gain */
-    opacity: 0.35;
+    opacity: 0.6;
     z-index: 0;
     pointer-events: none;
     transition: background-image 1.5s ease-in-out;
