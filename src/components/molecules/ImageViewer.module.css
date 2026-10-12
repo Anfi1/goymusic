@@ -33,7 +33,7 @@
     max-height: 90vh;
     object-fit: contain;
     box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     opacity: 0;
     transform: scale(0.95);
     transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);

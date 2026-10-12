@@ -279,7 +279,7 @@ function App() {
         const cx = e.clientX, cy = e.clientY;
         const x = Math.min(cx + 14, window.innerWidth - tw - 8);
         const y = cy - 28 < 8 ? cy + 20 : cy - 28;
-        tip.style.setProperty('--tooltip-color', isVerifiedBadgeLg ? '#1d9bf0' : (badgeEl ? '#f59e0b' : '#1d9bf0'));
+        tip.style.setProperty('--tooltip-color', isVerifiedBadgeLg ? 'var(--badge-verified-bg)' : (badgeEl ? 'var(--badge-pro-bg)' : 'var(--badge-verified-bg)'));
         tip.style.borderColor = isVerifiedBadgeLg ? 'rgba(29, 155, 240, 0.3)' : (badgeEl ? 'rgba(245, 158, 11, 0.3)' : 'rgba(29, 155, 240, 0.3)');
         tip.style.left = x + 'px';
         tip.style.top = y + 'px';
@@ -766,7 +766,7 @@ function App() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#cdd6f4',
+              color: 'var(--text-main)',
               padding: '2rem',
             }}
           >
@@ -788,8 +788,8 @@ function App() {
                     style={{
                       width: '40px',
                       height: '40px',
-                      border: '4px solid rgba(137,180,250,0.1)',
-                      borderTopColor: '#89b4fa',
+                      border: '4px solid color-mix(in srgb, var(--accent) 10%, transparent)',
+                      borderTopColor: 'var(--accent)',
                       borderRadius: '50%',
                       animation: 'spin 0.8s linear infinite',
                       margin: '0 auto',
@@ -802,11 +802,11 @@ function App() {
               ) : (
                 <div
                   style={{
-                    color: '#f38ba8',
-                    backgroundColor: 'rgba(243,139,168,0.1)',
+                    color: 'var(--danger)',
+                    backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)',
                     padding: '1.5rem',
                     borderRadius: '16px',
-                    border: '1px solid rgba(243,139,168,0.2)',
+                    border: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
                   }}
                 >
                   <p style={{ fontWeight: 700, marginBottom: '0.5rem' }}>
@@ -824,8 +824,8 @@ function App() {
                   <button
                     onClick={() => init()}
                     style={{
-                      backgroundColor: '#f38ba8',
-                      color: '#11111b',
+                      backgroundColor: 'var(--danger)',
+                      color: 'var(--on-accent)',
                       border: 'none',
                       padding: '0.5rem 1.5rem',
                       borderRadius: '8px',
@@ -851,18 +851,18 @@ function App() {
               gap: '2rem',
               padding: '2rem',
               textAlign: 'center',
-              color: '#ffffff',
-              background: '#09090f',
+              color: 'var(--text-main)',
+              background: 'var(--bg-base)',
             }}
           >
             <h1
               style={{
                 fontSize: 'min(4.5rem, 12vh)',
                 fontWeight: 900,
-                background: 'linear-gradient(135deg, #89b4fa 0%, #b4befe 100%)',
+                background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%)',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
-                filter: 'drop-shadow(0 0 30px rgba(137,180,250,0.3))',
+                filter: 'drop-shadow(0 0 30px color-mix(in srgb, var(--accent) 30%, transparent))',
               }}
             >
               GoyMusic
@@ -870,11 +870,11 @@ function App() {
             {authError && (
               <div
                 style={{
-                  color: '#f38ba8',
-                  backgroundColor: 'rgba(243,139,168,0.15)',
+                  color: 'var(--danger)',
+                  backgroundColor: 'color-mix(in srgb, var(--danger) 15%, transparent)',
                   padding: '1rem 2rem',
                   borderRadius: '12px',
-                  border: '1px solid rgba(243,139,168,0.3)',
+                  border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)',
                   maxWidth: '400px',
                 }}
               >
@@ -886,14 +886,14 @@ function App() {
               disabled={isAuthenticating}
               style={{
                 padding: '1.25rem 3.5rem',
-                backgroundColor: '#89b4fa',
+                backgroundColor: 'var(--accent)',
                 border: 'none',
                 borderRadius: '20px',
                 cursor: isAuthenticating ? 'default' : 'pointer',
-                color: '#11111b',
+                color: 'var(--on-accent)',
                 fontWeight: 800,
                 fontSize: '1.4rem',
-                boxShadow: '0 10px 40px rgba(137,180,250,0.4)',
+                boxShadow: '0 10px 40px color-mix(in srgb, var(--accent) 40%, transparent)',
               }}
             >
               {isAuthenticating

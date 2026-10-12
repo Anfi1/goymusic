@@ -13,9 +13,9 @@
 }
 
 .modal {
-    background: #1e1e2e;
+    background: var(--bg-raised);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     padding: 24px;
     width: 460px;
     max-width: calc(100vw - 32px);
@@ -33,14 +33,14 @@
 
 .title {
     margin: 0;
-    font-size: 16px;
+    font-size: var(--fs-lg);
     font-weight: 700;
-    color: #cdd6f4;
+    color: var(--text-main);
 }
 
 .subtitle {
-    font-size: 13px;
-    color: #a6adc8;
+    font-size: var(--fs-md);
+    color: var(--text-sub);
     margin: 0;
     line-height: 1.5;
 }
@@ -53,35 +53,35 @@
 
 .btnPrimary {
     padding: 9px 18px;
-    border-radius: 8px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-md);
     font-weight: 600;
     cursor: pointer;
     border: none;
     font-family: inherit;
-    background: #ff5500;
-    color: #fff;
+    background: var(--brand-soundcloud);
+    color: var(--text-main);
     transition: background 0.15s;
 }
 
 .btnPrimary:hover {
-    background: #ff7733;
+    background: color-mix(in srgb, var(--brand-soundcloud) 85%, white);
 }
 
 .btnSecondary {
     padding: 9px 18px;
-    border-radius: 8px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-md);
     font-weight: 600;
     cursor: pointer;
     border: none;
     font-family: inherit;
     background: transparent;
-    color: #a6adc8;
+    color: var(--text-sub);
     transition: background 0.15s, color 0.15s;
 }
 
 .btnSecondary:hover {
     background: rgba(255, 255, 255, 0.05);
-    color: #cdd6f4;
+    color: var(--text-main);
 }

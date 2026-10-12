@@ -304,7 +304,7 @@ export const HomeView: React.FC<{
     return (
       <div style={{ position: 'relative' }}>
         {yandexToggle}
-        <div className={styles.container} style={{ color: '#f38ba8', padding: 24 }}>Failed to load home feed.</div>
+        <div className={styles.container} style={{ color: 'var(--danger)', padding: 24 }}>Failed to load home feed.</div>
       </div>
     );
   }

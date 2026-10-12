@@ -101,7 +101,7 @@ const DislikeButton = memo(() => {
       title={isSc ? 'SoundCloud не поддерживает дизлайк' : undefined}
       className={styles.likeButton}
       onClick={(e: React.MouseEvent) => { if (!isSc) rate('DISLIKE', e); }}
-      color={isDisliked ? '#fab387' : undefined}
+      color={isDisliked ? 'var(--warning)' : undefined}
     />
   );
 });
@@ -118,8 +118,8 @@ const LikeButton = memo(() => {
       isLoading={loadingAction === 'like'}
       className={styles.likeButton}
       onClick={(e: React.MouseEvent) => rate('LIKE', e)}
-      color={likeStatus === 'LIKE' ? '#f38ba8' : undefined}
-      fill={likeStatus === 'LIKE' ? '#f38ba8' : 'none'}
+      color={likeStatus === 'LIKE' ? 'var(--danger)' : undefined}
+      fill={likeStatus === 'LIKE' ? 'var(--danger)' : 'none'}
     />
   );
 });
@@ -488,7 +488,7 @@ const PlayPauseButton = memo(() => {
     <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
       <IconButton icon={isPlaying ? Pause : Play} size={44} iconSize={20} variant="solid" onClick={() => player.togglePlay()} />
       {hasError && (
-        <span style={{ position: 'absolute', bottom: -12, display: 'flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--color-error, #f38ba8)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+        <span style={{ position: 'absolute', bottom: -12, display: 'flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--danger)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
           <AlertCircle size={8} />
           ошибка воспроизведения
         </span>
@@ -512,7 +512,7 @@ const RepeatButton = memo(() => {
     <div style={{ position: 'relative', display: 'inline-flex' }}>
       <IconButton icon={RepeatIcon} size={32} iconSize={16} active={repeat !== 'off'} onClick={() => player.toggleRepeat()} />
       {errorSkipCount > 0 && (
-        <span style={{ position: 'absolute', bottom: -8, right: -2, fontSize: 9, color: 'var(--color-error, #f38ba8)', lineHeight: 1, pointerEvents: 'none' }}>
+        <span style={{ position: 'absolute', bottom: -8, right: -2, fontSize: 9, color: 'var(--danger)', lineHeight: 1, pointerEvents: 'none' }}>
           -{errorSkipCount}
         </span>
       )}
@@ -556,7 +556,7 @@ const OverrideButton = memo(({ onOpen }: { onOpen: (track: YTMTrack) => void }) 
       size={32}
       iconSize={16}
       active={hasOverride}
-      color={hasOverride ? '#89b4fa' : undefined}
+      color={hasOverride ? 'var(--accent)' : undefined}
       onClick={() => onOpen(track)}
     />
   );

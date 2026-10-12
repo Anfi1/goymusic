@@ -1,7 +1,7 @@
 .row {
     transition: background-color 0.1s ease;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     position: relative;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
@@ -11,7 +11,7 @@
 }
 
 .row.active {
-    background: rgba(137, 180, 250, 0.08);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* Simple solid indicator on the left, no glow */
@@ -27,7 +27,7 @@
     bottom: 8px;
     width: 3px;
     background: var(--accent);
-    border-radius: 0 2px 2px 0;
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
     z-index: 2;
 }
 
@@ -36,13 +36,13 @@
 }
 
 :global([data-theme="light"]) .row.active {
-    background: rgba(137, 180, 250, 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .row td {
     padding: 8px 12px;
     border-bottom: 1px solid transparent;
-    font-size: 13px;
+    font-size: var(--fs-md);
     vertical-align: middle;
     min-width: 0;
 }
@@ -121,7 +121,7 @@
 .thumb {
     width: 40px;
     height: 40px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     object-fit: cover;
     flex-shrink: 0;
 }
@@ -129,8 +129,8 @@
 .thumbPlaceholder {
     width: 40px;
     height: 40px;
-    border-radius: 4px;
-    background: var(--bg-layer-2);
+    border-radius: var(--radius-xs);
+    background: var(--bg-mantle);
 }
 
 .titleWrapper {
@@ -150,7 +150,7 @@
 
 .title {
     font-weight: 500;
-    font-size: 14px;
+    font-size: var(--fs-base);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -165,12 +165,12 @@
 }
 
 .bestBadge.hot {
-    color: #f9e2af;
+    color: var(--warning);
 }
 
-/* красный, но не розовый #f38ba8 сердечка рядом */
+/* красный, но не розовый --danger сердечка рядом */
 .bestBadge.top {
-    color: #ff5f57;
+    color: var(--badge-top);
 }
 
 .row.active .title {
@@ -186,7 +186,7 @@
 }
 
 .artist {
-    font-size: 12px;
+    font-size: var(--fs-sm);
     opacity: 0.6;
     white-space: nowrap;
     overflow: hidden;
@@ -199,7 +199,7 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     opacity: 0.45;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -248,7 +248,7 @@
 }
 
 .overrideIcon {
-    color: #89b4fa;
+    color: var(--accent);
     flex-shrink: 0;
     opacity: 0.7;
 }

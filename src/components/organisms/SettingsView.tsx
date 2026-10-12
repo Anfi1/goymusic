@@ -406,7 +406,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                     : 'Log in to like tracks on SoundCloud (recommended). Pasting a token only enables reading, not liking (blocked by SoundCloud bot-protection).'}
                             </span>
                             {scError && (
-                                <span className={styles.subtitle} style={{ color: 'var(--color-error, #f38ba8)' }}>
+                                <span className={styles.subtitle} style={{ color: 'var(--danger)' }}>
                                     Invalid token — check it and try again.
                                 </span>
                             )}
@@ -415,7 +415,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
                                 <button
                                     onClick={handleScDisconnect}
-                                    style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                                    style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-main)', cursor: 'pointer', fontSize: 13 }}
                                 >Disconnect</button>
                                 {scLocalCount > 0 && (
                                     <button
@@ -423,7 +423,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                         disabled={scUploading}
                                         style={{
                                             padding: '6px 14px', borderRadius: 6, border: 'none',
-                                            background: scUploading ? '#888' : '#ff5500',
+                                            background: scUploading ? '#888' : 'var(--brand-soundcloud)',
                                             color: '#fff', cursor: scUploading ? 'default' : 'pointer',
                                             fontSize: 13, opacity: scUploading ? 0.6 : 1, whiteSpace: 'nowrap'
                                         }}
@@ -435,7 +435,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                 <button
                                     onClick={handleScLogin}
                                     disabled={scConnecting}
-                                    style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#ff5500', color: '#fff', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: scConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                                    style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: 'var(--brand-soundcloud)', color: '#fff', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: scConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
                                 >{scConnecting ? '...' : 'Log in to SoundCloud'}</button>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                     <input
@@ -444,12 +444,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                         value={scTokenInput}
                                         onChange={(e) => setScTokenInput(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter') handleScConnect(); }}
-                                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.25)', color: 'var(--text-primary)', fontSize: 13, width: 160 }}
+                                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.25)', color: 'var(--text-main)', fontSize: 13, width: 160 }}
                                     />
                                     <button
                                         onClick={handleScConnect}
                                         disabled={scConnecting || !scTokenInput.trim()}
-                                        style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: (scConnecting || !scTokenInput.trim()) ? 0.6 : 1 }}
+                                        style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-main)', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: (scConnecting || !scTokenInput.trim()) ? 0.6 : 1 }}
                                     >Use token</button>
                                 </div>
                             </div>
@@ -500,19 +500,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                     : 'Sign in required: Yandex Music has no anonymous API access, unlike SoundCloud.'}
                             </span>
                             {yandexError && (
-                                <span className={styles.subtitle} style={{ color: 'var(--color-error, #f38ba8)' }}>
+                                <span className={styles.subtitle} style={{ color: 'var(--danger)' }}>
                                     {yandexError}
                                 </span>
                             )}
                             {yandexDeviceCode && (
-                                <span className={styles.subtitle} style={{ color: '#ffcc00' }}>
+                                <span className={styles.subtitle} style={{ color: 'var(--warning)' }}>
                                     Enter code{' '}
                                     <strong
                                         onClick={handleCopyYandexCode}
                                         title="Click to copy"
                                         style={{ cursor: 'pointer', textDecoration: 'underline dotted', userSelect: 'all' }}
                                     >{yandexDeviceCode.userCode}</strong>
-                                    {yandexCodeCopied && <span style={{ color: '#a6e3a1' }}> (copied!)</span>}
+                                    {yandexCodeCopied && <span style={{ color: 'var(--success)' }}> (copied!)</span>}
                                     {' '}at {yandexDeviceCode.verificationUrl} (opened in browser)
                                 </span>
                             )}
@@ -520,12 +520,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                         {yandexConnected ? (
                             <button
                                 onClick={handleYandexDisconnect}
-                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-main)', cursor: 'pointer', fontSize: 13 }}
                             >Disconnect</button>
                         ) : yandexDeviceCode ? (
                             <button
                                 onClick={handleYandexCancelLogin}
-                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}
+                                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-main)', cursor: 'pointer', fontSize: 13 }}
                             >Cancel</button>
                         ) : (
                             <button
@@ -665,7 +665,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 </div>
                 {pathWarning && (
                     <div className={styles.row} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                        <span className={styles.subtitle} style={{ color: '#fab387' }}>
+                        <span className={styles.subtitle} style={{ color: 'var(--warning)' }}>
                             Folder changed. Files from the old folder must be moved manually, otherwise overrides will stop working.
                         </span>
                     </div>
@@ -691,7 +691,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 <div className={styles.row}>
                     <div className={styles.col}>
                         <span>Reset Local Overrides</span>
-                        <span className={styles.subtitle} style={{ color: '#f87171' }}>
+                        <span className={styles.subtitle} style={{ color: 'var(--danger)' }}>
                             Dangerous: clears all bindings. Click only if you know why you need this.
                         </span>
                     </div>

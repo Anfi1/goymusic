@@ -11,11 +11,11 @@
     position: fixed;
     min-width: 200px;
     max-width: 320px;
-    background: rgba(30, 30, 46, 0.95);
+    background: color-mix(in srgb, var(--bg-raised) 95%, transparent);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 6px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     z-index: 999999;
@@ -38,7 +38,7 @@
 
 .subMenu::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
 }
 
 .subMenu::-webkit-scrollbar-thumb:hover {
@@ -61,18 +61,18 @@
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.2s ease;
-    color: #cdd6f4;
-    font-size: 0.85rem;
+    color: var(--text-main);
+    font-size: var(--fs-base);
     position: relative;
     white-space: nowrap;
 }
 
 .item:hover {
-    background: rgba(137, 180, 250, 0.15);
-    color: #89b4fa;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
 }
 
 .icon {
@@ -104,11 +104,11 @@
     min-width: 200px;
     max-width: 280px;
     max-height: 210px; 
-    background: rgba(30, 30, 46, 0.98);
+    background: color-mix(in srgb, var(--bg-raised) 98%, transparent);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 6px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
     display: flex;
@@ -155,7 +155,7 @@
 .skeletonBar {
     height: 14px;
     background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     width: 100%;
     position: relative;
     overflow: hidden;
@@ -184,6 +184,6 @@
 }
 
 .item.danger:hover {
-    background: rgba(243, 139, 168, 0.15);
-    color: #f38ba8;
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
 }

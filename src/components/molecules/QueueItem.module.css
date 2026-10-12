@@ -3,7 +3,7 @@
     align-items: center;
     gap: 12px;
     padding: 6px 10px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
     position: relative;
@@ -12,23 +12,23 @@
 }
 
 .item:hover {
-    background: rgba(205, 214, 244, 0.05);
-    border-color: rgba(205, 214, 244, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
 }
 
 .item.active {
-    background: rgba(137, 180, 250, 0.1);
-    border-color: rgba(137, 180, 250, 0.2);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .coverWrapper {
     position: relative;
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     flex-shrink: 0;
-    background: #11111b;
+    background: var(--solid-mantle);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
@@ -59,7 +59,7 @@
 
 .playOverlay {
     opacity: 0;
-    color: white;
+    color: var(--text-main);
     z-index: 3;
 }
 
@@ -91,9 +91,9 @@
 }
 
 .title {
-    font-size: 0.9rem;
+    font-size: var(--fs-base);
     font-weight: 500;
-    color: var(--text-main, #cdd6f4);
+    color: var(--text-main);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -101,8 +101,8 @@
 }
 
 .artist {
-    font-size: 0.75rem;
-    color: var(--text-sub, #a6adc8);
+    font-size: var(--fs-sm);
+    color: var(--text-sub);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -115,12 +115,12 @@
 }
 
 .link:hover {
-    color: var(--text-main, #cdd6f4);
+    color: var(--text-main);
     text-decoration: underline;
 }
 
 .active .title {
-    color: #89b4fa;
+    color: var(--accent);
 }
 
 .rightSection {
@@ -131,8 +131,8 @@
 }
 
 .duration {
-    font-size: 0.75rem;
-    color: var(--text-sub, #a6adc8);
+    font-size: var(--fs-sm);
+    color: var(--text-sub);
     font-variant-numeric: tabular-nums;
     opacity: 0.8;
 }
@@ -213,7 +213,7 @@
 }
 
 .overrideIcon {
-    color: #89b4fa;
+    color: var(--accent);
     flex-shrink: 0;
     opacity: 0.7;
 }

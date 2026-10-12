@@ -2,7 +2,7 @@
     padding: 1rem 1.5rem;
     height: 100%;
     overflow-y: auto;
-    background: linear-gradient(180deg, rgba(137, 180, 250, 0.05) 0%, transparent 600px);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 600px);
 }
 
 .header {
@@ -27,12 +27,12 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.65rem;
+    font-size: var(--fs-2xs);
     color: var(--accent);
     font-weight: 700;
-    background: rgba(137, 180, 250, 0.1);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     padding: 0.15rem 0.6rem;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     animation: fadeIn 0.3s ease;
@@ -45,11 +45,11 @@
 
 .icon {
     color: var(--accent);
-    filter: drop-shadow(0 0 12px rgba(137, 180, 250, 0.6));
+    filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 60%, transparent));
 }
 
 .titleInfo h1 {
-    font-size: 2.2rem;
+    font-size: var(--fs-5xl);
     font-weight: 900;
     margin: 0;
     letter-spacing: -0.03em;
@@ -61,7 +61,7 @@
 }
 
 .sectionTitle {
-    font-size: 1.45rem; /* Matched HomeView */
+    font-size: var(--fs-3xl); /* Matched HomeView */
     font-weight: 800;
     margin-bottom: 1.25rem; /* Reduced from 2rem */
     opacity: 0.95;
@@ -80,7 +80,7 @@
     bottom: 4px;
     width: 4px; /* Slightly thinner */
     background: var(--accent);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     box-shadow: 0 0 12px var(--accent);
 }
 

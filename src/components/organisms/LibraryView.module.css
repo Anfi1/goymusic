@@ -2,7 +2,7 @@
     padding: 1.25rem 1.75rem;
     height: 100%;
     overflow-y: auto;
-    background: linear-gradient(180deg, rgba(137, 180, 250, 0.05) 0%, transparent 600px);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 600px);
 }
 
 .headerRow {
@@ -20,7 +20,7 @@
 }
 
 .titleWrapper h1 {
-    font-size: 1.8rem;
+    font-size: var(--fs-4xl);
     font-weight: 800;
     margin: 0;
     letter-spacing: -0.03em;
@@ -29,7 +29,7 @@
 
 .icon {
     color: var(--accent);
-    filter: drop-shadow(0 0 12px rgba(137, 180, 250, 0.6));
+    filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 60%, transparent));
 }
 
 .rightControls {
@@ -50,7 +50,7 @@
     gap: 4px;
     background: rgba(255, 255, 255, 0.03);
     padding: 4px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     width: 100%;
     overflow: hidden;
@@ -64,11 +64,11 @@
     justify-content: center;
     gap: 6px;
     padding: 8px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     border: none;
     background: transparent;
-    color: var(--text-secondary);
-    font-size: 0.84rem;
+    color: var(--text-sub);
+    font-size: var(--fs-md);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -87,7 +87,7 @@
 }
 
 .activeTab {
-    background: rgba(137, 180, 250, 0.15) !important;
+    background: color-mix(in srgb, var(--accent) 15%, transparent) !important;
     color: var(--accent) !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
@@ -104,11 +104,11 @@
     align-items: center;
     gap: 7px;
     padding: 7px 14px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border-color);
-    background: rgba(137, 180, 250, 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent);
-    font-size: 0.85rem;
+    font-size: var(--fs-base);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -117,8 +117,8 @@
 }
 
 .shuffleBtn:hover {
-    background: rgba(137, 180, 250, 0.22);
-    box-shadow: 0 0 12px rgba(137, 180, 250, 0.3);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 /* Custom Dropdown Menu */
@@ -135,8 +135,8 @@
     color: var(--text-main);
     border: 1px solid var(--border-color);
     padding: 7px 14px;
-    border-radius: 10px;
-    font-size: 0.85rem;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-base);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -147,16 +147,16 @@
 
 .dropdownTrigger:hover {
     background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(137, 180, 250, 0.3);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .dropdownTriggerActive {
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .chevronIcon {
-    color: var(--text-secondary);
+    color: var(--text-sub);
     transition: transform 0.2s ease;
     opacity: 0.7;
 }
@@ -170,9 +170,9 @@
     top: calc(100% + 6px);
     right: 0;
     min-width: 170px;
-    background: rgba(24, 24, 37, 0.95);
+    background: color-mix(in srgb, var(--bg-raised) 95%, transparent);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 6px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(20px);
@@ -199,11 +199,11 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: transparent;
     border: none;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
+    color: var(--text-sub);
+    font-size: var(--fs-base);
     font-weight: 500;
     cursor: pointer;
     text-align: left;
@@ -217,7 +217,7 @@
 
 .dropdownOptionActive {
     color: var(--accent);
-    background: rgba(137, 180, 250, 0.1);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     font-weight: 600;
 }
 
@@ -255,7 +255,7 @@
 .emptyState {
     padding: 4rem 2rem;
     text-align: center;
-    color: var(--text-secondary);
+    color: var(--text-sub);
 }
 
 .emptyIcon {
@@ -264,15 +264,15 @@
 }
 
 .emptyText {
-    font-size: 1.2rem;
+    font-size: var(--fs-2xl);
     font-weight: 600;
     margin-bottom: 0.5rem;
     color: var(--text-main);
 }
 
 .emptySubtext {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
+    font-size: var(--fs-base);
+    color: var(--text-sub);
     opacity: 0.6;
 }
 
@@ -308,9 +308,9 @@
 }
 
 .modalContainer {
-    background: rgba(24, 24, 37, 0.95);
+    background: color-mix(in srgb, var(--bg-raised) 95%, transparent);
     border: 1px solid var(--border-color);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     width: 100%;
     max-width: 920px;
     max-height: calc(100vh - 180px);
@@ -341,11 +341,11 @@
     height: 52px;
     border-radius: 50%;
     object-fit: cover;
-    border: 2px solid rgba(137, 180, 250, 0.4);
+    border: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .modalTitles h2, .modalArtistTitle {
-    font-size: 1.35rem;
+    font-size: var(--fs-2xl);
     font-weight: 800;
     margin: 0 0 2px 0;
     color: var(--text-main);
@@ -360,8 +360,8 @@
 }
 
 .modalSubtitle {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
+    font-size: var(--fs-base);
+    color: var(--text-sub);
 }
 
 .modalActions {
@@ -373,7 +373,7 @@
 .modalCloseBtn {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-color);
-    color: var(--text-secondary);
+    color: var(--text-sub);
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -415,7 +415,7 @@
     }
     
     .titleWrapper h1 {
-        font-size: 1.5rem;
+        font-size: var(--fs-3xl);
     }
     
     .rightControls {
@@ -424,13 +424,13 @@
     
     .tabBtn {
         padding: 7px 4px;
-        font-size: 0.78rem;
+        font-size: var(--fs-sm);
         gap: 4px;
     }
     
     .shuffleBtn, .dropdownTrigger {
         padding: 6px 10px;
-        font-size: 0.8rem;
+        font-size: var(--fs-md);
         gap: 5px;
     }
 }

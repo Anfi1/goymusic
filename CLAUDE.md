@@ -90,6 +90,10 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 - Деплой идёт через GitHub Actions — **в `main` не вливать нерабочее**; фичи через ветки, мердж после стабилизации.
 - **`python/api.py` не открывается инструментом Read** (~4200 строк, превышает лимит токенов) — а значит и Edit по нему не работает. Читать `sed -n`, править скриптом с `ast.parse` после.
 
+## Визуальные правила
+
+@DESIGN.md
+
 ## Текущая работа
 
 Эпик **SoundCloud-гибрид + «Моя волна»** влит в `main`: команды `sc_*` в `python/api.py`, UI — `src/components/organisms/MyWaveView.tsx`. Лайки SC идут через nodriver (`sc_like_nodriver`) — прямой api-v2 путь удалён, DataDome его резал.

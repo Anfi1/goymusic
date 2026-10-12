@@ -968,7 +968,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                   disabled={noDislike || likeAction !== null}
                   title={noDislike ? `${isSc ? 'SoundCloud' : 'Yandex Music'} не поддерживает дизлайк` : 'Не нравится'}
                 >
-                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={18} color={likeStatus === 'DISLIKE' && !noDislike ? '#fab387' : noDislike ? 'rgba(255,255,255,0.25)' : undefined} />}
+                  {likeAction === 'dislike' ? <Loader2 size={18} className={styles.spin} /> : <HeartCrack size={18} color={likeStatus === 'DISLIKE' && !noDislike ? 'var(--warning)' : noDislike ? 'rgba(255,255,255,0.25)' : undefined} />}
                 </button>
                 {/* Queue */}
                 <button

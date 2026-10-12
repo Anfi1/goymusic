@@ -5,7 +5,7 @@
     grid-template-columns: 1fr 400px 1fr; /* Fixed width for search area */
     align-items: center;
     height: var(--title-height); /* Uses variable from theme.css */
-    background-color: var(--bg-surface);
+    background-color: var(--bg-mantle);
     border-bottom: 1px solid var(--border-subtle);
     user-select: none;
     -webkit-app-region: drag;
@@ -46,7 +46,7 @@
     align-items: center;
     background: var(--bg-mantle);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 0 10px;
     transition: all 0.2s ease;
 }
@@ -54,11 +54,11 @@
 .inputIconWrapper:focus-within {
     border-color: var(--accent);
     background: rgba(255, 255, 255, 0.05);
-    box-shadow: 0 0 0 3px rgba(137, 180, 250, 0.1);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .searchIcon {
-    color: var(--text-secondary);
+    color: var(--text-sub);
     margin-right: 8px;
     flex-shrink: 0;
 }
@@ -69,7 +69,7 @@
     background: transparent;
     border: none;
     color: var(--text-main);
-    font-size: 0.85rem;
+    font-size: var(--fs-base);
     outline: none;
     width: 100%;
 }
@@ -92,7 +92,7 @@
     right: 0;
     background: var(--bg-mantle);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
     overflow: hidden;
     backdrop-filter: blur(24px);
@@ -108,7 +108,7 @@
     cursor: pointer;
     transition: all 0.15s ease;
     color: var(--text-main);
-    font-size: 0.85rem;
+    font-size: var(--fs-base);
 }
 
 .suggestionItem:hover {
@@ -141,9 +141,9 @@
     width: 18px;
     height: 18px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     background: transparent;
-    color: var(--text-secondary);
+    color: var(--text-sub);
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.15s, background 0.15s, color 0.15s;
@@ -156,13 +156,13 @@
 
 .suggestionDelete:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: #ef4444;
+    color: var(--danger);
 }
 
 .suggestionSelected {
-    background: rgba(137, 180, 250, 0.1);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     padding-left: 18px;
-    color: var(--accent, #89b4fa);
+    color: var(--accent);
 }
 
 .suggestionSelected .suggestionIcon {
@@ -174,13 +174,13 @@
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
-    color: var(--text-sub, #a6adc8);
-    font-size: 0.82rem;
+    color: var(--text-sub);
+    font-size: var(--fs-md);
     opacity: 0.6;
 }
 
 .searchIconSpinner {
-    color: var(--text-secondary);
+    color: var(--text-sub);
     margin-right: 8px;
     flex-shrink: 0;
     animation: spin 0.8s linear infinite;
@@ -202,7 +202,7 @@
 .controlBtn {
     background: transparent;
     border: none;
-    color: var(--text-secondary, #9399b2); /* Fallback color for visibility during init */
+    color: var(--text-sub); /* Fallback color for visibility during init */
     width: 46px;
     height: 100%;
     display: flex;
@@ -222,13 +222,13 @@
 }
 
 .closeBtn:hover {
-    background-color: #ef4444 !important;
-    color: white !important;
+    background-color: var(--danger) !important;
+    color: var(--text-main) !important;
 }
 
 .themeToggle {
     margin-right: 0.5rem;
-    color: var(--text-secondary);
+    color: var(--text-sub);
 }
 
 .divider {
@@ -239,7 +239,7 @@
 }
 
 .loadingTitle {
-    font-size: 0.95rem;
+    font-size: var(--fs-lg);
     font-weight: 800;
     color: var(--accent);
     letter-spacing: 1.5px;

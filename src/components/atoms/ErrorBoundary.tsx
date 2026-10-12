@@ -46,14 +46,14 @@ export class ErrorBoundary extends Component<Props, State> {
           gap: '1.5rem',
           padding: '2rem',
           textAlign: 'center',
-          color: '#f38ba8',
-          background: 'var(--bg-base, #09090f)',
+          color: 'var(--danger)',
+          background: 'var(--bg-base)',
           ...this.props.fallbackStyle
         }}>
           <AlertCircle size={64} />
           <div>
             <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Something went wrong</h2>
-            <p style={{ opacity: 0.8, maxWidth: '400px', margin: '0 auto', color: '#cdd6f4' }}>
+            <p style={{ opacity: 0.8, maxWidth: '400px', margin: '0 auto', color: 'var(--text-main)' }}>
               {this.state.error?.message || 'An unexpected UI error occurred.'}
             </p>
           </div>
@@ -61,10 +61,10 @@ export class ErrorBoundary extends Component<Props, State> {
             onClick={this.handleReset}
             style={{
               padding: '0.75rem 1.5rem',
-              backgroundColor: '#313244',
+              backgroundColor: 'var(--bg-raised)',
               border: 'none',
               borderRadius: '12px',
-              color: '#cdd6f4',
+              color: 'var(--text-main)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',

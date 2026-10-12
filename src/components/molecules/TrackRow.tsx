@@ -172,7 +172,7 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
         {loadingAction === 'like' ? (
           <Loader2 size={16} className={styles.spinner} />
         ) : (
-          <Heart size={16} color={isLiked ? '#f38ba8' : 'var(--text-sub)'} fill={isLiked ? '#f38ba8' : 'none'} />
+          <Heart size={16} color={isLiked ? 'var(--danger)' : 'var(--text-sub)'} fill={isLiked ? 'var(--danger)' : 'none'} />
         )}
       </button>
       {!hideDislike && <button
@@ -183,7 +183,7 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
         {loadingAction === 'dislike' ? (
           <Loader2 size={16} className={styles.spinner} />
         ) : (
-          <HeartCrack size={16} color={isDisliked ? '#fab387' : 'var(--text-sub)'} />
+          <HeartCrack size={16} color={isDisliked ? 'var(--warning)' : 'var(--text-sub)'} />
         )}
       </button>}
     </>

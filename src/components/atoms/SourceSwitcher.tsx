@@ -7,7 +7,7 @@ import styles from './SourceSwitcher.module.css';
 
 const ICONS: Record<TrackSource, (size: number) => ReactElement> = {
   youtube: (size) => <YouTubeMusicIcon size={size} />,
-  soundcloud: (size) => <Cloud size={size} color="#ff5500" />,
+  soundcloud: (size) => <Cloud size={size} color="var(--brand-soundcloud)" />,
   yandex: (size) => <YandexMusicIcon size={size} />,
 };
 
