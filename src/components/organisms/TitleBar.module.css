@@ -5,7 +5,6 @@
     grid-template-columns: 1fr 400px 1fr; /* Fixed width for search area */
     align-items: center;
     height: var(--title-height); /* Uses variable from theme.css */
-    background-color: var(--bg-mantle);
     border-bottom: 1px solid var(--border-subtle);
     user-select: none;
     -webkit-app-region: drag;

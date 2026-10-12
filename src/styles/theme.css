@@ -5,7 +5,8 @@
     --bg-base: #191919;
     --bg-mantle: #212121;
 
-    --text-main: #ffffff;
+    /* не чисто белый: на сером фоне он режет глаз */
+    --text-main: #dcdcdc;
     --text-sub: rgba(255, 255, 255, 0.66);
     --text-dim: rgba(255, 255, 255, 0.4);
 
@@ -35,11 +36,11 @@
     --glass-popover-bg: rgba(33, 33, 33, 0.9);
     --glass-popover-blur: 16px;
 
-    /* Поверхности поверх размытой обложки (ambientBlur): панели светлее основной области */
-    --glass-surface: rgba(33, 33, 33, 0.3);
-    --glass-surface-main: rgba(25, 25, 25, 0.2);
+    /* Поверхности поверх размытой обложки (ambientBlur): затемняют чёрным, серый оттенок её выбеливает */
+    --glass-surface: rgba(0, 0, 0, 0.35);
+    --glass-surface-main: rgba(0, 0, 0, 0.4);
     --bg-main-glass: rgba(25, 25, 25, 0.6);
-    --glass-surface-player: rgba(33, 33, 33, 0.6);
+    --glass-surface-player: rgba(0, 0, 0, 0.55);
 
     /* Badge colors */
     --badge-pro-color: #f59e0b;
