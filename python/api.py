@@ -1699,16 +1699,20 @@ def _cipher_for(js, js_url):
             except Exception:
                 pass
     cipher = _PtfCipher(js=js, js_url=js_url)
-    ptf_nsig = cipher.get_nsig
 
-    def get_nsig(n):
-        try:
-            return _ejs_nsig(js, js_url, n)
-        except Exception as e:
-            print(f"[warn] ejs nsig: {e}, fallback to pytubefix", file=sys.stderr)
-            return ptf_nsig(n)
+    def via_ejs(kind, ptf_solve):
+        # pytubefix зовёт get_sig(ciphered_signature=...), а get_nsig позиционно
+        def solve(challenge=None, ciphered_signature=None):
+            challenge = challenge or ciphered_signature
+            try:
+                return _ejs_solve(js, js_url, kind, challenge)
+            except Exception as e:
+                print(f"[warn] ejs {kind}: {e}, fallback to pytubefix", file=sys.stderr)
+                return ptf_solve(challenge)
+        return solve
 
-    cipher.get_nsig = get_nsig
+    cipher.get_nsig = via_ejs('n', cipher.get_nsig)
+    cipher.get_sig = via_ejs('sig', cipher.get_sig)
     _ptf_cipher = (js_url, cipher)
     return cipher
 
@@ -1767,7 +1771,7 @@ Object.assign(globalThis, lib);
     let out;
     try {
       const q = JSON.parse(l);
-      const reqs = [{type: "n", challenges: q.n}];
+      const reqs = [{type: q.type, challenges: [q.c]}];
       out = q.player ? jsc({type: "player", player: q.player, requests: reqs, output_preprocessed: true})
                      : jsc({type: "preprocessed", preprocessed_player: pre, requests: reqs});
       if (out.preprocessed_player) { pre = out.preprocessed_player; delete out.preprocessed_player; }
@@ -1778,10 +1782,12 @@ Object.assign(globalThis, lib);
 '''
 
 
-def _ejs_nsig(js, js_url, n):
-    """Параметр n ссылки googlevideo решателем yt-dlp-ejs. Свой у pytubefix на плеере c271e571
-    (2026-10-20) выдаёт мусор, и googlevideo отвечает 403 с нулевого байта: Format error в
-    <audio> и уход в SoundCloud. Решатель yt-dlp чинят быстрее, поэтому он основной.
+def _ejs_solve(js, js_url, kind, challenge):
+    """Параметр n (kind='n') или подпись (kind='sig') ссылки googlevideo решателем yt-dlp-ejs.
+    Подпись у pytubefix сломалась на плеере 67288f35 (2026-10-20): треки с signatureCipher
+    получали 403, а с готовой ссылкой играли. n у pytubefix до этого сломался на плеере c271e571.
+    В обоих случаях googlevideo отвечает 403 с нулевого байта: Format error в <audio> и уход
+    в SoundCloud. Решатель yt-dlp чинят быстрее, поэтому он основной.
     Холодный node на каждый вызов, как делает сам yt-dlp, стоит ~0.75с на трек, поэтому
     держим один процесс: первый вызов на новом base.js ~0.9с, дальше ~0.03с."""
     global _ejs_proc
@@ -1799,7 +1805,7 @@ def _ejs_nsig(js, js_url, n):
                 threading.Thread(target=_bg_pump, args=(proc, lines), daemon=True).start()
                 _ejs_proc = [proc, lines, None]
             proc, lines, loaded = _ejs_proc
-            msg = {'n': [n]}
+            msg = {'type': kind, 'c': challenge}
             if loaded != js_url:
                 msg['player'] = js
             proc.stdin.write(json.dumps(msg) + '\n')
@@ -1811,7 +1817,7 @@ def _ejs_nsig(js, js_url, n):
             res = out['responses'][0]
             if res.get('type') == 'error':
                 raise RuntimeError(res.get('error'))
-            return res['data'][n]
+            return res['data'][challenge]
         except Exception:
             # на любом сбое следующий вызов поднимет процесс и плеер заново
             if _ejs_proc:

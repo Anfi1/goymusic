@@ -32,7 +32,7 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 ```
 
 - Renderer вызывает Python: `window.bridge.pyCall('<command>', args)`; диспетчер команд — `handle_request` в `python/api.py` (≈стр. 1690+, ~60 команд).
-- Аудио играет **HTML5 `<audio>`** с двойной буферизацией и Web Audio (нормализация, 6-полосный EQ): `src/api/player.ts`. Поток — stream URL от `get_stream_url` (быстрый путь: авторизованный WEB_REMIX player через ytmusicapi + подпись pytubefix, параметр `n` решателем yt-dlp-ejs в прогретом node (`_ejs_nsig`: свой у pytubefix ломается на новых плеерах), ~0.3с, opus 251, botGuard-токен под video_id; без кук анонимный WEB_MUSIC с botGuard-токеном; путь, словивший бот-чек `LOGIN_REQUIRED`, пропускается 15 мин → гонка клиентов yt-dlp).
+- Аудио играет **HTML5 `<audio>`** с двойной буферизацией и Web Audio (нормализация, 6-полосный EQ): `src/api/player.ts`. Поток — stream URL от `get_stream_url` (быстрый путь: авторизованный WEB_REMIX player через ytmusicapi, подпись и параметр `n` решателем yt-dlp-ejs в прогретом node (`_ejs_solve`: свои у pytubefix ломаются на новых плеерах), ~0.3с, opus 251, botGuard-токен под video_id; без кук анонимный WEB_MUSIC с botGuard-токеном; путь, словивший бот-чек `LOGIN_REQUIRED`, пропускается 15 мин → гонка клиентов yt-dlp).
 
 ### Нормализация громкости
 
