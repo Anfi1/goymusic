@@ -1670,7 +1670,6 @@ _ptf_state = None  # (visitor_data, js, js_url, signature_timestamp, warmed_at)
 _ptf_pot_cache = {}  # video_id -> (po_token, minted_at)
 _ptf_pot_lock = threading.Lock()
 _ptf_state_lock = threading.Lock()
-_PTF_TOKEN_FILE = os.path.join(USER_DATA_DIR, 'ptf_pot.json')
 _ptf_cipher = None  # (js_url, Cipher) -- живой, вместе со своими node-процессами
 _ptf_node_close = _PtfNodeRunner.close
 
@@ -1699,8 +1698,19 @@ def _cipher_for(js, js_url):
                 _ptf_node_close(runner)
             except Exception:
                 pass
-    _ptf_cipher = (js_url, _PtfCipher(js=js, js_url=js_url))
-    return _ptf_cipher[1]
+    cipher = _PtfCipher(js=js, js_url=js_url)
+    ptf_nsig = cipher.get_nsig
+
+    def get_nsig(n):
+        try:
+            return _ejs_nsig(js, js_url, n)
+        except Exception as e:
+            print(f"[warn] ejs nsig: {e}, fallback to pytubefix", file=sys.stderr)
+            return ptf_nsig(n)
+
+    cipher.get_nsig = get_nsig
+    _ptf_cipher = (js_url, cipher)
+    return cipher
 
 
 ptf_extract.Cipher = lambda js, js_url: _cipher_for(js, js_url)
@@ -1729,19 +1739,85 @@ _BG_LOOP = ('A=t;var D,O;console.info("POT:");for await(const l of require("read
             'x.mintAsWebsafeString(l.trim()))}catch(e){console.info("POT:")}}}')
 
 
-def _bg_read(lines):
+def _bg_read(lines, prefix='POT:'):
     while True:
         line = lines.get(timeout=20)
         if line is None:
-            raise RuntimeError('botGuard node exited')
-        if line.startswith('POT:'):
-            return line[4:].strip()
+            raise RuntimeError('node exited')
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
 
 
 def _bg_pump(proc, lines):
     for line in proc.stdout:
         lines.put(line)
     lines.put(None)
+
+
+_ejs_proc = None  # [Popen, очередь строк stdout, js_url загруженного плеера]
+_ejs_lock = threading.Lock()
+_EJS_SERVER_JS = os.path.join(USER_DATA_DIR, 'ejs_server.js')
+# Решатель yt-dlp-ejs в цикле по stdin: плеер разбирается один раз, дальше n за ~0.03с
+_EJS_LOOP = '''
+Object.assign(globalThis, lib);
+%s
+(async () => {
+  let pre = null;
+  for await (const l of require("readline").createInterface({input: process.stdin})) {
+    let out;
+    try {
+      const q = JSON.parse(l);
+      const reqs = [{type: "n", challenges: q.n}];
+      out = q.player ? jsc({type: "player", player: q.player, requests: reqs, output_preprocessed: true})
+                     : jsc({type: "preprocessed", preprocessed_player: pre, requests: reqs});
+      if (out.preprocessed_player) { pre = out.preprocessed_player; delete out.preprocessed_player; }
+    } catch (e) { out = {type: "error", error: String(e)}; }
+    console.log("JSC:" + JSON.stringify(out));
+  }
+})();
+'''
+
+
+def _ejs_nsig(js, js_url, n):
+    """Параметр n ссылки googlevideo решателем yt-dlp-ejs. Свой у pytubefix на плеере c271e571
+    (2026-10-20) выдаёт мусор, и googlevideo отвечает 403 с нулевого байта: Format error в
+    <audio> и уход в SoundCloud. Решатель yt-dlp чинят быстрее, поэтому он основной.
+    Холодный node на каждый вызов, как делает сам yt-dlp, стоит ~0.75с на трек, поэтому
+    держим один процесс: первый вызов на новом base.js ~0.9с, дальше ~0.03с."""
+    global _ejs_proc
+    import subprocess, queue
+    from yt_dlp_ejs.yt import solver
+    with _ejs_lock:
+        try:
+            if not (_ejs_proc and _ejs_proc[0].poll() is None):
+                with open(_EJS_SERVER_JS, 'w', encoding='utf-8') as f:
+                    f.write(solver.lib() + '\n' + _EJS_LOOP % solver.core())
+                proc = subprocess.Popen([_ptf_bot_guard.NODE_PATH, _EJS_SERVER_JS], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        text=True, encoding='utf-8', errors='ignore')
+                lines = queue.Queue()
+                threading.Thread(target=_bg_pump, args=(proc, lines), daemon=True).start()
+                _ejs_proc = [proc, lines, None]
+            proc, lines, loaded = _ejs_proc
+            msg = {'n': [n]}
+            if loaded != js_url:
+                msg['player'] = js
+            proc.stdin.write(json.dumps(msg) + '\n')
+            proc.stdin.flush()
+            out = json.loads(_bg_read(lines, 'JSC:'))
+            if out.get('type') == 'error':
+                raise RuntimeError(out.get('error'))
+            _ejs_proc[2] = js_url
+            res = out['responses'][0]
+            if res.get('type') == 'error':
+                raise RuntimeError(res.get('error'))
+            return res['data'][n]
+        except Exception:
+            # на любом сбое следующий вызов поднимет процесс и плеер заново
+            if _ejs_proc:
+                _ejs_proc[0].kill()
+                _ejs_proc = None
+            raise
 
 
 def _bg_mint(video_id):
@@ -3364,8 +3440,10 @@ def handle_request(request):
                 # параллельно. Единственным путём этот клиент делать нельзя.
                 try:
                     pot = _pytubefix_pot(video_id)
+                    # без token_file: pytubefix берёт pot из файла раньше верификатора, а там
+                    # лежал токен чужого video_id, и ссылка умирала с нулевого байта
                     tube = YouTube(url, client='WEB_MUSIC', use_po_token=True,
-                                   po_token_verifier=lambda: pot, token_file=_PTF_TOKEN_FILE)
+                                   po_token_verifier=lambda: pot)
                     stream = tube.streams.get_audio_only()
                     return stream.url if stream else None
                 except Exception as e:
