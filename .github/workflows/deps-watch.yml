@@ -1,0 +1,37 @@
+name: Deps watch
+
+# Расшифровку ссылок YouTube делают yt-dlp-ejs и pytubefix. Когда YouTube меняет плеер, их
+# чинят новой версией на PyPI, а в установленное приложение она попадает только с релизом.
+# Релиз ставит их без жёсткого пина (requirements.txt), поэтому достаточно пересобрать.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild if a solver package is newer than the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          released=$(gh release view --repo "$REPO" --json createdAt -q .createdAt)
+          released_ts=$(date -d "$released" +%s)
+          newer=""
+          for pkg in yt-dlp-ejs pytubefix; do
+            info=$(curl -fsS "https://pypi.org/pypi/$pkg/json")
+            version=$(jq -er .info.version <<< "$info")
+            uploaded=$(jq -er '.urls[0].upload_time_iso_8601' <<< "$info")
+            echo "$pkg $version uploaded $uploaded, latest release created $released"
+            [ "$(date -d "$uploaded" +%s)" -gt "$released_ts" ] && newer="$newer $pkg==$version"
+          done
+          if [ -n "$newer" ]; then
+            echo "New:$newer -> starting Build & Release"
+            gh workflow run release.yml --repo "$REPO" --ref main
+          fi
