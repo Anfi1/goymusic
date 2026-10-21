@@ -2181,6 +2181,10 @@ def _sc_comments(sc_url, continuation=None):
 def _yt_stats(url, params):
     """GET на videostats-URL из playbackTracking от имени аккаунта (куки и SAPISIDHASH
     ytmusicapi), как делает сам веб-плеер. Версия клиента та же, что в player-запросе."""
+    # URL приходит от renderer: куки аккаунта уходят только на videostats YouTube
+    u = urlparse(url)
+    if u.scheme != 'https' or not (u.hostname or '').endswith('.youtube.com') or not u.path.startswith('/api/stats/'):
+        raise ValueError(f'not a YouTube stats url: {u.scheme}://{u.hostname}{u.path}')
     api = get_api()
     cver = nav(api.context, ['context', 'client', 'clientVersion'], True)
     params = {'ver': 2, 'c': 'WEB_REMIX', 'cver': cver, **{k: v for k, v in params.items() if v is not None}}
