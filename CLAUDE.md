@@ -33,6 +33,7 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 
 - Renderer вызывает Python: `window.bridge.pyCall('<command>', args)`; диспетчер команд — `handle_request` в `python/api.py` (≈стр. 1690+, ~60 команд).
 - Аудио играет **HTML5 `<audio>`** с двойной буферизацией и Web Audio (нормализация, 6-полосный EQ): `src/api/player.ts`. Поток — stream URL от `get_stream_url` (быстрый путь: авторизованный WEB_REMIX player через ytmusicapi, подпись и параметр `n` решателем yt-dlp-ejs в прогретом node (`_ejs_solve`: свои у pytubefix ломаются на новых плеерах), ~0.3с, opus 251, botGuard-токен под video_id; без кук анонимный WEB_MUSIC с botGuard-токеном; путь, словивший бот-чек `LOGIN_REQUIRED`, пропускается 15 мин → гонка клиентов yt-dlp).
+- Учёт прослушиваний на стороне YouTube (история, Listen again, рекомендации) как у веб-плеера: на старте трека пинг `videostats/playback` (`send_playback`), дальше пинги watchtime (`send_watchtime`) с **тем же cpn**, оба от имени аккаунта через `_yt_stats` (сессия ytmusicapi). По cpn YouTube привязывает время к записи истории: с разными cpn или без кук трек в истории есть, а в Listen again не попадает. `add_history_item` остался фолбеком для треков, играющих не со стрима YouTube.
 
 ### Нормализация громкости
 
@@ -102,6 +103,6 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 
 ## Релизы
 
-Push в `main` запускает workflow `Build & Release`: версия = max(последний Release + 1 патч, `version` из `package.json`), на выходе NSIS-установщик в GitHub Releases. Текущая — **6.5.3**.
+Push в `main` запускает workflow `Build & Release`: версия = max(последний Release + 1 патч, `version` из `package.json`), на выходе NSIS-установщик в GitHub Releases. Текущая — **7.0.12**.
 
 Раз в 6 часов `Deps watch` (`.github/workflows/deps-watch.yml`) сверяет PyPI: если yt-dlp-ejs или pytubefix вышли позже последнего релиза, запускает `Build & Release`. Так починка расшифровки ссылок после смены плеера YouTube доезжает без коммита; ставится по-прежнему кнопкой обновления.

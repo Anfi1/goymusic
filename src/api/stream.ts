@@ -202,9 +202,10 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal, expe
                 const expires = getExpirationFromUrl(res.url);
                 const loudness = res.loudness ?? null;
                 const watchtimeUrl = res.watchtimeUrl as string | undefined;
-                await streamCache.set(videoId, res.url, expires, loudness, watchtimeUrl);
+                const playbackUrl = res.playbackUrl as string | undefined;
+                await streamCache.set(videoId, res.url, expires, loudness, watchtimeUrl, playbackUrl);
                 console.log(`[stream] Python fetch: ${videoId} -> Done (loudness: ${loudness})`);
-                return { url: res.url, expires, loudness, watchtimeUrl };
+                return { url: res.url, expires, loudness, watchtimeUrl, playbackUrl };
             } else {
                 if (res.message !== 'Cancelled by client') {
                     console.warn(`[stream] Python fetch: ${videoId} -> Failed`, res);

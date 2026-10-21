@@ -99,12 +99,18 @@ class HistoryManager {
 
   private async logTrack(trackId: string) {
     if (!player.currentTrack || player.currentTrack.id !== trackId) return;
+    // стрим ещё не пошёл: ждём ещё, иначе запасной пинг в YouTube уйдёт раньше основного и запись раздвоится
+    if (player.isStreamLoading) {
+      this.logTimer = setTimeout(() => this.logTrack(trackId), this.playbackThreshold);
+      return;
+    }
     
     this.currentTrackLogged = trackId;
     console.log(`[history] Logging track: ${player.currentTrack.title} (id=${trackId}, src=${player.currentTrack.source})`);
     
-    // Background YT history update — только для YT-треков (SC-id это URL, в YT-API не уходит)
-    if (player.currentTrack.source !== 'soundcloud') {
+    // Запасной путь в историю YouTube: когда трек играет не со стрима YouTube (фолбек SC/Яндекс,
+    // ссылка без playbackTracking) и плеер пинг playback не отправил. SC-id в YT-API не уходит.
+    if (player.currentTrack.source !== 'soundcloud' && !player.ytHistorySent) {
       addToHistory(player.currentTrack.id).catch(err => {
         console.error("[history] YT background update failed", err);
       });

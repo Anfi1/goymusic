@@ -3,6 +3,7 @@ export interface CacheEntry {
     expires: number;
     loudness?: number | null;   // null = не знаем; 0 = трек ровно на -14 LUFS
     watchtimeUrl?: string;
+    playbackUrl?: string;
 }
 
 class DbCache {
@@ -82,10 +83,10 @@ class DbCache {
         this.db.transaction(this.loudnessStore, 'readwrite').objectStore(this.loudnessStore).put(loudness, id);
     }
 
-    async set(id: string, url: string, expires: number, loudness: number | null = null, watchtimeUrl?: string) {
+    async set(id: string, url: string, expires: number, loudness: number | null = null, watchtimeUrl?: string, playbackUrl?: string) {
         if (!this.db || !id || !url) return;
         const transaction = this.db.transaction(this.storeName, 'readwrite');
-        transaction.objectStore(this.storeName).put({ url, expires, loudness, watchtimeUrl }, id);
+        transaction.objectStore(this.storeName).put({ url, expires, loudness, watchtimeUrl, playbackUrl }, id);
     }
 
     async isFresh(id: string): Promise<boolean> {

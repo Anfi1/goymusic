@@ -2178,6 +2178,15 @@ def _sc_comments(sc_url, continuation=None):
     return {'description': description, 'comments': comments, 'continuation': data.get('next_href')}
 
 
+def _yt_stats(url, params):
+    """GET на videostats-URL из playbackTracking от имени аккаунта (куки и SAPISIDHASH
+    ytmusicapi), как делает сам веб-плеер. Версия клиента та же, что в player-запросе."""
+    api = get_api()
+    cver = nav(api.context, ['context', 'client', 'clientVersion'], True)
+    params = {'ver': 2, 'c': 'WEB_REMIX', 'cver': cver, **{k: v for k, v in params.items() if v is not None}}
+    return api._send_get_request(url, params).status_code
+
+
 def handle_request(request):
     global _auth_data, _auth_type, _yandex_client
     command = request.get('command')
@@ -3376,6 +3385,7 @@ def handle_request(request):
             stream_url = None
             loudness = None  # None = не знаем; 0.0 = трек ровно на цели. Раньше это было одно и то же
             watchtime_url = None
+            playback_url = None
             method = "None"
             # если трек окажется клипом с чужой длительностью, резолв подменит его на
             # запись нужной длины -- фронту нужен фактический id
@@ -3416,14 +3426,15 @@ def handle_request(request):
                     }
                     song = api._send_request('player', params)
                     wt = nav(song, ['playbackTracking', 'videostatsWatchtimeUrl', 'baseUrl'], True)
+                    pb = nav(song, ['playbackTracking', 'videostatsPlaybackUrl', 'baseUrl'], True)
                     dsid = nav(song, ['responseContext', 'mainAppWebResponseContext', 'datasyncId'], True)
                     if dsid:
                         global _yt_data_sync_id
                         _yt_data_sync_id = dsid
-                    return extract_loudness(song), wt
+                    return extract_loudness(song), wt, pb
                 except Exception as e:
                     print(f"[warn] player meta fetch failed for {video_id}: {e}", file=sys.stderr)
-                    return None, None
+                    return None, None, None
 
             meta_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             meta_future = meta_pool.submit(_fetch_meta)
@@ -3665,10 +3676,11 @@ def handle_request(request):
                 stream_pool.shutdown(wait=False)
 
             try:
-                ld, wt = meta_future.result(timeout=10)
+                ld, wt, pb = meta_future.result(timeout=10)
                 if loudness is None and ld is not None:
                     loudness = ld  # запасной вариант: быстрый путь не отработал
                 watchtime_url = wt
+                playback_url = pb
             except Exception as e:
                 print(f"[warn] meta fetch timeout for {video_id}: {e}", file=sys.stderr)
             finally:
@@ -3679,7 +3691,7 @@ def handle_request(request):
 
             if stream_url:
                 safe_print({'status': 'ok', 'url': stream_url, 'loudness': loudness,
-                            'watchtimeUrl': watchtime_url, 'videoId': effective_id,
+                            'watchtimeUrl': watchtime_url, 'playbackUrl': playback_url, 'videoId': effective_id,
                             'callId': call_id})
             else:
                 safe_print({'status': 'error', 'message': 'Failed to obtain stream URL', 'callId': call_id})
@@ -3696,6 +3708,19 @@ def handle_request(request):
             else:
                 safe_print({'status': 'ok', 'loudness': loud, 'truePeak': tp, 'callId': call_id})
 
+        elif command == 'send_playback':
+            # Запись в историю YouTube. Тот же cpn потом несут пинги watchtime: так YouTube
+            # складывает время прослушивания к этой записи, и трек попадает в Listen again и
+            # рекомендации. Раньше история шла отдельным add_history_item со своим cpn, а
+            # watchtime голым requests без кук: YouTube видел запись с нулём секунд.
+            pb_url = request.get('playbackUrl')
+            if not pb_url:
+                safe_print({'status': 'error', 'message': 'No playbackUrl', 'callId': call_id})
+            else:
+                code = _yt_stats(pb_url, {'cpn': request.get('cpn'), 'fmt': 251, 'rt': 0, 'rtn': 0})
+                print(f"[watchtime] playback -> {code}", file=sys.stderr)
+                safe_print({'status': 'ok', 'httpStatus': code, 'callId': call_id})
+
         elif command == 'send_watchtime':
             wt_url = request.get('watchtimeUrl')
             if not wt_url:
@@ -3703,9 +3728,8 @@ def handle_request(request):
             else:
                 rt = request.get('rt', 0)
                 params = {
-                    'fmt': 0, 'fs': 0, 'euri': '', 'ver': 2,
+                    'fmt': 0, 'fs': 0, 'euri': '',
                     'cbr': 'Chrome', 'cbrver': '134.0.0.0',
-                    'c': 'WEB_REMIX', 'cver': '1.20260324.11.00',
                     'cplayer': 'UNIPLAYER', 'cos': 'Windows', 'cosver': '10.0',
                     'cplatform': 'DESKTOP', 'hl': 'en_US',
                     'afmt': 140, 'muted': 0, 'vis': 10, 'volume': 100,
@@ -3720,10 +3744,9 @@ def handle_request(request):
                     'rti': rt,
                     'lact': request.get('lact', 0),
                 }
-                params = {k: v for k, v in params.items() if v is not None}
-                r = requests.get(wt_url, params=params, timeout=10)
-                print(f"[watchtime] {request.get('state')} cmt={request.get('cmt')} -> {r.status_code}", file=sys.stderr)
-                safe_print({'status': 'ok', 'httpStatus': r.status_code, 'callId': call_id})
+                code = _yt_stats(wt_url, params)
+                print(f"[watchtime] {request.get('state')} cmt={request.get('cmt')} -> {code}", file=sys.stderr)
+                safe_print({'status': 'ok', 'httpStatus': code, 'callId': call_id})
 
         elif command == 'search_alternatives':
             query = request.get('query', '')

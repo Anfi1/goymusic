@@ -66,6 +66,8 @@ class PlayerStore {
     private originalQueue: YTMTrack[] = [];
 
     private wtCpn: string | null = null;
+    // Запись в историю YouTube ушла вместе со стартом (send_playback), historyManager её не дублирует
+    private wtPlaybackSent = false;
     private wtSessionStart: number = 0;
     private wtSegStart: number = 0;
     private wtNextFlushAt: number = 10;
@@ -652,14 +654,28 @@ class PlayerStore {
         if (station) yandexRotorFeedback(station, 'trackStarted', track.yandexId);
     }
 
-    private initWatchtime(url: string) {
+    get ytHistorySent() { return this.wtPlaybackSent; }
+
+    // Учёт на стороне YouTube как у веб-плеера: пинг playback на старте (запись в историю) и
+    // пинги watchtime с тем же cpn. По cpn YouTube и привязывает время к записи, без него
+    // трек в истории есть, а в Listen again и рекомендациях нет.
+    private initWatchtime(entry: { watchtimeUrl?: string; playbackUrl?: string }) {
+        if (!entry.watchtimeUrl) return;
         const a = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
-        this.wtUrl = url;
+        this.wtUrl = entry.watchtimeUrl;
         this.wtCpn = Array.from({length: 16}, () => a[Math.floor(Math.random() * 64)]).join('');
         this.wtSessionStart = Date.now();
         this.wtSegStart = 0;
         this.wtNextFlushAt = 10;
         this.wtPrevMediaTime = 0;
+        // повтор после ошибки (isRetry) не заводит вторую запись в истории
+        if (!entry.playbackUrl || this.wtPlaybackSent) return;
+        this.wtPlaybackSent = true;
+        (window as any).bridge.pyCall('send_playback', {
+            playbackUrl: entry.playbackUrl,
+            cpn: this.wtCpn,
+            callId: Math.random().toString(36).slice(2),
+        }).catch(() => {});
     }
 
     private wtAdvanceSchedule() {
@@ -1025,6 +1041,7 @@ class PlayerStore {
         this.buffered = [];
         this.wtFlush('paused');
         this.wtUrl = null;
+        if (!isRetry) this.wtPlaybackSent = false;
         if (track.source === 'yandex' && track.yandexId) this.yaStart(track);
         this.saveState();
         this.notify('state'); 
@@ -1080,7 +1097,7 @@ class PlayerStore {
                     this.consecutiveErrors = 0;
                     this.errorSkipCount = 0;
                     console.log(`[perf] ${track.id}: ссылка ${(tUrlDone - tUrl).toFixed(0)}мс, аудио до canplay ${(performance.now() - tUrlDone).toFixed(0)}мс`);
-                    console.log(`[watchtime] onCanPlay: isPlaying=${this.isPlaying} watchtimeUrl=${entry.watchtimeUrl ? 'YES' : 'NO'}`);
+                    console.log(`[watchtime] onCanPlay: isPlaying=${this.isPlaying} watchtimeUrl=${entry.watchtimeUrl ? 'YES' : 'NO'} playbackUrl=${entry.playbackUrl ? 'YES' : 'NO'}`);
                     if (!this.isPlaying) { this.notify('state'); return; }
                     try {
                         if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
@@ -1089,7 +1106,7 @@ class PlayerStore {
                             this.currentTime = startTime;
                         }
                         await this.audioA.play();
-                        if (entry.watchtimeUrl) this.initWatchtime(entry.watchtimeUrl);
+                        this.initWatchtime(entry);
                         this.prefetchBuffer();
                     } catch (e: any) {
                         if (e.name === 'NotSupportedError' && this.isPlaying) this.next();
@@ -1545,6 +1562,7 @@ class PlayerStore {
             const prevAudio = this.activeAudio;
             this.wtFlush('paused');
             this.wtUrl = null;
+            this.wtPlaybackSent = false;
             // Бесшовный переход идёт мимо startPlayback -- отчёты Яндексу закрываем и
             // открываем здесь сами, иначе прослушивание такого трека теряется.
             this.yaFinish('skip');
@@ -1565,7 +1583,7 @@ class PlayerStore {
 
             try {
                 await nextAudio.play();
-                if (entry?.watchtimeUrl) this.initWatchtime(entry.watchtimeUrl);
+                this.initWatchtime(entry ?? {});
                 prevAudio.pause();
                 prevAudio.removeAttribute('src');
                 prevAudio.load();
