@@ -278,10 +278,18 @@ export const HomeView: React.FC<{
     </div>
   ) : null;
 
+  const sleeveHeading = (
+    <header className={styles.sleeveHeading}>
+      <span>{yandexMode ? 'Yandex Music' : 'YouTube Music'}</span>
+      <h1>Record shelves</h1>
+    </header>
+  );
+
   if (yandexMode) {
     return (
-      <div style={{ position: 'relative' }}>
+      <div className={styles.alternateHome} style={{ position: 'relative' }}>
         {yandexToggle}
+        {sleeveHeading}
         <YandexHomeView onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSelectArtist={onSelectArtist} onSelectGenre={onSelectGenre} />
       </div>
     );
@@ -292,6 +300,7 @@ export const HomeView: React.FC<{
       <div style={{ position: 'relative' }}>
         {yandexToggle}
         <div className={styles.container}>
+          {sleeveHeading}
           <SectionSkeleton variant="card" />
           <SectionSkeleton variant="row" />
           <SectionSkeleton variant="card" />
@@ -304,7 +313,10 @@ export const HomeView: React.FC<{
     return (
       <div style={{ position: 'relative' }}>
         {yandexToggle}
-        <div className={styles.container} style={{ color: 'var(--danger)', padding: 24 }}>Failed to load home feed.</div>
+        <div className={styles.container} style={{ color: 'var(--danger)', padding: 24 }}>
+          {sleeveHeading}
+          Failed to load home feed.
+        </div>
       </div>
     );
   }
@@ -312,6 +324,7 @@ export const HomeView: React.FC<{
   return (
     <div ref={containerRef} className={styles.container} style={{ position: 'relative' }}>
       {yandexToggle}
+      {sleeveHeading}
       {sections.map((section: any, idx: number) => {
         const Icon = getSectionIcon(section.category, idx === 0);
         const isSongGrid = section.category === 'song';
@@ -344,6 +357,7 @@ export const HomeView: React.FC<{
             <Carousel
               items={section.contents}
               containerClassName={isSongGrid ? styles.songGrid : styles.horizontalScroll}
+              scrollBtnClassName={styles.shelfArrow}
               renderItem={(item) => (
                 <MediaCard
                   key={item.id}

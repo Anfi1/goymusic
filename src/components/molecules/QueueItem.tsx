@@ -185,6 +185,7 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
   return (
     <div
       className={`${styles.item} ${isActive ? styles.active : ''} ${className || ''}`}
+      data-cue={index === undefined ? undefined : String(index + 1).padStart(2, '0')}
       onClick={handleItemClick}
       onContextMenu={handleContext}
       draggable={draggable}

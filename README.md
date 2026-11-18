@@ -11,7 +11,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 - Playlist management, liked songs, history
 - Lyrics view
 - Search with suggestions
-- Dark glassy UI
+- Classic glass UI or an opt-in record shop layout. Open **Settings → Appearance → new Experement Layout** to switch without restarting. The choice is saved on this desktop.
 
 ## Tech Stack
 

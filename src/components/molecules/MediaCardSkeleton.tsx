@@ -33,9 +33,9 @@ export const MediaCardSkeleton: React.FC<MediaCardSkeletonProps> = ({
         <Skeleton width="100%" height="100%" style={{ aspectRatio: '1 / 1' }} borderRadius={8} />
       </div>
       <div className={styles.info}>
-        <Skeleton width="90%" height={16} borderRadius={4} />
+        <Skeleton className={styles.captionPlaceholder} width="90%" height={16} borderRadius={4} />
         <div style={{ marginTop: 8 }}>
-          <Skeleton width="60%" height={14} borderRadius={4} />
+          <Skeleton className={styles.captionPlaceholder} width="60%" height={14} borderRadius={4} />
         </div>
       </div>
     </div>

@@ -205,7 +205,7 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
         {track?.thumbUrl && !imgError ? (
           <img src={track.thumbUrl} alt="" className={styles.albumArt} onError={() => setImgError(true)} />
         ) : (
-          <div className={styles.albumArtEmpty} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)', borderRadius: 6 }}>
+          <div className={styles.albumArtEmpty}>
             {!track?.thumbUrl ? null : <Music2 size={22} />}
           </div>
         )}
@@ -217,6 +217,7 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
         {isLoading && <div className={styles.spinner} />}
       </div>
       <div className={styles.trackInfo}>
+        <span className={styles.deskLabel}>{track ? 'On deck' : 'Standby'}</span>
         <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="" onContextMenu={handleCopyTitle}>{track?.title || 'No track selected'}</div>
         <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="" onContextMenu={handleCopyArtist}>
           {track?.artists?.map((artist: string, i: number) => {
@@ -320,6 +321,7 @@ const TimeProgress = memo(() => {
 
   return (
     <div className={styles.progress} onContextMenu={toggleLoop}>
+      <span className={styles.deskLabel}>Transport</span>
       <span ref={currentRef} className={styles.time}>{formatTime(player.currentTime)}</span>
       <div className={styles.progressBar}>
         <ProgressBar
@@ -486,7 +488,7 @@ const PlayPauseButton = memo(() => {
   }, [isPlaying, hasError]);
   return (
     <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-      <IconButton icon={isPlaying ? Pause : Play} size={44} iconSize={20} variant="solid" onClick={() => player.togglePlay()} />
+      <IconButton icon={isPlaying ? Pause : Play} size={44} iconSize={20} variant="solid" className={styles.playKey} onClick={() => player.togglePlay()} />
       {hasError && (
         <span style={{ position: 'absolute', bottom: -12, display: 'flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--danger)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
           <AlertCircle size={8} />
@@ -605,10 +607,11 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
     <div className={`${styles.container} ${className || ''}`}>
       {infoSection}
       {controlSection}
-      <div className={styles.extra} style={{ gap: '0.2rem' }}>
+      <div className={styles.extra}>
+        <span className={styles.deskLabel}>Monitor</span>
         <AutoplayButton />
         <PanelButtons activeRightPanel={activeRightPanel} onToggleRightPanel={onToggleRightPanel} />
-        <div style={{ marginLeft: '1rem' }}>
+        <div className={styles.volumeSlot}>
           <VolumeControl />
         </div>
       </div>

@@ -412,6 +412,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
               <button
                 key={tab.id}
                 className={`${styles.tabBtn} ${isActive ? styles.activeTab : ''}`}
+                aria-pressed={isActive}
                 onClick={() => handleTabChange(tab.id)}
                 title={tab.label}
               >

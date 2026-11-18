@@ -319,9 +319,15 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
   return (
     <aside className={`${styles.panel} ${waveMode ? styles.waveMode : ''}`}>
       <header className={styles.header}>
-        <h4>Queue</h4>
+        <div>
+          <span className={styles.sheetLabel}>Cue sheet</span>
+          <h4>Queue <span className={styles.queueCount}>{String(fullQueue.length).padStart(2, '0')}</span></h4>
+        </div>
         <RadioModeSwitcher />
       </header>
+      {fullQueue.length === 0 && (
+        <div className={styles.emptyCue}>The queue is empty. Play a track to start a cue sheet.</div>
+      )}
       <div className={styles.list}>
         <Virtuoso
           ref={virtuosoRef}

@@ -308,3 +308,106 @@
     0%, 100% { opacity: 0.6; }
     50% { opacity: 1; }
 }
+
+.sleeveHeading { display: none; }
+
+:root[data-layout="sleeve"] .container { --search-gutter: clamp(1rem, 2vw, 2rem); }
+
+:root[data-layout="sleeve"] .sleeveHeading {
+    display: block;
+    flex-shrink: 0;
+    margin: 0 var(--search-gutter);
+    padding: 1rem 0 0.65rem;
+    border-bottom: 2px solid var(--sleeve-rule);
+}
+
+:root[data-layout="sleeve"] .sleeveHeading span {
+    font: 600 var(--fs-xs)/1.4 var(--sleeve-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-sub);
+}
+
+:root[data-layout="sleeve"] .sleeveHeading h1 {
+    font: 500 clamp(2rem, 3.5vw, 3rem)/1.1 var(--sleeve-serif);
+    letter-spacing: -0.03em;
+    margin: 0.2rem 0 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+:root[data-layout="sleeve"] .tabBar {
+    flex-wrap: wrap;
+    gap: 0;
+    margin: 0 var(--search-gutter);
+    padding: 0.45rem 0;
+    border-color: var(--sleeve-rule);
+}
+
+:root[data-layout="sleeve"] .tab {
+    border-radius: 0;
+    padding: 0.4rem 0.8rem;
+    font-size: var(--fs-md);
+}
+
+:root[data-layout="sleeve"] .tab:hover { background: var(--hover); }
+:root[data-layout="sleeve"] .tab.tabActive { background: var(--sleeve-paper); color: var(--sleeve-ink); }
+:root[data-layout="sleeve"] .correction { color: var(--text-sub); opacity: 1; }
+
+:root[data-layout="sleeve"] .searchContent { gap: 1.5rem; padding-top: 1rem; }
+:root[data-layout="sleeve"] .section { padding-inline: var(--search-gutter); }
+
+:root[data-layout="sleeve"] :is(.sectionTitle, .sectionTitleBtn) {
+    font: 500 var(--fs-3xl)/1.2 var(--sleeve-serif);
+    letter-spacing: -0.02em;
+}
+
+:root[data-layout="sleeve"] .sectionTitleBtn { align-self: flex-start; }
+:root[data-layout="sleeve"] .sectionArrow { opacity: 1; }
+
+:root[data-layout="sleeve"] .topResultCard {
+    max-width: none;
+    padding: 0;
+    gap: 1rem;
+    color: var(--sleeve-ink);
+    background: var(--sleeve-paper);
+    border: 0;
+    border-radius: 0;
+}
+
+:root[data-layout="sleeve"] .topResultInfo { padding: 0.5rem 0.75rem 0.5rem 0; }
+:root[data-layout="sleeve"] .topResultTitle { font: 600 var(--fs-2xl)/1.25 var(--sleeve-serif); }
+:root[data-layout="sleeve"] .topResultMeta { opacity: 1; }
+:root[data-layout="sleeve"] .topResultCard:hover .topResultTitle { text-decoration: underline; }
+
+:root[data-layout="sleeve"] :is(.topResultThumbWrapper, .albumThumb, .albumThumbGrid) {
+    border-radius: 0;
+    background: var(--bg-mantle);
+}
+
+:root[data-layout="sleeve"] :is(.albumCard, .albumCardGrid) {
+    padding: 0 0 0.6rem;
+    border-radius: 0;
+    background: var(--sleeve-paper);
+    color: var(--sleeve-ink);
+}
+
+:root[data-layout="sleeve"] :is(.albumCard, .albumCardGrid):hover .albumTitle { text-decoration: underline; }
+:root[data-layout="sleeve"] .albumThumb { width: 100%; height: auto; aspect-ratio: 1; }
+:root[data-layout="sleeve"] :is(.albumTitle, .albumArtists) { padding-inline: 0.6rem; }
+:root[data-layout="sleeve"] .albumArtists { opacity: 1; }
+:root[data-layout="sleeve"] .songLink:hover { color: inherit; }
+
+:root[data-layout="sleeve"] :is(.scrollNavBtn, .loadMoreBtn) {
+    border: 1px solid var(--sleeve-ink);
+    border-radius: 0;
+    background: var(--sleeve-paper);
+    color: var(--sleeve-ink);
+    backdrop-filter: none;
+}
+
+:root[data-layout="sleeve"] .scrollNavBtn:focus-visible { opacity: 1; }
+:root[data-layout="sleeve"] .queueItemWrapper { border-bottom: 1px solid var(--sleeve-rule); }
+:root[data-layout="sleeve"] .albumsGrid { padding-inline: var(--search-gutter); gap: 1rem; }
+:root[data-layout="sleeve"] .topResultCard[aria-hidden="true"] { background: var(--bg-mantle); }

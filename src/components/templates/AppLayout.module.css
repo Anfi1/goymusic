@@ -104,3 +104,35 @@
     background: var(--border-subtle);
     border-radius: var(--radius-xs);
 }
+
+/* A full-height record index meets a separate title strip and a full-width transport. */
+:root[data-layout="sleeve"] .appWindow {
+    --sidebar-width: clamp(176px, 16vw, 244px);
+    --right-panel-width: clamp(224px, 21vw, 320px);
+    --title-height: 48px;
+    grid-template-areas:
+        "sidebar title title"
+        "sidebar main right"
+        "player player player";
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: var(--title-height) minmax(0, 1fr) var(--player-height);
+    border-color: var(--sleeve-rule);
+}
+
+:root[data-layout="sleeve"] .ambientBlur,
+:root[data-layout="sleeve"] .contextualBack {
+    display: none;
+}
+
+:root[data-layout="sleeve"] .main {
+    min-width: 0;
+    background: var(--bg-base);
+}
+
+:root[data-layout="sleeve"] .scrollContent {
+    background: none;
+}
+
+:root[data-layout="sleeve"] .rightSidebar.visible {
+    border-inline-start: 1px solid var(--sleeve-rule);
+}

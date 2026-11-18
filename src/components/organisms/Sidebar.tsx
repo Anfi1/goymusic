@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Search, Zap, Radio, AudioLines, HardDrive } from 'lucide-react';
+import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Library, Zap, Radio, AudioLines, HardDrive } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
 import { YTMPlaylist, YTMUser, createPlaylist } from '../../api/yt';
@@ -28,6 +28,12 @@ interface SidebarProps {
   className?: string;
   activeViewType?: string;
 }
+
+// Keep the cabinet's selected-row treatment local to this navigation surface.
+const linkState = (active: boolean) => ({
+  active,
+  className: active ? sidebarStyles.currentLink : undefined,
+});
 
 const SidebarHeader = memo(({ 
   collapsed, 
@@ -103,7 +109,9 @@ const SidebarHeader = memo(({
         title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
       />
       {!collapsed && (
-        <h2 className={sidebarStyles.logo} onClick={handleLogoClick} style={{ cursor: 'pointer' }}>GoyMusic</h2>
+        <h2 className={sidebarStyles.logo}>
+          <button type="button" className={sidebarStyles.logoButton} onClick={handleLogoClick}>GoyMusic</button>
+        </h2>
       )}
     </div>
   );
@@ -135,8 +143,11 @@ const UserProfileSection = memo(({
 
   return (
     <div className={`${sidebarStyles.userProfile} ${collapsed ? sidebarStyles.userProfileCollapsed : ''}`} ref={userMenuRef}>
-      <div 
+      <button
+        type="button"
         className={sidebarStyles.userTrigger}
+        aria-label={user?.name || 'Account'}
+        aria-expanded={showUserMenu}
         onClick={() => setShowUserMenu(!showUserMenu)}
       >
         {user?.thumbUrl ? (
@@ -156,7 +167,7 @@ const UserProfileSection = memo(({
             <ChevronDown size={14} className={`${sidebarStyles.chevron} ${showUserMenu ? sidebarStyles.chevronOpen : ''}`} />
           </>
         )}
-      </div>
+      </button>
 
       {showUserMenu && (
         <div className={`${sidebarStyles.userMenu} ${collapsed ? sidebarStyles.userMenuCollapsed : ''}`}>
@@ -209,7 +220,7 @@ const PlaylistItem = memo(({
       <NavLink
         icon={Music}
         label={collapsed ? '' : playlist.title}
-        active={isActive}
+        {...linkState(isActive)}
         onClick={handleClick}
         tooltip={collapsed ? playlist.title : undefined}
       />
@@ -354,46 +365,47 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
         />
       )}
 
-      <div className={sidebarStyles.mainNav}>
+      <nav aria-label="Browse" className={sidebarStyles.mainNav}>
+        {!collapsed && <span className={sidebarStyles.indexHeading}>Browse index</span>}
         <NavLink
           icon={Home}
           label={collapsed ? '' : 'Home'}
-          active={activeViewType === 'home'}
+          {...linkState(activeViewType === 'home')}
           onClick={handleNavigateHome}
           tooltip={collapsed ? 'Home' : undefined}
         />
         <NavLink
           icon={Zap}
           label={collapsed ? '' : 'New Releases'}
-          active={activeViewType === 'new-releases'}
+          {...linkState(activeViewType === 'new-releases')}
           onClick={handleNavigateNewReleases}
           tooltip={collapsed ? 'New Releases' : undefined}
         />
         <NavLink
           icon={Heart}
           label={collapsed ? '' : 'Liked Songs'}
-          active={isLikedActive}
+          {...linkState(isLikedActive)}
           onClick={handleNavigateLiked}
           tooltip={collapsed ? 'Liked Songs' : undefined}
         />
         <NavLink
           icon={HardDrive}
           label={collapsed ? '' : 'Local'}
-          active={activePlaylistId === LOCAL_PLAYLIST_ID}
+          {...linkState(activePlaylistId === LOCAL_PLAYLIST_ID)}
           onClick={() => onSelectView?.({ type: 'playlist', playlistId: LOCAL_PLAYLIST_ID, playlistTitle: 'Local' })}
           tooltip={collapsed ? 'Local' : undefined}
         />
         <NavLink
           icon={AudioLines}
           label={collapsed ? '' : 'My Wave'}
-          active={activeViewType === 'my-wave'}
+          {...linkState(activeViewType === 'my-wave')}
           onClick={handleNavigateMyWave}
           tooltip={collapsed ? 'My Wave' : undefined}
         />
         <NavLink
           icon={Radio}
           label={collapsed ? '' : 'Radio'}
-          active={activeViewType === 'radio'}
+          {...linkState(activeViewType === 'radio')}
           onClick={handleNavigateRadio}
           tooltip={collapsed ? 'Radio' : undefined}
           hidden
@@ -401,20 +413,24 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
         <NavLink
           icon={History}
           label={collapsed ? '' : 'History'}
-          active={activeViewType === 'history'}
-          onClick={() => onSelectView?.({ type: 'history' })}
+          {...linkState(activeViewType === 'history')}
+          onClick={handleNavigateHistory}
           tooltip={collapsed ? 'History' : undefined}
         />
-      </div>
+      </nav>
 
       <div className={sidebarStyles.playlistSection}>
         <div className={sidebarStyles.sectionHeader}>
-          <h3 
-            className={sidebarStyles.sectionTitle}
-            onClick={() => onSelectView?.({ type: 'library' })}
-            title="Open Library"
-          >
-            {collapsed ? '' : 'Collection'}
+          <h3 className={sidebarStyles.sectionTitle}>
+            <button
+              type="button"
+              className={sidebarStyles.collectionButton}
+              onClick={() => onSelectView?.({ type: 'library' })}
+              aria-label="Open Library"
+              title="Open Library"
+            >
+              {collapsed ? <Library size={16} className={sidebarStyles.collectionIcon} /> : 'Collection'}
+            </button>
           </h3>
           {!collapsed && (
             <IconButton 
@@ -429,7 +445,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
         </div>
         
         <div className={sidebarStyles.scrollArea}>
-          <nav className={sidebarStyles.nav}>
+          <nav aria-label="Playlists" className={sidebarStyles.nav}>
             <PlaylistList 
               playlists={playlists}
               activePlaylistId={activePlaylistId}

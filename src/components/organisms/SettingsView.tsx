@@ -15,6 +15,7 @@ import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
+import { setSleeveLayout } from '../../utils/desktopLayout';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -22,6 +23,11 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
+    const [sleeveEnabled, setSleeveEnabled] = useState(() => document.documentElement.dataset.layout === 'sleeve');
+    const toggleLayout = () => {
+        setSleeveLayout(!sleeveEnabled);
+        setSleeveEnabled(!sleeveEnabled);
+    };
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
     const [rpcEnabled, setRpcEnabled] = useState(player.rpcEnabled);
@@ -343,6 +349,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         <>
         <div className={styles.container}>
             <h2 className={styles.title}>Settings</h2>
+
+            <section className={styles.section} aria-labelledby="appearance-title">
+                <h3 id="appearance-title" className={styles.sectionTitle}>Appearance</h3>
+                <button type="button" className={styles.layoutButton} aria-pressed={sleeveEnabled}
+                    aria-describedby="layout-description" onClick={toggleLayout}>
+                    new Experement Layout
+                    <span aria-hidden="true">{sleeveEnabled ? 'On' : 'Off'}</span>
+                </button>
+                <p id="layout-description" className={styles.subtitle}>
+                    Use the record shop layout. Switch off to return to the classic player.
+                </p>
+            </section>
 
             <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Imports</h3>

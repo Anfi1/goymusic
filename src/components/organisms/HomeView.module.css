@@ -209,3 +209,77 @@
     width: 165px;
     flex-shrink: 0;
 }
+
+.sleeveHeading { display: none; }
+
+:root[data-layout="sleeve"] .container {
+    background: none;
+    gap: 1.5rem;
+    padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+}
+
+:root[data-layout="sleeve"] .sleeveHeading {
+    display: block;
+    flex-shrink: 0;
+    color: var(--text-main);
+    border-bottom: 2px solid var(--sleeve-rule);
+    padding: 0 6rem 0.85rem 0;
+}
+
+:root[data-layout="sleeve"] .sleeveHeading span {
+    font: 600 var(--fs-xs)/1.4 var(--sleeve-mono);
+    color: var(--text-sub);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+:root[data-layout="sleeve"] .sleeveHeading h1 {
+    font: 500 clamp(2rem, 4vw, 3.6rem)/1.07 var(--sleeve-serif);
+    letter-spacing: -0.035em;
+    margin: 0.2rem 0 0;
+}
+
+:root[data-layout="sleeve"] .alternateHome > .sleeveHeading {
+    margin: 1.25rem clamp(1rem, 2vw, 2rem) 0;
+}
+
+:root[data-layout="sleeve"] .sectionHeader {
+    padding-left: 0;
+    margin-bottom: 0.7rem;
+    gap: 0.5rem;
+}
+
+:root[data-layout="sleeve"] .sectionIcon { display: none; }
+
+:root[data-layout="sleeve"] .sectionTitleWrapper {
+    min-width: 0;
+    font-family: var(--sleeve-serif);
+}
+
+:root[data-layout="sleeve"] .sectionTitle {
+    font: 500 var(--fs-3xl)/1.2 var(--sleeve-serif);
+    letter-spacing: -0.02em;
+}
+
+:root[data-layout="sleeve"] .updatingBadge {
+    background: none;
+    color: var(--text-sub);
+    font-family: var(--sleeve-mono);
+    padding: 0;
+}
+
+:root[data-layout="sleeve"] .songGrid { gap: 0 1rem; }
+
+:root[data-layout="sleeve"] .shelfArrow {
+    background: var(--sleeve-paper);
+    color: var(--sleeve-ink);
+    border: 1px solid var(--sleeve-ink);
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+:root[data-layout="sleeve"] .shelfArrow:hover {
+    background: var(--sleeve-signal);
+    color: var(--sleeve-ink);
+}

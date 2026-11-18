@@ -201,6 +201,7 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
                   onFocus={handleFocus}
                   onChange={(e) => { setSearchQuery(e.target.value); setShowSuggestions(true); }}
                   onKeyDown={handleKeyDown}
+                  aria-label="Search songs and artists"
                   placeholder="Search songs, artists..."
                   className={styles.searchInput}
                 />
@@ -248,6 +249,8 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
           <div className={styles.loadingTitle}>GoyMusic</div>
         )}
       </div>
+
+      <span className={styles.deskMark} aria-hidden="true">Listening desk</span>
 
       {/* Right: Window Controls */}
       <div className={styles.windowControls} style={NO_DRAG_STYLE}>

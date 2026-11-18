@@ -849,3 +849,95 @@
     cursor: wait;
     pointer-events: none;
 }
+
+:root[data-layout="sleeve"] .container { container-type: inline-size; }
+
+:root[data-layout="sleeve"] .header {
+    --cover-size: clamp(7rem, 26cqi, 13rem);
+    gap: clamp(0.9rem, 3cqi, 2.25rem);
+    padding: 1rem clamp(1rem, 3.5cqi, 2rem);
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--sleeve-rule);
+}
+
+:root[data-layout="sleeve"] .coverWrapper {
+    width: var(--cover-size);
+    gap: 0;
+    background: var(--sleeve-paper);
+    color: var(--sleeve-ink);
+}
+
+:root[data-layout="sleeve"] .coverContainer {
+    width: 100%;
+    height: var(--cover-size);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+:root[data-layout="sleeve"] .zoomable:hover { transform: none; }
+
+:root[data-layout="sleeve"] .statsUnderCover {
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    flex-flow: row wrap;
+    justify-content: space-between;
+    gap: 0.3rem;
+    margin: 0;
+    border-top: 1px solid var(--sleeve-ink);
+}
+
+:root[data-layout="sleeve"] :is(.label, .stickyLabel, .stickyTrackCount, .statsUnderCover, .durationTag, .sortToggle, .tableHeader th) {
+    font-family: var(--sleeve-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+:root[data-layout="sleeve"] :is(.yearUnder, .trackCountUnder, .durationTag, .stickyTrackCount, .descriptionText) {
+    opacity: 1;
+}
+
+:root[data-layout="sleeve"] .label {
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid var(--sleeve-rule);
+    color: var(--text-sub);
+    letter-spacing: 0.09em;
+}
+
+:root[data-layout="sleeve"] :is(.title, .stickyMainTitle) {
+    font-family: var(--sleeve-serif);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+}
+
+:root[data-layout="sleeve"] .descriptionText {
+    margin: 0.35rem 0 0;
+    color: var(--text-sub);
+}
+
+:root[data-layout="sleeve"] .headerMeta { gap: 0.75rem; }
+:root[data-layout="sleeve"] .headerActions { flex-wrap: wrap; gap: 0.5rem; }
+
+:root[data-layout="sleeve"] .durationTag {
+    padding: 0;
+    background: none;
+    color: var(--text-sub);
+}
+
+:root[data-layout="sleeve"] .headerActions > button,
+:root[data-layout="sleeve"] .sortToggle {
+    border: 1px solid var(--sleeve-rule);
+    border-radius: 0;
+    backdrop-filter: none;
+    box-shadow: none;
+}
+
+:root[data-layout="sleeve"] .sortToggle:hover { transform: none; color: var(--text-main); }
+
+:root[data-layout="sleeve"] .stickyHeaderContainer.isSticky {
+    background: var(--solid-base);
+    border-color: var(--sleeve-rule);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+:root[data-layout="sleeve"] .stickyThumbWrapper { border-radius: 0; box-shadow: none; }
+:root[data-layout="sleeve"] .tableHeader th { border-color: var(--sleeve-rule); }

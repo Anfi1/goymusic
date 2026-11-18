@@ -3,7 +3,9 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { initMediaSession } from './api/mediaSession'
+import { restoreDesktopLayout } from './utils/desktopLayout'
 
+restoreDesktopLayout()
 initMediaSession()
 
 // Initialize react-scan ONLY in development and ONLY if requested

@@ -204,3 +204,102 @@
     border-bottom: 2px solid var(--accent);
     background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
+
+.sheetLabel,
+.queueCount,
+.emptyCue {
+    display: none;
+}
+
+:root[data-layout="sleeve"] .panel {
+    background: var(--sleeve-paper);
+    color: var(--sleeve-ink);
+    --sheet-rule: color-mix(in srgb, var(--sleeve-ink) 24%, var(--sleeve-paper));
+    --sheet-danger: color-mix(in srgb, var(--danger) 50%, var(--sleeve-ink));
+    --sheet-warning: color-mix(in srgb, var(--warning) 40%, var(--sleeve-ink));
+}
+
+:root[data-layout="sleeve"] .header {
+    padding: 14px 12px 12px;
+    gap: 6px;
+    color: var(--sleeve-paper);
+    background: var(--sleeve-ink);
+    border-bottom: 3px solid var(--sleeve-signal);
+}
+
+:root[data-layout="sleeve"] .sheetLabel,
+:root[data-layout="sleeve"] .queueCount,
+:root[data-layout="sleeve"] .sectionHeader {
+    font: 600 var(--fs-2xs)/1.3 var(--sleeve-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+:root[data-layout="sleeve"] .sheetLabel {
+    display: block;
+    margin-bottom: 3px;
+}
+
+:root[data-layout="sleeve"] .header h4 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    color: inherit;
+    font: 600 var(--fs-2xl)/1 var(--sleeve-serif);
+}
+
+:root[data-layout="sleeve"] .queueCount {
+    display: inline;
+    color: var(--sleeve-signal);
+    font-variant-numeric: tabular-nums;
+}
+
+:root[data-layout="sleeve"] .list {
+    --text-main: var(--sleeve-ink);
+    --text-sub: color-mix(in srgb, var(--sleeve-ink) 78%, var(--sleeve-paper));
+    --accent: var(--sleeve-ink);
+    --danger: var(--sheet-danger);
+    --warning: var(--sheet-warning);
+}
+
+:root[data-layout="sleeve"] :is(.queueItemWrapper, .section) {
+    padding-inline: 8px;
+}
+
+:root[data-layout="sleeve"] .sectionHeader {
+    min-height: 30px;
+    padding: 10px 4px 5px;
+    color: var(--sleeve-ink);
+    opacity: 1;
+    border-bottom: 1px solid var(--sleeve-ink);
+}
+
+:root[data-layout="sleeve"] .refreshBtn {
+    color: var(--sleeve-ink);
+    opacity: 1;
+}
+
+:root[data-layout="sleeve"] .refreshBtn:hover:not(:disabled) {
+    color: var(--sleeve-ink);
+    background: var(--sheet-rule);
+}
+
+:root[data-layout="sleeve"] .emptyCue {
+    display: block;
+    margin: 16px 12px 4px;
+    padding: 8px 0;
+    border-block: 1px solid var(--sheet-rule);
+    font: italic var(--fs-base)/1.45 var(--sleeve-serif);
+}
+
+:root[data-layout="sleeve"] :is(.dragOverUp, .dragOverDown)::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    height: 3px;
+    background: var(--sleeve-signal);
+    pointer-events: none;
+}
+
+:root[data-layout="sleeve"] .dragOverUp::after { top: 0; }
+:root[data-layout="sleeve"] .dragOverDown::after { bottom: 0; }

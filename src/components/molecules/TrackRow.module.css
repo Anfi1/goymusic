@@ -331,3 +331,34 @@ tr:hover .bestBadge {
     opacity: 0.4;
     pointer-events: none;
 }
+
+:root[data-layout="sleeve"] .row {
+    border-radius: 0;
+    box-shadow: none;
+}
+
+:root[data-layout="sleeve"] .row td { border-bottom-color: var(--sleeve-rule); }
+:root[data-layout="sleeve"] .row:hover { background: var(--hover); }
+:root[data-layout="sleeve"] .row.active { background: var(--accent-soft); }
+
+:root[data-layout="sleeve"] .row.active td:first-child::before {
+    background: var(--sleeve-signal);
+    border-radius: 0;
+}
+
+:root[data-layout="sleeve"] :is(.indexText, .durationText, .plays) {
+    font-family: var(--sleeve-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+:root[data-layout="sleeve"] :is(.artist, .album, .metaCell .albumText, .durationText, .plays) {
+    color: var(--text-sub);
+    opacity: 1;
+}
+
+:root[data-layout="sleeve"] .row:not(:hover, .active) .indexText {
+    color: var(--text-sub);
+    opacity: 1;
+}
+
+:root[data-layout="sleeve"] :is(.thumb, .thumbPlaceholder) { border-radius: 0; }

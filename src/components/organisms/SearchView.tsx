@@ -50,7 +50,7 @@ const AlbumCardSkeleton = () => (
 
 // Matches Top Result card: 88x88 cover + title + meta
 const TopResultSkeleton = () => (
-  <div className={styles.topResultCard} style={{ pointerEvents: 'none', maxWidth: 420 }}>
+  <div className={styles.topResultCard} aria-hidden="true" style={{ pointerEvents: 'none' }}>
     <Skeleton width={88} height={88} borderRadius={10} />
     <div className={styles.topResultInfo}>
       <Skeleton width={160} height={18} borderRadius={5} />
@@ -318,12 +318,17 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
   return (
     <div className={styles.container}>
+      <header className={styles.sleeveHeading}>
+        <span>Catalog search</span>
+        <h1 title={searchQuery}>{searchQuery || 'Search'}</h1>
+      </header>
       {/* Tab bar */}
       <div className={styles.tabBar}>
         {tabs.map(t => (
           <button
             key={t.key}
             className={`${styles.tab} ${activeFilter === t.key ? styles.tabActive : ''}`}
+            aria-pressed={activeFilter === t.key}
             onClick={() => setActiveFilter(t.key)}
           >{t.label}</button>
         ))}

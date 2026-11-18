@@ -443,3 +443,74 @@
         padding: 8px 4px;
     }
 }
+
+:root[data-layout="sleeve"] .container {
+    background: none;
+    padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+}
+
+:root[data-layout="sleeve"] .headerRow {
+    flex-wrap: wrap;
+    padding-bottom: 0.85rem;
+    margin-bottom: 0;
+    border-bottom: 2px solid var(--sleeve-rule);
+}
+
+:root[data-layout="sleeve"] .titleWrapper h1 {
+    font: 500 clamp(2rem, 4vw, 3.6rem)/1.07 var(--sleeve-serif);
+    letter-spacing: -0.035em;
+}
+
+:root[data-layout="sleeve"] .icon { display: none; }
+:root[data-layout="sleeve"] .rightControls { margin-right: 0; }
+
+:root[data-layout="sleeve"] .tabs {
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0.45rem 0;
+    border: 0;
+    border-bottom: 1px solid var(--sleeve-rule);
+    border-radius: 0;
+    background: none;
+    overflow: visible;
+}
+
+:root[data-layout="sleeve"] .tabBtn {
+    flex: 0 1 auto;
+    border-radius: 0;
+    padding: 0.5rem 0.7rem;
+}
+
+:root[data-layout="sleeve"] .tabBtn svg { display: none; }
+:root[data-layout="sleeve"] .tabBtn:hover { background: var(--hover); }
+
+:root[data-layout="sleeve"] .activeTab {
+    color: var(--sleeve-ink) !important;
+    background: var(--sleeve-paper) !important;
+    box-shadow: none;
+}
+
+:root[data-layout="sleeve"] :is(.shuffleBtn, .dropdownTrigger, .dropdownMenu, .dropdownOption, .modalCloseBtn, .modalContainer) {
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+:root[data-layout="sleeve"] :is(.shuffleBtn, .dropdownTrigger) {
+    font-family: var(--sleeve-mono);
+    font-size: var(--fs-sm);
+    border-color: var(--sleeve-rule);
+    padding: 0.5rem 0.65rem;
+}
+
+:root[data-layout="sleeve"] :is(.dropdownMenu, .modalContainer) { background: var(--bg-raised); }
+:root[data-layout="sleeve"] .modalOverlay { backdrop-filter: none; }
+
+:root[data-layout="sleeve"] .grid {
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    gap: 1.25rem 0.9rem;
+}
+
+:root[data-layout="sleeve"] .grid > * { width: 100%; min-width: 0; }
+:root[data-layout="sleeve"] .emptyText { font: 500 var(--fs-3xl)/1.25 var(--sleeve-serif); }
+:root[data-layout="sleeve"] .emptySubtext { opacity: 1; }

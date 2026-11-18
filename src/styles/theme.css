@@ -139,6 +139,45 @@
     --space-sm: 8px;
 }
 
+/* Конверт пластинки: бумага для этикеток, тёмная стойка и метка иглы. */
+:root[data-layout="sleeve"] {
+    --sleeve-ink: #222624;
+    --sleeve-paper: #e1ddc9;
+    --sleeve-signal: #ffab62;
+    --sleeve-rule: #5b6158;
+    --sleeve-mono: Consolas, "Liberation Mono", monospace;
+    --sleeve-serif: Georgia, "Times New Roman", serif;
+
+    --bg-crust: #191d1b;
+    --bg-base: var(--sleeve-ink);
+    --bg-mantle: #303530;
+    --bg-raised: #393e38;
+    --solid-base: var(--bg-base);
+    --solid-mantle: var(--bg-mantle);
+    --panel-bg: var(--bg-mantle);
+    --text-main: var(--sleeve-paper);
+    --text-sub: #c1c3b5;
+    --text-dim: #a7ad9e;
+    --accent: var(--sleeve-signal);
+    --accent-hover: #ffca96;
+    --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+    --on-accent: var(--sleeve-ink);
+    --border-color: var(--sleeve-rule);
+    --border-subtle: color-mix(in srgb, var(--sleeve-rule) 64%, transparent);
+    --glass-surface: var(--bg-mantle);
+    --glass-surface-player: var(--bg-crust);
+    --glass-surface-main: var(--bg-base);
+    --bg-main-glass: var(--bg-base);
+    --glass-popover-bg: var(--bg-raised);
+    --glass-popover-blur: 0px;
+    --glass-blur: 0px;
+    --radius-xs: 2px;
+    --radius-sm: 3px;
+    --radius-md: 5px;
+    --radius-lg: 7px;
+    --radius-xl: 9px;
+}
+
 /* Base Styles */
 .glass-panel {
     background: var(--glass-surface);

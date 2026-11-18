@@ -32,8 +32,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST_RELEASE=$(gh api "repos/${{ github.repository }}/releases" --paginate \
-            --jq '[.[] | select(.draft==false and .prerelease==false) | .tag_name | ltrimstr("v")]
+          LATEST_RELEASE=$(gh api "repos/${{ github.repository }}/releases" --paginate --slurp \
+            --jq '[.[][] | select(.draft==false and .prerelease==false) | .tag_name | ltrimstr("v")]
                   | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$")))
                   | sort_by(split(".") | map(tonumber))
                   | last // "0.0.0"')
@@ -47,6 +47,7 @@ jobs:
           NEW_VERSION=$(node -e "const a='$AUTO_VERSION'.split('.').map(Number), b='$PKG_VERSION'.split('.').map(Number); const ok = b.length===3 && b.every(Number.isInteger); const higher = ok && (b[0]-a[0] || b[1]-a[1] || b[2]-a[2]) > 0; console.log(higher ? '$PKG_VERSION' : '$AUTO_VERSION')")
 
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "previous=$LATEST_RELEASE" >> "$GITHUB_OUTPUT"
           echo "Latest release: $LATEST_RELEASE, package.json: $PKG_VERSION -> building $NEW_VERSION"
 
           node -e "const p=require('./package.json');p.version='$NEW_VERSION';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')"
@@ -130,3 +131,43 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+
+      - name: Verify upgrade from the previous installed Windows release
+        if: steps.version.outputs.previous != '0.0.0'
+        timeout-minutes: 12
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          EXPECTED: ${{ steps.version.outputs.version }}
+        run: |
+          $installer = "GoyMusic-Setup-$env:PREVIOUS.exe"
+          gh release download "v$env:PREVIOUS" --repo $env:GITHUB_REPOSITORY --pattern $installer --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE) { throw "Cannot download previous installer" }
+          Remove-Item Env:GH_TOKEN
+          $dir = Join-Path $env:RUNNER_TEMP "GoyMusic-update-test"
+          $setup = Start-Process (Join-Path $env:RUNNER_TEMP $installer) -ArgumentList "/S", "/D=$dir" -Wait -PassThru
+          if ($setup.ExitCode) { throw "Previous installer exited with $($setup.ExitCode)" }
+          $exe = Join-Path $dir "GoyMusic.exe"
+          function Read-ReleaseVersion {
+            $info = (Get-Item $exe).VersionInfo
+            return "$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)"
+          }
+          if ((Read-ReleaseVersion) -ne $env:PREVIOUS) { throw "Unexpected starting version" }
+          # Playwright управляет окном установленного Electron; браузер скачивать не нужно.
+          npm install --prefix "$env:RUNNER_TEMP/update-driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
+          if ($LASTEXITCODE) { throw "Cannot install update driver" }
+          $env:NODE_PATH = "$env:RUNNER_TEMP/update-driver/node_modules"
+          $process = Start-Process $exe -ArgumentList "--devtools", "--remote-debugging-port=9222" -PassThru
+          node .github/workflows/check-installed-update.cjs
+          if ($LASTEXITCODE) { throw "In-app download or install action failed" }
+          $deadline = (Get-Date).AddMinutes(3)
+          do {
+            $running = Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe -and $_.MainWindowHandle -ne 0 -and $_.Id -ne $process.Id }
+            if ($running -and (Read-ReleaseVersion) -eq $env:EXPECTED) {
+              Write-Output "Verified in-place upgrade: $env:PREVIOUS -> $env:EXPECTED ($exe)"
+              exit 0
+            }
+            Start-Sleep -Seconds 2
+          } while ((Get-Date) -lt $deadline)
+          throw "Updated GoyMusic did not restart in its original directory"
