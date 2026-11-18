@@ -8,7 +8,6 @@ interface NavLinkProps {
   label: string;
   active?: boolean;
   onClick?: () => void;
-  className?: string;
   tooltip?: string;
   hidden?: boolean;
 }
@@ -22,19 +21,21 @@ export const NavLink: React.FC<NavLinkProps> = React.memo(({
   label,
   active = false,
   onClick,
-  className,
   tooltip,
   hidden
 }) => {
   if (hidden) return null;
   return (
-    <div
-      className={`${styles.container} ${active ? styles.active : ''} ${className || ''}`}
+    <button
+      type="button"
+      className={`${styles.container} ${active ? styles.active : ''}`}
+      aria-label={label || tooltip}
+      aria-current={active ? 'page' : undefined}
       onClick={onClick}
       data-tooltip={tooltip || undefined}
     >
       {icon && <Icon icon={icon} size={18} className={styles.icon} />}
       <span className={styles.label}>{label}</span>
-    </div>
+    </button>
   );
 });

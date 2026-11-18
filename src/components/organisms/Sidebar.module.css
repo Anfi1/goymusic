@@ -60,12 +60,21 @@
     cursor: pointer;
 }
 
-.indexHeading,
 .collectionIcon {
     display: none;
 }
 
 .toggleBtn {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-main);
+    cursor: pointer;
     opacity: 0.4;
     transition: opacity 0.2s;
 }
@@ -285,171 +294,82 @@
     padding: 8px 0 12px;
 }
 
-/* The cabinet reads as one paper index, rather than individual floating tiles. */
-:root[data-layout="sleeve"] .sidebar {
-    padding: 0;
+:root[data-layout="deck"] .sidebar {
     min-height: 0;
-    background: var(--sleeve-paper);
-    color: var(--sleeve-ink);
-    border-color: var(--sleeve-ink);
+    padding: 0 8px;
+    background: var(--bg-crust);
     backdrop-filter: none;
     overflow: visible;
 }
 
-:root[data-layout="sleeve"] .sidebar.collapsed {
-    width: 54px;
+:root[data-layout="deck"] .sidebar.collapsed {
+    width: 58px;
 }
 
-:root[data-layout="sleeve"] .sidebar.immersive {
+:root[data-layout="deck"] .sidebar.immersive {
     grid-row: 1 / 4;
 }
 
-:root[data-layout="sleeve"] .header {
+:root[data-layout="deck"] .header {
     flex: 0 0 var(--title-height);
-    min-height: 0;
-    margin: 0;
-    padding: 0 10px;
-    justify-content: space-between;
-    flex-direction: row-reverse;
-    border-bottom: 2px solid var(--sleeve-ink);
-}
-
-:root[data-layout="sleeve"] .logo {
-    color: inherit;
-    font: bold var(--fs-4xl)/1 var(--sleeve-serif);
-    letter-spacing: -0.065em;
-}
-
-:root[data-layout="sleeve"] .toggleBtn,
-:root[data-layout="sleeve"] .addPlaylistBtn {
-    border: 1px solid currentColor;
-    border-radius: 0;
-    color: var(--sleeve-ink);
-    opacity: 1;
-}
-
-:root[data-layout="sleeve"] .userProfile {
-    margin: 0;
-    padding: 6px;
-    border-bottom: 1px solid var(--sleeve-ink);
-}
-
-:root[data-layout="sleeve"] .userTrigger {
-    gap: 7px;
-    padding: 4px;
-    color: inherit;
-    border-radius: 0;
-}
-
-:root[data-layout="sleeve"] .userTrigger:hover,
-:root[data-layout="sleeve"] .toggleBtn:hover,
-:root[data-layout="sleeve"] .addPlaylistBtn:hover {
-    background: color-mix(in srgb, var(--sleeve-ink) 12%, transparent);
-}
-
-:root[data-layout="sleeve"] .userName,
-:root[data-layout="sleeve"] .chevron {
-    color: inherit;
-    opacity: 1;
-}
-
-:root[data-layout="sleeve"] .userName {
-    font-family: var(--sleeve-mono);
-    font-size: var(--fs-sm);
-}
-
-:root[data-layout="sleeve"] .avatarPlaceholder {
-    background: var(--sleeve-ink);
-    color: var(--sleeve-paper);
-}
-
-:root[data-layout="sleeve"] .userMenu {
-    border-radius: 0;
-    box-shadow: none;
-}
-
-:root[data-layout="sleeve"] .mainNav {
-    padding: 12px 6px 0;
-    counter-reset: cabinet-index;
-}
-
-:root[data-layout="sleeve"] .indexHeading,
-:root[data-layout="sleeve"] .sectionTitle {
-    color: var(--sleeve-ink);
-    opacity: 1;
-    font: 700 var(--fs-xs)/1.4 var(--sleeve-mono);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-:root[data-layout="sleeve"] .indexHeading {
-    display: block;
-    margin: 0 4px 8px;
-}
-
-:root[data-layout="sleeve"] .mainNav > div,
-:root[data-layout="sleeve"] .nav > div > div {
-    min-height: 32px;
-    gap: 8px;
-    padding-inline: 6px;
-    border-radius: 0;
-    color: var(--sleeve-ink);
-    opacity: 1;
-}
-
-:root[data-layout="sleeve"] .mainNav > div {
-    border-top: 1px solid color-mix(in srgb, var(--sleeve-ink) 28%, transparent);
-    counter-increment: cabinet-index;
-}
-
-:root[data-layout="sleeve"] .sidebar:not(.collapsed) .mainNav > div::after {
-    content: counter(cabinet-index, decimal-leading-zero) / "";
-    margin-inline-start: auto;
-    font: var(--fs-2xs) var(--sleeve-mono);
-    font-variant-numeric: tabular-nums;
-}
-
-:root[data-layout="sleeve"] .mainNav > div:hover,
-:root[data-layout="sleeve"] .nav > div > div:hover {
-    background: color-mix(in srgb, var(--sleeve-ink) 9%, transparent);
-}
-
-:root[data-layout="sleeve"] :is(.mainNav, .nav) div.currentLink,
-:root[data-layout="sleeve"] :is(.mainNav, .nav) div.currentLink:hover {
-    background: var(--sleeve-ink);
-    color: var(--sleeve-paper);
-    box-shadow: inset 3px 0 var(--sleeve-signal);
-}
-
-:root[data-layout="sleeve"] .playlistSection {
-    margin: 12px 0 0;
-}
-
-:root[data-layout="sleeve"] .sectionHeader {
-    min-height: 36px;
-    margin: 0;
-    padding: 0 10px;
-    border-block: 1px solid var(--sleeve-ink);
-}
-
-:root[data-layout="sleeve"] .scrollArea {
-    padding: 4px 6px 8px;
-}
-
-:root[data-layout="sleeve"] .nav {
-    gap: 0;
-}
-
-:root[data-layout="sleeve"] .collapsed :is(.header, .sectionHeader, .userTrigger) {
-    justify-content: center;
     padding-inline: 0;
+    margin-bottom: 4px;
 }
 
-:root[data-layout="sleeve"] .collapsed .collectionIcon {
+:root[data-layout="deck"] .toggleBtn {
+    opacity: 1;
+    color: var(--accent);
+}
+
+:root[data-layout="deck"] .userProfile {
+    padding: 0;
+}
+
+:root[data-layout="deck"] .userMenu {
+    top: auto;
+    bottom: 100%;
+    margin: 0 0 6px;
+}
+
+:root[data-layout="deck"] .collectionButton[aria-current="page"] {
+    color: var(--accent);
+}
+
+:root[data-layout="deck"] .mainNav {
+    display: grid;
+    gap: 2px;
+}
+
+:root[data-layout="deck"] .sectionHeader {
+    min-height: 36px;
+    padding-inline: 6px;
+    margin-bottom: 2px;
+    border-top: 1px solid var(--border-color);
+}
+
+:root[data-layout="deck"] .sectionTitle {
+    color: var(--text-sub);
+    font-size: var(--fs-base);
+    text-transform: none;
+    letter-spacing: normal;
+    opacity: 1;
+}
+
+:root[data-layout="deck"] .collapsed .sectionHeader {
+    justify-content: center;
+}
+
+:root[data-layout="deck"] .collectionIcon {
     display: block;
 }
 
-:root[data-layout="sleeve"] .sidebar button:focus-visible {
-    outline: 2px solid currentColor;
+:root[data-layout="deck"] .collapsed .collectionButton {
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+}
+
+:root[data-layout="deck"] .sidebar button:focus-visible {
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
 }

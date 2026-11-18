@@ -139,33 +139,29 @@
     --space-sm: 8px;
 }
 
-/* Конверт пластинки: бумага для этикеток, тёмная стойка и метка иглы. */
-:root[data-layout="sleeve"] {
-    --sleeve-ink: #222624;
-    --sleeve-paper: #e1ddc9;
-    --sleeve-signal: #ffab62;
-    --sleeve-rule: #5b6158;
-    --sleeve-mono: Consolas, "Liberation Mono", monospace;
-    --sleeve-serif: Georgia, "Times New Roman", serif;
-
-    --bg-crust: #191d1b;
-    --bg-base: var(--sleeve-ink);
-    --bg-mantle: #303530;
-    --bg-raised: #393e38;
+/* Компактная дека: поверхности и типографика варианта A. */
+:root[data-layout="deck"] {
+    color-scheme: dark;
+    --font-main: "Segoe UI", system-ui, sans-serif;
+    --bg-crust: #131516;
+    --bg-base: #17191a;
+    --bg-mantle: #212425;
+    --bg-raised: #2a2d2d;
     --solid-base: var(--bg-base);
     --solid-mantle: var(--bg-mantle);
     --panel-bg: var(--bg-mantle);
-    --text-main: var(--sleeve-paper);
-    --text-sub: #c1c3b5;
-    --text-dim: #a7ad9e;
-    --accent: var(--sleeve-signal);
-    --accent-hover: #ffca96;
-    --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
-    --on-accent: var(--sleeve-ink);
-    --border-color: var(--sleeve-rule);
-    --border-subtle: color-mix(in srgb, var(--sleeve-rule) 64%, transparent);
+    --text-main: #e9ebea;
+    --text-sub: #a0a6a5;
+    --text-dim: #959c9b;
+    --accent: #a6d5c6;
+    --accent-hover: #bee4d8;
+    --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+    --on-accent: #151a18;
+    --border-color: #323536;
+    --border-subtle: var(--border-color);
+    --hover: var(--bg-raised);
     --glass-surface: var(--bg-mantle);
-    --glass-surface-player: var(--bg-crust);
+    --glass-surface-player: #1d2020;
     --glass-surface-main: var(--bg-base);
     --bg-main-glass: var(--bg-base);
     --glass-popover-bg: var(--bg-raised);

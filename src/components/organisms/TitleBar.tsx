@@ -162,6 +162,7 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
 
   return (
     <header className={styles.titleBar}>
+      <strong className={styles.brand}>GoyMusic</strong>
       {/* Left: Navigation Controls */}
       <div className={styles.leftControls} style={NO_DRAG_STYLE}>
         {!isInitializing && onBack && (
@@ -249,8 +250,6 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
           <div className={styles.loadingTitle}>GoyMusic</div>
         )}
       </div>
-
-      <span className={styles.deskMark} aria-hidden="true">Listening desk</span>
 
       {/* Right: Window Controls */}
       <div className={styles.windowControls} style={NO_DRAG_STYLE}>

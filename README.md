@@ -11,7 +11,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 - Playlist management, liked songs, history
 - Lyrics view
 - Search with suggestions
-- Classic glass UI or an opt-in record shop layout. Open **Settings → Appearance → new Experement Layout** to switch without restarting. The choice is saved on this desktop.
+- Compact desktop layout with an icon rail, slim queue and single-row player. Toggle **Settings → Appearance → new Experement Layout** without restarting. Classic remains the default; upgrading from 7.1.0 keeps your choice.
 
 ## Tech Stack
 

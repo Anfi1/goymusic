@@ -444,73 +444,69 @@
     }
 }
 
-:root[data-layout="sleeve"] .container {
-    background: none;
-    padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+:root[data-layout="deck"] .container {
+    background: var(--bg-base);
+    padding: clamp(18px, 3vw, 44px);
 }
 
-:root[data-layout="sleeve"] .headerRow {
+:root[data-layout="deck"] .headerRow { flex-wrap: wrap; }
+:root[data-layout="deck"] .icon { display: none; }
+
+:root[data-layout="deck"] .titleWrapper h1 {
+    font-size: clamp(30px, 4.1vw, 62px);
+    font-weight: 590;
+    letter-spacing: -0.065em;
+    line-height: 1.03;
+}
+
+:root[data-layout="deck"] .rightControls { margin-right: 0; }
+
+:root[data-layout="deck"] .tabs {
     flex-wrap: wrap;
-    padding-bottom: 0.85rem;
-    margin-bottom: 0;
-    border-bottom: 2px solid var(--sleeve-rule);
-}
-
-:root[data-layout="sleeve"] .titleWrapper h1 {
-    font: 500 clamp(2rem, 4vw, 3.6rem)/1.07 var(--sleeve-serif);
-    letter-spacing: -0.035em;
-}
-
-:root[data-layout="sleeve"] .icon { display: none; }
-:root[data-layout="sleeve"] .rightControls { margin-right: 0; }
-
-:root[data-layout="sleeve"] .tabs {
-    flex-wrap: wrap;
-    gap: 0;
-    padding: 0.45rem 0;
-    border: 0;
-    border-bottom: 1px solid var(--sleeve-rule);
-    border-radius: 0;
-    background: none;
+    width: auto;
+    padding: 0;
     overflow: visible;
+    border: none;
+    background: transparent;
 }
 
-:root[data-layout="sleeve"] .tabBtn {
+:root[data-layout="deck"] .tabBtn {
     flex: 0 1 auto;
-    border-radius: 0;
-    padding: 0.5rem 0.7rem;
+    padding: 6px 10px;
+    font-weight: 500;
+    border-radius: var(--radius-md);
 }
 
-:root[data-layout="sleeve"] .tabBtn svg { display: none; }
-:root[data-layout="sleeve"] .tabBtn:hover { background: var(--hover); }
+:root[data-layout="deck"] .tabBtn:hover,
+:root[data-layout="deck"] .dropdownOption:hover { background: var(--bg-mantle); }
 
-:root[data-layout="sleeve"] .activeTab {
-    color: var(--sleeve-ink) !important;
-    background: var(--sleeve-paper) !important;
+:root[data-layout="deck"] .activeTab {
+    background: var(--bg-mantle) !important;
     box-shadow: none;
 }
 
-:root[data-layout="sleeve"] :is(.shuffleBtn, .dropdownTrigger, .dropdownMenu, .dropdownOption, .modalCloseBtn, .modalContainer) {
-    border-radius: 0;
-    box-shadow: none;
+:root[data-layout="deck"] :is(.shuffleBtn, .dropdownTrigger, .dropdownMenu, .modalContainer) {
+    border-radius: var(--radius-md);
+    background: var(--bg-raised);
     backdrop-filter: none;
+    box-shadow: none;
 }
 
-:root[data-layout="sleeve"] :is(.shuffleBtn, .dropdownTrigger) {
-    font-family: var(--sleeve-mono);
-    font-size: var(--fs-sm);
-    border-color: var(--sleeve-rule);
-    padding: 0.5rem 0.65rem;
+:root[data-layout="deck"] :is(.shuffleBtn, .dropdownTrigger):hover {
+    background: var(--bg-mantle);
+    border-color: var(--accent);
 }
 
-:root[data-layout="sleeve"] :is(.dropdownMenu, .modalContainer) { background: var(--bg-raised); }
-:root[data-layout="sleeve"] .modalOverlay { backdrop-filter: none; }
-
-:root[data-layout="sleeve"] .grid {
-    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
-    gap: 1.25rem 0.9rem;
+:root[data-layout="deck"] :is(.trackList, .modalTable) {
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
-:root[data-layout="sleeve"] .grid > * { width: 100%; min-width: 0; }
-:root[data-layout="sleeve"] .emptyText { font: 500 var(--fs-3xl)/1.25 var(--sleeve-serif); }
-:root[data-layout="sleeve"] .emptySubtext { opacity: 1; }
+:root[data-layout="deck"] .grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+    gap: 12px;
+}
+
+:root[data-layout="deck"] .grid > * { width: 100%; min-width: 0; }
+:root[data-layout="deck"] .emptyText { font-weight: 500; }
+:root[data-layout="deck"] .emptySubtext { color: var(--text-sub); opacity: 1; }

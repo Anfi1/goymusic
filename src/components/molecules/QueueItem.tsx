@@ -33,7 +33,7 @@ interface QueueItemProps {
   source?: unknown;
 }
 
-const PlaybackOverlay = memo(({ id, isActive }: { id: string, isActive: boolean }) => {
+const PlaybackOverlay = memo(({ id, title, isActive }: { id: string, title: string, isActive: boolean }) => {
   const [isPlaying, setIsPlaying] = useState(player.isPlaying && player.currentTrack?.id === id);
 
   useEffect(() => {
@@ -46,9 +46,9 @@ const PlaybackOverlay = memo(({ id, isActive }: { id: string, isActive: boolean 
 
   return (
     <>
-      <div className={styles.playOverlay}>
+      <button type="button" className={styles.playOverlay} aria-label={`${isActive && isPlaying ? 'Pause' : 'Play'} ${title}`}>
         {isActive && isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-      </div>
+      </button>
       {isActive && <div className={styles.playingOverlay}><Visualizer trackId={id} /></div>}
     </>
   );
@@ -106,6 +106,7 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
         className={`${styles.likeBtn} ${isLiked ? styles.isLiked : ''} ${loadingAction === 'like' ? styles.isLiking : ''}`}
         onClick={handleLike}
         disabled={!!loadingAction}
+        aria-label={isLiked ? 'Unlike' : 'Like'}
         data-tooltip={isLiked ? 'Unlike' : 'Like'}
       >
         {loadingAction === 'like' ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? 'var(--danger)' : 'var(--text-sub)'} fill={isLiked ? 'var(--danger)' : 'none'} />}
@@ -114,6 +115,7 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
         className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
         onClick={handleDislike}
         disabled={!!loadingAction}
+        aria-label={isDisliked ? 'Remove dislike' : 'Dislike'}
         data-tooltip={isDisliked ? 'Remove dislike' : 'Dislike'}
       >
         {loadingAction === 'dislike' ? <Loader2 size={14} className={styles.spinner} /> : <HeartCrack size={14} color={isDisliked ? 'var(--warning)' : 'var(--text-sub)'} />}
@@ -154,12 +156,13 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
   onSelectArtist,
   draggable,
   onDragStart,
+  onDragEnd,
   className,
   trackData,
   hideDislike,
   source
 }) => {
-  const [imgError, setImgError] = useState(false);
+  const [failedThumb, setFailedThumb] = useState<string>();
 
   const handleItemClick = useCallback(() => {
     if (isActive) player.togglePlay();
@@ -185,23 +188,24 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
   return (
     <div
       className={`${styles.item} ${isActive ? styles.active : ''} ${className || ''}`}
-      data-cue={index === undefined ? undefined : String(index + 1).padStart(2, '0')}
+      aria-current={isActive ? 'true' : undefined}
       onClick={handleItemClick}
       onContextMenu={handleContext}
       draggable={draggable}
       onDragStart={handleDragStartInternal}
+      onDragEnd={onDragEnd ? (e) => onDragEnd(e, index) : undefined}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       <div className={styles.coverWrapper} style={{ position: 'relative' }}>
-        {thumbUrl && !imgError ? (
-          <img src={thumbUrl} alt="" className={styles.cover} onError={() => setImgError(true)} />
+        {thumbUrl && thumbUrl !== failedThumb ? (
+          <img src={thumbUrl} alt="" className={styles.cover} onError={() => setFailedThumb(thumbUrl)} />
         ) : (
           <div className={styles.cover} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
             {!thumbUrl ? null : <Music2 size={18} />}
           </div>
         )}
-        <PlaybackOverlay id={id} isActive={isActive} />
+        <PlaybackOverlay id={id} title={title} isActive={isActive} />
         {(resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex') && (
           <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
             <SourceBadge source={source} size={12} />

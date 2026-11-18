@@ -29,7 +29,7 @@ body {
 }
 
 /* Стеклянная тема: фон окна должен быть прозрачным, чтобы был виден Acrylic-материал Windows. */
-[data-theme="glass"]:not([data-layout="sleeve"]) body {
+[data-theme="glass"]:not([data-layout="deck"]) body {
     background-color: transparent;
 }
 
@@ -80,7 +80,7 @@ body {
     outline: none;
 }
 
-:root[data-layout="sleeve"] :focus-visible {
+:root[data-layout="deck"] :focus-visible {
     outline: 2px solid currentColor;
     outline-offset: 2px;
 }

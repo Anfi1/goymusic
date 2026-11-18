@@ -21,7 +21,7 @@ export const TrackRowSkeleton = forwardRef<HTMLTableRowElement, TrackRowSkeleton
             </td>
             <td className={styles.titleTd}>
                 <div className={styles.titleCell}>
-                    <Skeleton width={40} height={40} borderRadius={4} className={styles.thumb} />
+                    <Skeleton borderRadius={4} className={styles.thumb} />
                     <div className={styles.titleWrapper}>
                         <Skeleton width="60%" height={16} borderRadius={4} />
                         <Skeleton width="40%" height={14} borderRadius={4} />

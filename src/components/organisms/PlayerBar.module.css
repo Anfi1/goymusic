@@ -216,10 +216,6 @@
     gap: 0.2rem;
 }
 
-.deskLabel {
-    display: none;
-}
-
 .volumeSlot {
     margin-left: 1rem;
 }
@@ -289,137 +285,90 @@
     text-transform: uppercase;
 }
 
-/* The desk is ink, with a separate paper slip for the record on deck. */
-:root[data-layout="sleeve"] .container {
-    grid-template-columns: minmax(0, 0.95fr) minmax(284px, 1.5fr) minmax(208px, 0.75fr);
-    gap: clamp(12px, 2vw, 32px);
-    padding-inline: clamp(12px, 1.6vw, 28px);
-    background: var(--sleeve-ink);
-    color: var(--sleeve-paper);
-    border-top: 2px solid var(--sleeve-rule);
-    --text-main: var(--sleeve-paper);
-    --accent: var(--sleeve-signal);
-    --on-accent: var(--sleeve-ink);
-    --key-rule: color-mix(in srgb, var(--sleeve-paper) 32%, var(--sleeve-ink));
+:root[data-layout="deck"] .container {
+    grid-template-columns: minmax(218px, 1.45fr) auto minmax(0, 2fr) auto;
+    grid-template-areas: "track buttons seek tools";
+    gap: clamp(10px, 1.4vw, 28px);
+    padding-inline: clamp(14px, 2vw, 28px);
 }
 
-:root[data-layout="sleeve"] .nowPlaying {
-    --text-main: var(--sleeve-ink);
-    --accent: color-mix(in srgb, var(--sleeve-signal) 58%, var(--sleeve-ink));
-    background: var(--sleeve-paper);
-    color: var(--sleeve-ink);
-    border-left: 3px solid var(--sleeve-signal);
-    margin: 0;
-    padding: 6px 9px 6px 6px;
-    gap: 9px;
-    border-radius: 0;
+:root[data-layout="deck"] .nowPlaying {
+    grid-area: track;
+    gap: 10px;
 }
 
-:root[data-layout="sleeve"] .clickable:hover {
-    background: color-mix(in srgb, var(--sleeve-paper) 95%, var(--sleeve-ink));
+:root[data-layout="deck"] .clickable:hover {
+    background: var(--bg-mantle);
 }
 
-:root[data-layout="sleeve"] .artWrapper {
-    width: 50px;
-    height: 50px;
-    outline: 1px solid color-mix(in srgb, var(--sleeve-ink) 28%, transparent);
+:root[data-layout="deck"] .artWrapper {
+    width: 45px;
+    height: 45px;
 }
 
-:root[data-layout="sleeve"] :is(.albumArt, .albumArtEmpty) {
+:root[data-layout="deck"] :is(.albumArt, .albumArtEmpty) {
     width: 100%;
     height: 100%;
-    border-radius: 0;
+    border-radius: var(--radius-md);
 }
 
-:root[data-layout="sleeve"] .albumArtEmpty {
-    background: var(--sleeve-ink);
-    color: var(--sleeve-paper);
+:root[data-layout="deck"] .albumArtEmpty {
+    background: var(--bg-raised);
+    color: var(--text-sub);
 }
 
-:root[data-layout="sleeve"] .albumArtEmpty:empty::before {
-    content: '';
-    width: 18px;
-    height: 18px;
-    border: 8px double var(--key-rule);
-    border-radius: 50%;
+:root[data-layout="deck"] .title {
+    font-weight: 550;
 }
 
-:root[data-layout="sleeve"] .deskLabel {
-    display: block;
-    font: 600 var(--fs-2xs)/1.2 var(--sleeve-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-}
-
-:root[data-layout="sleeve"] .trackInfo {
-    flex: 1;
-    gap: 1px;
-}
-
-:root[data-layout="sleeve"] .title {
-    font: 600 var(--fs-lg)/1.12 var(--sleeve-serif);
-}
-
-:root[data-layout="sleeve"] .artist {
-    opacity: 0.83;
-}
-
-:root[data-layout="sleeve"] .controls {
-    gap: 6px;
-}
-
-:root[data-layout="sleeve"] .buttons {
-    gap: clamp(5px, 1vw, 15px);
-}
-
-:root[data-layout="sleeve"] .buttons button {
-    border-radius: var(--radius-xs);
-    border: 1px solid var(--key-rule);
-}
-
-:root[data-layout="sleeve"] .buttons .playKey,
-:root[data-layout="sleeve"] .buttons .playKey:hover:not(:disabled) {
-    background: var(--sleeve-signal);
-    color: var(--sleeve-ink);
-    border-color: transparent;
-}
-
-:root[data-layout="sleeve"] .container button:not(:disabled) {
+:root[data-layout="deck"] :is(.artist, .time) {
+    color: var(--text-sub);
     opacity: 1;
 }
 
-:root[data-layout="sleeve"] .time {
-    opacity: 1;
-    font-family: var(--sleeve-mono);
+:root[data-layout="deck"] .controls {
+    display: contents;
 }
 
-:root[data-layout="sleeve"] .extra {
-    display: grid;
-    grid-template-columns: auto auto minmax(82px, 128px);
+:root[data-layout="deck"] .buttons {
+    grid-area: buttons;
+    gap: clamp(2px, 0.4vw, 8px);
+}
+
+:root[data-layout="deck"] .playKey {
+    max-width: 38px;
+    max-height: 38px;
+}
+
+:root[data-layout="deck"] .playKey svg {
+    fill: currentColor;
+}
+
+:root[data-layout="deck"] .buttons .playKey,
+:root[data-layout="deck"] .buttons .playKey:hover:not(:disabled) {
+    background: var(--text-main);
+    color: var(--on-accent);
+}
+
+:root[data-layout="deck"] .progress {
+    grid-area: seek;
+    max-width: none;
+    gap: 8px;
+}
+
+:root[data-layout="deck"] .time {
+    min-width: 30px;
+}
+
+:root[data-layout="deck"] .extra {
+    grid-area: tools;
+}
+
+:root[data-layout="deck"] .volumeSlot {
+    margin-left: 4px;
+}
+
+:root[data-layout="deck"] .volume {
+    width: clamp(82px, 9vw, 126px);
     gap: 4px;
-    padding-left: 12px;
-    border-left: 1px solid var(--key-rule);
-}
-
-:root[data-layout="sleeve"] .extra .deskLabel {
-    grid-column: 1 / -1;
-}
-
-:root[data-layout="sleeve"] .volumeSlot {
-    margin: 0;
-}
-
-:root[data-layout="sleeve"] .volume {
-    width: 100%;
-    gap: 2px;
-}
-
-:root[data-layout="sleeve"] .volumeInputPopover {
-    background: var(--sleeve-ink);
-    border-color: var(--key-rule);
-    backdrop-filter: none;
-}
-
-:root[data-layout="sleeve"] .volumeInputPopover::after {
-    border-top-color: var(--sleeve-ink);
 }

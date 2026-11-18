@@ -480,7 +480,7 @@ function App() {
         e.preventDefault();
         handleRefresh();
       }
-      if (e.key === ' ' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === ' ' && tag !== 'BUTTON' && !e.defaultPrevented && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
         player.togglePlay();
       }
@@ -749,7 +749,6 @@ function App() {
         sidebar={sidebarComp}
         rightPanel={rightPanelComp}
         playerBar={playerBarComp}
-        isSidebarCollapsed={isSidebarCollapsed}
         isQueueVisible={
           rightPanelContent !== 'none' && isAuthenticated && !isInitializing
         }

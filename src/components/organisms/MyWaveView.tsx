@@ -171,6 +171,7 @@ const WaveVolumeControl: React.FC = () => {
       </button>
       <ProgressBar
         ref={volumeBarRef}
+        label="Volume"
         onSeek={handleSeek}
         showThumb={true}
         className={styles.volumeBar}
@@ -221,6 +222,7 @@ const WaveProgressBar = React.memo(({ onSeek }: { onSeek: (pct: number) => void 
     <div className={styles.waveProgress}>
       <ProgressBar
         ref={progressBarRef}
+        label="Playback position"
         buffered={player.buffered}
         onSeek={onSeek}
         className={styles.progressBar}

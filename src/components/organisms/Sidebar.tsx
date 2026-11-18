@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, memo, useCallback, useSyncExternalStore } from 'react';
 import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Library, Zap, Radio, AudioLines, HardDrive } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PlaylistContextMenu, PlaylistContextMenuRef } from './PlaylistContextMenu';
 import { InputDialog } from '../molecules/InputDialog';
 import sidebarStyles from './Sidebar.module.css';
+import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -28,12 +29,6 @@ interface SidebarProps {
   className?: string;
   activeViewType?: string;
 }
-
-// Keep the cabinet's selected-row treatment local to this navigation surface.
-const linkState = (active: boolean) => ({
-  active,
-  className: active ? sidebarStyles.currentLink : undefined,
-});
 
 const SidebarHeader = memo(({ 
   collapsed, 
@@ -100,14 +95,16 @@ const SidebarHeader = memo(({
 
   return (
     <div className={sidebarStyles.header}>
-      <IconButton
-        icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-        size={32}
-        iconSize={18}
-        onClick={onToggleCollapse}
+      <button
+        type="button"
         className={sidebarStyles.toggleBtn}
-        title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-      />
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+        aria-expanded={!collapsed}
+        data-tooltip={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+      >
+        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+      </button>
       {!collapsed && (
         <h2 className={sidebarStyles.logo}>
           <button type="button" className={sidebarStyles.logoButton} onClick={handleLogoClick}>GoyMusic</button>
@@ -220,7 +217,7 @@ const PlaylistItem = memo(({
       <NavLink
         icon={Music}
         label={collapsed ? '' : playlist.title}
-        {...linkState(isActive)}
+        active={isActive}
         onClick={handleClick}
         tooltip={collapsed ? playlist.title : undefined}
       />
@@ -275,7 +272,7 @@ const PlaylistList = memo(({
 });
 
 export const Sidebar: React.FC<SidebarProps> = memo(({
-  collapsed = false,
+  collapsed: classicCollapsed = false,
   immersive = false,
   onToggleCollapse,
   playlists = [],
@@ -288,6 +285,10 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
   className,
   activeViewType
 }) => {
+  const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
+  const [deckExpanded, setDeckExpanded] = useState(false);
+  const collapsed = deck ? !deckExpanded : classicCollapsed;
+  const toggleDeck = useCallback(() => setDeckExpanded(open => !open), []);
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const playlistMenuRef = useRef<PlaylistContextMenuRef>(null);
@@ -346,66 +347,61 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
 
   // Check if Liked Songs is active (either via dedicated type or via playlistId LM)
   const isLikedActive = activeViewType === 'liked' || activePlaylistId === 'LM';
+  const account = isAuthenticated && (
+    <UserProfileSection user={user} collapsed={collapsed} onSelectView={onSelectView} onLogout={onLogout} />
+  );
 
   return (
     <aside className={`${sidebarStyles.sidebar} ${collapsed ? sidebarStyles.collapsed : ''} ${immersive ? sidebarStyles.immersive : ''} ${className || ''}`}>
       <SidebarHeader 
         collapsed={collapsed} 
-        onToggleCollapse={onToggleCollapse} 
+        onToggleCollapse={deck ? toggleDeck : onToggleCollapse}
         onSelectView={onSelectView} 
         activeViewType={activeViewType}
       />
 
-      {isAuthenticated && (
-        <UserProfileSection 
-          user={user} 
-          collapsed={collapsed} 
-          onSelectView={onSelectView} 
-          onLogout={onLogout} 
-        />
-      )}
+      {!deck && account}
 
       <nav aria-label="Browse" className={sidebarStyles.mainNav}>
-        {!collapsed && <span className={sidebarStyles.indexHeading}>Browse index</span>}
         <NavLink
           icon={Home}
           label={collapsed ? '' : 'Home'}
-          {...linkState(activeViewType === 'home')}
+          active={activeViewType === 'home'}
           onClick={handleNavigateHome}
           tooltip={collapsed ? 'Home' : undefined}
         />
         <NavLink
           icon={Zap}
           label={collapsed ? '' : 'New Releases'}
-          {...linkState(activeViewType === 'new-releases')}
+          active={activeViewType === 'new-releases'}
           onClick={handleNavigateNewReleases}
           tooltip={collapsed ? 'New Releases' : undefined}
         />
         <NavLink
           icon={Heart}
           label={collapsed ? '' : 'Liked Songs'}
-          {...linkState(isLikedActive)}
+          active={isLikedActive}
           onClick={handleNavigateLiked}
           tooltip={collapsed ? 'Liked Songs' : undefined}
         />
         <NavLink
           icon={HardDrive}
           label={collapsed ? '' : 'Local'}
-          {...linkState(activePlaylistId === LOCAL_PLAYLIST_ID)}
+          active={activePlaylistId === LOCAL_PLAYLIST_ID}
           onClick={() => onSelectView?.({ type: 'playlist', playlistId: LOCAL_PLAYLIST_ID, playlistTitle: 'Local' })}
           tooltip={collapsed ? 'Local' : undefined}
         />
         <NavLink
           icon={AudioLines}
           label={collapsed ? '' : 'My Wave'}
-          {...linkState(activeViewType === 'my-wave')}
+          active={activeViewType === 'my-wave'}
           onClick={handleNavigateMyWave}
           tooltip={collapsed ? 'My Wave' : undefined}
         />
         <NavLink
           icon={Radio}
           label={collapsed ? '' : 'Radio'}
-          {...linkState(activeViewType === 'radio')}
+          active={activeViewType === 'radio'}
           onClick={handleNavigateRadio}
           tooltip={collapsed ? 'Radio' : undefined}
           hidden
@@ -413,7 +409,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
         <NavLink
           icon={History}
           label={collapsed ? '' : 'History'}
-          {...linkState(activeViewType === 'history')}
+          active={activeViewType === 'history'}
           onClick={handleNavigateHistory}
           tooltip={collapsed ? 'History' : undefined}
         />
@@ -427,6 +423,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
               className={sidebarStyles.collectionButton}
               onClick={() => onSelectView?.({ type: 'library' })}
               aria-label="Open Library"
+              aria-current={activeViewType === 'library' ? 'page' : undefined}
               title="Open Library"
             >
               {collapsed ? <Library size={16} className={sidebarStyles.collectionIcon} /> : 'Collection'}
@@ -444,19 +441,22 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           )}
         </div>
         
-        <div className={sidebarStyles.scrollArea}>
-          <nav aria-label="Playlists" className={sidebarStyles.nav}>
-            <PlaylistList 
-              playlists={playlists}
-              activePlaylistId={activePlaylistId}
-              collapsed={collapsed}
-              isInitializing={!!isInitializing}
-              onSelectView={onSelectView}
-              onContextMenu={handlePlaylistContextMenu}
-            />
-          </nav>
-        </div>
+        {(!deck || !collapsed) && (
+          <div className={sidebarStyles.scrollArea}>
+            <nav aria-label="Playlists" className={sidebarStyles.nav}>
+              <PlaylistList
+                playlists={playlists}
+                activePlaylistId={activePlaylistId}
+                collapsed={collapsed}
+                isInitializing={!!isInitializing}
+                onSelectView={onSelectView}
+                onContextMenu={handlePlaylistContextMenu}
+              />
+            </nav>
+          </div>
+        )}
       </div>
+      {deck && account}
 
       <PlaylistContextMenu 
         ref={playlistMenuRef} 

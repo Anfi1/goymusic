@@ -37,6 +37,7 @@ import { IconButton } from '../atoms/IconButton';
 
 import { InputDialog } from '../molecules/InputDialog';
 import { ConfirmDialog } from '../molecules/ConfirmDialog';
+import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import styles from './MainView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
@@ -77,26 +78,7 @@ const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, cont
     onDragOver={context?.onDragOverContainer}
     style={{ ...props.style, height: '100%', overflowY: 'auto', position: 'relative' }}
   >
-    {context && !context.isSearch && (
-      <LargeHeader 
-        metadata={context.metadata}
-        tracks={context.tracks}
-        totalReportedCount={context.totalReportedCount}
-        showSkeletons={context.showSkeletons}
-        isFetchingNextPage={context.isSyncing}
-        handleHeaderAction={context.handleHeaderAction}
-        isHeaderActionLoading={context.isHeaderActionLoading}
-        headerRef={context.headerRef}
-        playlistType={context.playlistType}
-        sortMode={context.sortMode}
-        setSortMode={context.setSortMode}
-        isSorting={context.isSorting}
-        isLikedSongsView={context.isLikedSongsView}
-        likedSources={context.likedSources}
-        activeLikedSources={context.activeLikedSources}
-        onToggleLikedSource={context.onToggleLikedSource}
-      />
-    )}
+    {context && !context.isSearch && <LargeHeader {...context} />}
     {children}
   </div>
 ));
@@ -112,12 +94,12 @@ const VirtuosoTable = React.forwardRef<HTMLTableElement, any>(({ context, ...pro
     className={styles.trackList} 
     style={{ 
       ...props.style, 
-      borderCollapse: 'collapse', 
+      borderCollapse: context?.isDeck ? 'separate' : 'collapse',
       zIndex: 2, 
       position: 'relative',
-      transform: context?.isSearch ? 'none' : `translate3d(0, ${HEADER_HEIGHT}px, 0)`,
+      transform: context?.isDeck || context?.isSearch ? undefined : `translate3d(0, ${HEADER_HEIGHT}px, 0)`,
       tableLayout: 'fixed',
-      willChange: 'transform'
+      willChange: context?.isDeck ? undefined : 'transform'
     }}
   >
     <TrackColumnGroup hideAlbum={context?.playlistType === 'album'} />
@@ -239,7 +221,7 @@ function useFitTitle(ref: React.RefObject<HTMLElement | null>, text?: string) {
 
 const LargeHeader = memo(({
   metadata, tracks, totalReportedCount, showSkeletons,
-  isFetchingNextPage, handleHeaderAction, isHeaderActionLoading,
+  isSyncing: isFetchingNextPage, handleHeaderAction, isHeaderActionLoading, isDeck,
   headerRef, playlistType, sortMode, setSortMode, isSorting,
   isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource
 }: any) => {
@@ -276,9 +258,25 @@ const LargeHeader = memo(({
     (tracks.length >= totalReportedCount || !totalReportedCount) ? `${tracks.length} songs` : `${tracks.length} of ${totalReportedCount}`;
 
   const description = isLikedSongs ? 'Your private collection of favorite tracks' : metadata?.description;
+  const actionSize = isDeck ? 32 : 42;
+  const stats = (
+    <div className={styles.statsUnderCover}>
+      {showSkeletons ? (
+        <>
+          <Skeleton width={40} height={12} borderRadius={4} />
+          <Skeleton width={60} height={12} borderRadius={4} />
+        </>
+      ) : (
+        <>
+          {metadata?.year && <div className={styles.yearUnder}>{metadata.year}</div>}
+          <div className={styles.trackCountUnder}>{displayCount}</div>
+        </>
+      )}
+    </div>
+  );
 
   return (
-    <div ref={headerRef} className={styles.header} style={{ height: HEADER_HEIGHT }}>
+    <div ref={headerRef} className={styles.header}>
       <div className={styles.coverWrapper}>
         <div 
           className={`${styles.coverContainer} ${!showSkeletons ? styles.zoomable : ''}`}
@@ -302,19 +300,7 @@ const LargeHeader = memo(({
             </>
           )}
         </div>
-        <div className={styles.statsUnderCover}>
-          {showSkeletons ? (
-            <>
-              <Skeleton width={40} height={12} borderRadius={4} />
-              <Skeleton width={60} height={12} borderRadius={4} />
-            </>
-          ) : (
-            <>
-              {metadata?.year && <div className={styles.yearUnder}>{metadata.year}</div>}
-              <div className={styles.trackCountUnder}>{displayCount}</div>
-            </>
-          )}
-        </div>
+        {!isDeck && stats}
       </div>
 
       <div className={styles.info} style={showSkeletons ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
@@ -326,10 +312,11 @@ const LargeHeader = memo(({
               <div className={styles.metaTextInfo}>
                 <Skeleton width={140} height={14} borderRadius={4} />
                 <Skeleton width={50} height={14} borderRadius={4} />
+                {isDeck && stats}
               </div>
               <div className={styles.headerActions}>
-                <Skeleton width={42} height={42} borderRadius="50%" />
-                <Skeleton width={42} height={42} borderRadius="50%" />
+                <Skeleton width={actionSize} height={actionSize} borderRadius="50%" />
+                <Skeleton width={actionSize} height={actionSize} borderRadius="50%" />
               </div>
             </div>
           </>
@@ -364,6 +351,7 @@ const LargeHeader = memo(({
                 {description}
               </div>
             )}
+            {isDeck && !metadata && stats}
 
             {metadata && (
             <div className={styles.headerMeta}>
@@ -390,6 +378,7 @@ const LargeHeader = memo(({
                       ))}
                     </div>
                   )}
+                  {isDeck && stats}
                   {metadata.duration && (
                     <div className={styles.durationTag}>
                       <Clock size={12} />
@@ -402,7 +391,7 @@ const LargeHeader = memo(({
                   {targetRatingId && (isYandexMeta ? true : (metadata.likeStatus === 'LIKE' || !isOwned)) && (
                     <IconButton
                       icon={Heart}
-                      size={42}
+                      size={actionSize}
                       iconSize={20}
                       active={metadata.likeStatus === 'LIKE'}
                       isLoading={isHeaderActionLoading === 'like'}
@@ -415,7 +404,7 @@ const LargeHeader = memo(({
                   {!isLikedSongs && metadata.menu_tokens && (
                     <IconButton
                       icon={metadata.isPinned ? PinOff : Pin}
-                      size={42}
+                      size={actionSize}
                       iconSize={20}
                       active={metadata.isPinned}
                       isLoading={isHeaderActionLoading === 'pin'}
@@ -428,14 +417,14 @@ const LargeHeader = memo(({
                     <>
                       <IconButton
                         icon={Pencil}
-                        size={42}
+                        size={actionSize}
                         iconSize={20}
                         onClick={() => handleHeaderAction('rename')}
                         title="Rename Playlist"
                       />
                       <IconButton
                         icon={Trash2}
-                        size={42}
+                        size={actionSize}
                         iconSize={20}
                         onClick={() => handleHeaderAction('delete')}
                         title="Delete Playlist"
@@ -444,7 +433,7 @@ const LargeHeader = memo(({
                     </>
                   )}
                   {!isLikedSongs && !isLocal && (
-                    <IconButton icon={Share2} size={42} iconSize={20} onClick={handleShare} title="Copy Link" />
+                    <IconButton icon={Share2} size={actionSize} iconSize={20} onClick={handleShare} title="Copy Link" />
                   )}
                   {isLikedSongsView && (
                     <SourceSwitcher
@@ -545,7 +534,13 @@ export const MainView = memo<MainViewProps>(({
   const tableRef = useRef<HTMLTableElement>(null);
   const trackMenuRef = useRef<TrackContextMenuHandle>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const isDeck = React.useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
+  const [deckScroller, setDeckScroller] = useState<HTMLDivElement | null>(null);
+  const attachDeckScroller = useCallback((node: HTMLDivElement | null) => {
+    scrollerRef.current = node;
+    setDeckScroller(node);
+  }, []);
   const autoScrollRaf = useRef<number | null>(null);
 
   const isSearch = activeView.type === 'search';
@@ -600,8 +595,9 @@ export const MainView = memo<MainViewProps>(({
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-    const thresholdReached = top > STICKY_THRESHOLD;
+    const thresholdReached = top > (isDeck && headerRef.current ? headerRef.current.offsetHeight : STICKY_THRESHOLD);
     if (isSticky !== thresholdReached) setIsSticky(thresholdReached);
+    if (isDeck) return;
     
     if (headerRef.current) {
       const translateY = top * 0.5;
@@ -617,7 +613,7 @@ export const MainView = memo<MainViewProps>(({
       const tableTranslateY = Math.max(0, HEADER_HEIGHT - top);
       tableRef.current.style.transform = `translate3d(0, ${tableTranslateY}px, 0)`;
     }
-  }, [isSticky, isSearch]);
+  }, [isDeck, isSticky, isSearch]);
 
   const handleHeaderAction = useCallback(async (type: string, payload?: any) => {
     if (type === 'artist' && payload) onSelectArtist(payload);
@@ -830,16 +826,16 @@ export const MainView = memo<MainViewProps>(({
   }, [draggedIdx, isEditable, playlistId, playlistTracks, queryClient, playlistType, showToast, stopAutoScroll]);
 
   const virtuosoComponents = useMemo(() => ({
-    Scroller: VirtuosoScroller,
+    Scroller: isDeck ? undefined : VirtuosoScroller,
     Header: () => <div style={{ height: HEADER_HEIGHT, pointerEvents: 'none' }} />,
     Table: VirtuosoTable,
     TableHead: VirtuosoTableHead,
     TableRow: VirtuosoTableRow,
     TableFooter: VirtuosoFooter
-  }), []);
+  }), [isDeck]);
 
   const virtuosoContext = useMemo(() => ({
-    isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing,
+    isDeck, isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing,
     onScroll: handleScroll, onPlay: handlePlayTrack, onContextMenu: handleContextMenu,
     metadata: playlistMetadata, handleHeaderAction, isHeaderActionLoading,
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
@@ -847,7 +843,7 @@ export const MainView = memo<MainViewProps>(({
     onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
     isLikedSongsView, likedSources, activeLikedSources: effectiveLikedSources, onToggleLikedSource: handleToggleLikedSource
   }), [
-    isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing,
+    isDeck, isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing,
     handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
     dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
@@ -860,21 +856,28 @@ export const MainView = memo<MainViewProps>(({
   return (
     <div className={styles.container} style={{ perspective: '1000px', isolation: 'isolate' }}>
       <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
-      <div className={styles.virtuosoWrapper}>
-        <TableVirtuoso 
+      <div
+        className={styles.virtuosoWrapper}
+        ref={isDeck ? attachDeckScroller : undefined}
+        onScroll={isDeck ? handleScroll : undefined}
+        onDragOver={isDeck ? handleDragOverContainer : undefined}
+      >
+        {isDeck && <LargeHeader {...virtuosoContext} />}
+        {(!isDeck || deckScroller) && <TableVirtuoso
           key={sortMode}
           ref={virtuosoRef} 
-          style={{ height: '100%' }} 
+          customScrollParent={isDeck ? deckScroller ?? undefined : undefined}
+          style={isDeck ? undefined : { height: '100%' }}
           data={displayTracks} 
           context={virtuosoContext} 
           components={virtuosoComponents} 
           overscan={400} 
           increaseViewportBy={500} 
-          fixedItemHeight={56}
+          fixedItemHeight={isDeck ? 44 : 56}
           endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }} 
           computeItemKey={(index, track) => track.id || index}
           itemContent={(index, track) => <RenderTrackRow index={index} track={track} hideAlbum={playlistType === 'album'} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />} 
-        />
+        />}
       </div>
       <TrackContextMenu ref={trackMenuRef} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} playlistId={playlistId || undefined} isOwnedPlaylist={!!playlistMetadata?.owned} />
       <InputDialog isOpen={isRenameOpen} title="Rename Playlist" defaultValue={playlistMetadata?.title} onConfirm={onConfirmRename} onCancel={() => setIsRenameOpen(false)} />

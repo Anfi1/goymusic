@@ -332,33 +332,36 @@ tr:hover .bestBadge {
     pointer-events: none;
 }
 
-:root[data-layout="sleeve"] .row {
-    border-radius: 0;
-    box-shadow: none;
+:root[data-layout="deck"] .row { height: 44px; box-shadow: none; }
+
+/* Match the row height requested by each fixed-size virtual table. */
+:root[data-layout="deck"] .row[data-index] { height: var(--virtual-track-height, 56px); }
+
+:root[data-layout="deck"] .row:is(:hover, .active) { background: transparent; }
+:root[data-layout="deck"] .row:is(:hover, .active) td { background: var(--bg-mantle); }
+:root[data-layout="deck"] .row.active td:first-child::before { content: none; }
+:root[data-layout="deck"] .row td { padding: 4px 8px; border: 0; }
+:root[data-layout="deck"] .row td:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+:root[data-layout="deck"] .row td:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+:root[data-layout="deck"] :is(.durationCell, .metaCell) { padding-right: 10px !important; }
+:root[data-layout="deck"] .durationWrapper { gap: 4px; }
+:root[data-layout="deck"] .titleCell { gap: 10px; }
+:root[data-layout="deck"] .titleWrapper { gap: 0; }
+:root[data-layout="deck"] .title { font-size: var(--fs-base); line-height: 1.25; }
+:root[data-layout="deck"] .indexWrapper { height: 32px; }
+
+:root[data-layout="deck"] :is(.thumb, .thumbPlaceholder) {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
 }
 
-:root[data-layout="sleeve"] .row td { border-bottom-color: var(--sleeve-rule); }
-:root[data-layout="sleeve"] .row:hover { background: var(--hover); }
-:root[data-layout="sleeve"] .row.active { background: var(--accent-soft); }
-
-:root[data-layout="sleeve"] .row.active td:first-child::before {
-    background: var(--sleeve-signal);
-    border-radius: 0;
-}
-
-:root[data-layout="sleeve"] :is(.indexText, .durationText, .plays) {
-    font-family: var(--sleeve-mono);
-    font-variant-numeric: tabular-nums;
-}
-
-:root[data-layout="sleeve"] :is(.artist, .album, .metaCell .albumText, .durationText, .plays) {
+:root[data-layout="deck"] :is(.artist, .album, .metaCell .albumText, .durationText, .plays) {
     color: var(--text-sub);
     opacity: 1;
 }
 
-:root[data-layout="sleeve"] .row:not(:hover, .active) .indexText {
+:root[data-layout="deck"] .row:not(:hover, .active) .indexText {
     color: var(--text-sub);
     opacity: 1;
 }
-
-:root[data-layout="sleeve"] :is(.thumb, .thumbPlaceholder) { border-radius: 0; }

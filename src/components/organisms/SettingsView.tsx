@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { clearTokens } from '../../api/yt';
 import { player } from '../../api/player';
 import { historyStore } from '../../api/history';
@@ -15,7 +15,7 @@ import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
-import { setSleeveLayout } from '../../utils/desktopLayout';
+import { isDeckLayout, setDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -23,11 +23,7 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
-    const [sleeveEnabled, setSleeveEnabled] = useState(() => document.documentElement.dataset.layout === 'sleeve');
-    const toggleLayout = () => {
-        setSleeveLayout(!sleeveEnabled);
-        setSleeveEnabled(!sleeveEnabled);
-    };
+    const deckEnabled = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
     const [rpcEnabled, setRpcEnabled] = useState(player.rpcEnabled);
@@ -352,13 +348,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
 
             <section className={styles.section} aria-labelledby="appearance-title">
                 <h3 id="appearance-title" className={styles.sectionTitle}>Appearance</h3>
-                <button type="button" className={styles.layoutButton} aria-pressed={sleeveEnabled}
-                    aria-describedby="layout-description" onClick={toggleLayout}>
+                <button type="button" className={styles.layoutButton} aria-pressed={deckEnabled}
+                    aria-describedby="layout-description" onClick={() => setDeckLayout(!deckEnabled)}>
                     new Experement Layout
-                    <span aria-hidden="true">{sleeveEnabled ? 'On' : 'Off'}</span>
+                    <span aria-hidden="true">{deckEnabled ? 'On' : 'Off'}</span>
                 </button>
                 <p id="layout-description" className={styles.subtitle}>
-                    Use the record shop layout. Switch off to return to the classic player.
+                    Use compact navigation, a slim queue and a single playback bar. Switch off to return to the classic player.
                 </p>
             </section>
 

@@ -129,6 +129,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
           <span ref={currentRef} className={styles.time}>{formatTime(player.currentTime)}</span>
           <ProgressBar
             ref={progressBarRef}
+            label="Playback position"
             buffered={player.buffered}
             onSeek={handleSeek}
             className={styles.progressBar}

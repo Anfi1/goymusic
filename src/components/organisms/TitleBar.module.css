@@ -11,7 +11,7 @@
     z-index: 9999;
 }
 
-.deskMark {
+.brand {
     display: none;
 }
 
@@ -250,95 +250,46 @@
     opacity: 0.8;
 }
 
-:root[data-layout="sleeve"] .titleBar {
-    /* The track between search and the window controls stays a native drag region. */
-    grid-template-columns: auto minmax(196px, 380px) minmax(36px, 1fr) auto;
+:root[data-layout="deck"] .titleBar {
+    grid-template-columns: auto minmax(0, 1fr) clamp(180px, 25vw, 240px) auto;
     column-gap: 12px;
-    background: var(--sleeve-ink);
-    border-color: var(--sleeve-rule);
-    color: var(--sleeve-paper);
+    padding-left: 18px;
+    background: var(--bg-base);
+    border-color: var(--border-color);
 }
 
-:root[data-layout="sleeve"] .leftControls {
-    gap: 2px;
-    padding-left: 12px;
+:root[data-layout="deck"] .brand {
+    display: block;
+    color: var(--text-main);
+    font-size: var(--fs-lg);
 }
 
-:root[data-layout="sleeve"] .searchRegion {
+:root[data-layout="deck"] .leftControls {
+    padding-left: 0;
+}
+
+:root[data-layout="deck"] .searchRegion {
     height: auto;
 }
 
-:root[data-layout="sleeve"] .searchWrapper {
-    max-width: none;
+:root[data-layout="deck"] .inputIconWrapper {
+    background: var(--bg-mantle);
 }
 
-:root[data-layout="sleeve"] .inputIconWrapper {
-    background: var(--sleeve-paper);
-    color: var(--sleeve-ink);
-    border: 0;
-    border-radius: 0;
+:root[data-layout="deck"] .searchInput {
+    height: 28px;
 }
 
-:root[data-layout="sleeve"] .inputIconWrapper:focus-within {
-    box-shadow: 0 0 0 2px var(--sleeve-signal);
-}
-
-:root[data-layout="sleeve"] .searchIcon,
-:root[data-layout="sleeve"] .inputIconWrapper .searchIconSpinner,
-:root[data-layout="sleeve"] .searchInput {
-    color: inherit;
-}
-
-:root[data-layout="sleeve"] .searchInput {
-    height: 30px;
-    font: var(--fs-md) var(--sleeve-mono);
-}
-
-:root[data-layout="sleeve"] .searchInput::placeholder {
-    color: color-mix(in srgb, var(--sleeve-ink) 74%, var(--sleeve-paper));
-}
-
-:root[data-layout="sleeve"] .suggestionsDropdown {
-    border-radius: 0;
-    background: var(--solid-mantle);
-    border-color: var(--sleeve-rule);
-    box-shadow: none;
+:root[data-layout="deck"] .suggestionsDropdown {
+    background: var(--bg-raised);
     backdrop-filter: none;
 }
 
-:root[data-layout="sleeve"] .deskMark {
-    display: block;
-    justify-self: start;
-    max-width: 100%;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    color: var(--sleeve-paper);
-    font: var(--fs-xs) var(--sleeve-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    pointer-events: none;
+:root[data-layout="deck"] .loadingTitle {
+    display: none;
 }
 
-:root[data-layout="sleeve"] .windowControls {
-    padding-inline-end: 4px;
-}
-
-:root[data-layout="sleeve"] :is(.leftControls, .windowControls) > button {
-    color: var(--sleeve-paper);
-    border-radius: 0;
-}
-
-:root[data-layout="sleeve"] :is(.leftControls, .windowControls) > button:not(:disabled) {
-    opacity: 1;
-}
-
-:root[data-layout="sleeve"] .titleBar button:focus-visible {
-    outline: 2px solid currentColor;
+:root[data-layout="deck"] .titleBar button:focus-visible {
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
-}
-
-:root[data-layout="sleeve"] .divider {
-    height: 24px;
-    background: var(--sleeve-rule);
 }

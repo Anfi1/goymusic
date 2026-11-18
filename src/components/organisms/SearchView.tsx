@@ -318,10 +318,6 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
   return (
     <div className={styles.container}>
-      <header className={styles.sleeveHeading}>
-        <span>Catalog search</span>
-        <h1 title={searchQuery}>{searchQuery || 'Search'}</h1>
-      </header>
       {/* Tab bar */}
       <div className={styles.tabBar}>
         {tabs.map(t => (
@@ -404,7 +400,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
               <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('songs')}>
                 Songs <MoveRight size={15} className={styles.sectionArrow} />
               </button>
-              <table className={styles.trackList} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%' }}>
+              <table className={styles.trackList}>
                 <TrackColumnGroup />
                 <tbody>
                   {tracks.map((track, i) => (

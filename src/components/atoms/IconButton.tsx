@@ -37,6 +37,7 @@ export const IconButton: React.FC<IconButtonProps> = React.memo(({
       onClick={isLoading ? undefined : onClick}
       style={{ width: size, height: size }}
       disabled={disabled || isLoading}
+      aria-label={title}
       data-tooltip={isLoading ? 'Loading...' : title}
     >
       <div className={styles.content}>

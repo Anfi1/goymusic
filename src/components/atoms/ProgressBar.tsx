@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, memo, useEffect, useImperativeHan
 import styles from './ProgressBar.module.css';
 
 interface SliderBarProps {
+  label: string;
   progress?: number; // 0 to 100
   onSeek?: (pct: number) => void;
   buffered?: { start: number; end: number }[];
@@ -18,6 +19,7 @@ export interface ProgressBarRef {
 }
 
 export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
+  label,
   progress = 0,
   onSeek,
   buffered = [],
@@ -30,6 +32,7 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const seekCountRef = useRef(0);
+  const canSeek = interactive && !!onSeek;
 
   const setProgressInternal = useCallback((pct: number) => {
     if (!containerRef.current) return;
@@ -45,7 +48,8 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
       }, 50);
     }
     el.style.setProperty('--progress', `${clamped}%`);
-  }, []);
+    if (canSeek) el.setAttribute('aria-valuenow', String(Math.round(clamped)));
+  }, [canSeek]);
 
   useImperativeHandle(ref, () => ({
     setProgress: setProgressInternal,
@@ -100,9 +104,32 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
     containerRef.current.style.setProperty('--hover-progress', `${pct}%`);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!onSeek || e.altKey || e.ctrlKey || e.metaKey) return;
+    const current = parseFloat(e.currentTarget.style.getPropertyValue('--progress')) || 0;
+    let next: number;
+    switch (e.key) {
+      case 'ArrowLeft': case 'ArrowDown': next = current - 1; break;
+      case 'ArrowRight': case 'ArrowUp': next = current + 1; break;
+      case 'Home': next = 0; break;
+      case 'End': next = 100; break;
+      default: return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    next = Math.min(100, Math.max(0, next));
+    setProgressInternal(next);
+    onSeek(next);
+  };
+
   return (
     <div
       ref={containerRef}
+      role={canSeek ? 'slider' : undefined}
+      aria-label={canSeek ? label : undefined}
+      aria-valuenow={canSeek ? Math.round(progress) : undefined}
+      tabIndex={canSeek ? 0 : undefined}
+      onKeyDown={canSeek ? handleKeyDown : undefined}
       className={`${styles.container} ${interactive ? styles.interactive : ''} ${isDragging ? styles.dragging : ''} ${className}`}
       onMouseDown={handleMouseDown}
       onTouchStart={handleMouseDown}

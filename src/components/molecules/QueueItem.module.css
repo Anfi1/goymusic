@@ -59,11 +59,14 @@
 
 .playOverlay {
     opacity: 0;
+    border: 0;
+    cursor: pointer;
     color: var(--text-main);
     z-index: 3;
 }
 
-.item:hover .playOverlay {
+.item:hover .playOverlay,
+.playOverlay:focus-visible {
     opacity: 1;
 }
 
@@ -218,68 +221,51 @@
     opacity: 0.7;
 }
 
-:root[data-layout="sleeve"] .item {
-    color: var(--text-main);
-    gap: 7px;
-    padding: 6px 4px;
-    border: 0;
-    border-bottom: 1px solid var(--sheet-rule, var(--sleeve-rule));
-    border-radius: 0;
+:root[data-layout="deck"] .item {
+    gap: 10px;
+    padding: 7px 8px;
+    border-radius: var(--radius-sm);
     transition: background-color 0.15s;
 }
 
-:root[data-layout="sleeve"] .item[data-cue]::before {
-    content: attr(data-cue);
-    flex-shrink: 0;
-    min-width: 2ch;
-    font: 500 var(--fs-2xs)/1 var(--sleeve-mono);
-    font-variant-numeric: tabular-nums;
-    color: var(--text-sub);
-    text-align: right;
+:root[data-layout="deck"] .item.active {
+    background: var(--bg-mantle);
+    border-color: transparent;
 }
 
-:root[data-layout="sleeve"] .item:hover,
-:root[data-layout="sleeve"] .item:focus-within {
-    background: color-mix(in srgb, var(--text-main) 7%, transparent);
+:root[data-layout="deck"] .item:is(:hover, :focus-within) {
+    background: var(--bg-raised);
+    border-color: transparent;
 }
 
-:root[data-layout="sleeve"] .item.active {
-    background: color-mix(in srgb, var(--sleeve-signal) 16%, transparent);
-    box-shadow: inset 3px 0 var(--sleeve-signal);
-}
-
-:root[data-layout="sleeve"] .active .title {
-    color: var(--text-main);
-    font-weight: 700;
-}
-
-:root[data-layout="sleeve"] .coverWrapper {
-    width: 32px;
-    height: 32px;
-    background: var(--sleeve-ink);
-    border-radius: 0;
+:root[data-layout="deck"] .coverWrapper {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-mantle);
     box-shadow: none;
-    --text-main: var(--sleeve-paper);
-    --accent: var(--sleeve-signal);
 }
 
-:root[data-layout="sleeve"] .rightSection {
+:root[data-layout="deck"] .artist {
+    margin: 0;
+    font-size: var(--fs-xs);
+}
+
+:root[data-layout="deck"] .rightSection {
     gap: 3px;
 }
 
-:root[data-layout="sleeve"] .duration {
-    opacity: 1;
-    font: 500 var(--fs-xs)/1 var(--sleeve-mono);
-    font-variant-numeric: tabular-nums;
+:root[data-layout="deck"] .duration {
+    font-size: var(--fs-xs);
 }
 
-:root[data-layout="sleeve"] .likeBtnGroup:focus-within {
+:root[data-layout="deck"] .likeBtnGroup:focus-within {
     max-width: 60px;
     opacity: 1;
     pointer-events: auto;
 }
 
-:root[data-layout="sleeve"] .likeBtnGroup .likeBtn:focus-visible {
+:root[data-layout="deck"] .likeBtnGroup .likeBtn:focus-visible {
     opacity: 1;
     width: 20px;
     padding: 3px;

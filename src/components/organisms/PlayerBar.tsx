@@ -98,7 +98,7 @@ const DislikeButton = memo(() => {
       active={isDisliked}
       isLoading={loadingAction === 'dislike'}
       disabled={isSc}
-      title={isSc ? 'SoundCloud не поддерживает дизлайк' : undefined}
+      title={isSc ? 'SoundCloud не поддерживает дизлайк' : isDisliked ? 'Remove dislike' : 'Dislike'}
       className={styles.likeButton}
       onClick={(e: React.MouseEvent) => { if (!isSc) rate('DISLIKE', e); }}
       color={isDisliked ? 'var(--warning)' : undefined}
@@ -116,6 +116,7 @@ const LikeButton = memo(() => {
       iconSize={18}
       active={likeStatus === 'LIKE'}
       isLoading={loadingAction === 'like'}
+      title={likeStatus === 'LIKE' ? 'Unlike' : 'Like'}
       className={styles.likeButton}
       onClick={(e: React.MouseEvent) => rate('LIKE', e)}
       color={likeStatus === 'LIKE' ? 'var(--danger)' : undefined}
@@ -137,6 +138,7 @@ const AutoplayButton = memo(() => {
       size={28}
       iconSize={15}
       active={active}
+      title="Autoplay"
       onClick={() => player.toggleAutoplay()}
     />
   );
@@ -145,7 +147,7 @@ const AutoplayButton = memo(() => {
 const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onSelectArtist?: (id: string) => void, onSelectAlbum?: (id: string) => void, onOpenOverride: (track: YTMTrack) => void }) => {
   const [track, setTrack] = useState(player.currentTrack);
   const [isLoading, setIsLoading] = useState(player.isStreamLoading);
-  const [imgError, setImgError] = useState(false);
+  const [failedThumb, setFailedThumb] = useState<string>();
 
   useEffect(() => {
     return player.subscribe((ev) => {
@@ -202,8 +204,8 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
   return (
     <div className={`${styles.nowPlaying} ${(track?.albumId || player.queueSourceId) ? styles.clickable : ''} ${isLoading ? styles.loading : ''}`} onClick={handleSourceClick}>
       <div className={styles.artWrapper} onClick={handleArtClick}>
-        {track?.thumbUrl && !imgError ? (
-          <img src={track.thumbUrl} alt="" className={styles.albumArt} onError={() => setImgError(true)} />
+        {track?.thumbUrl && track.thumbUrl !== failedThumb ? (
+          <img src={track.thumbUrl} alt="" className={styles.albumArt} onError={() => setFailedThumb(track.thumbUrl)} />
         ) : (
           <div className={styles.albumArtEmpty}>
             {!track?.thumbUrl ? null : <Music2 size={22} />}
@@ -217,7 +219,6 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
         {isLoading && <div className={styles.spinner} />}
       </div>
       <div className={styles.trackInfo}>
-        <span className={styles.deskLabel}>{track ? 'On deck' : 'Standby'}</span>
         <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="" onContextMenu={handleCopyTitle}>{track?.title || 'No track selected'}</div>
         <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="" onContextMenu={handleCopyArtist}>
           {track?.artists?.map((artist: string, i: number) => {
@@ -321,12 +322,12 @@ const TimeProgress = memo(() => {
 
   return (
     <div className={styles.progress} onContextMenu={toggleLoop}>
-      <span className={styles.deskLabel}>Transport</span>
       <span ref={currentRef} className={styles.time}>{formatTime(player.currentTime)}</span>
       <div className={styles.progressBar}>
         <ProgressBar
           ref={progressBarRef}
           buffered={player.buffered}
+          label="Playback position"
           onSeek={handleSeek}
           nyanMode={true}
           isPlaying={player.isPlaying}
@@ -417,9 +418,10 @@ const VolumeControl = memo(() => {
          onWheel={(e) => player.setVolume(player.volume + (-Math.sign(e.deltaY) * 5))}
          onContextMenu={handleContextMenu}
     >
-      <IconButton icon={VolumeIcon} size={34} iconSize={20} onClick={() => player.toggleMute()} />
+      <IconButton icon={VolumeIcon} size={34} iconSize={20} title={volume === 0 ? 'Unmute' : 'Mute'} onClick={() => player.toggleMute()} />
       <ProgressBar 
         progress={volume} 
+        label="Volume"
         onSeek={handleVolumeSeek} 
         showThumb={true} 
         className={styles.volumeBar} 
@@ -448,6 +450,7 @@ const PanelButtons = memo(({ activeRightPanel, onToggleRightPanel }: { activeRig
       <IconButton
         icon={Mic2}
         size={28}
+        title="Lyrics"
         iconSize={15}
         active={activeRightPanel === 'lyrics'}
         onClick={() => onToggleRightPanel?.('lyrics')}
@@ -455,6 +458,7 @@ const PanelButtons = memo(({ activeRightPanel, onToggleRightPanel }: { activeRig
       <IconButton
         icon={ListMusic}
         size={28}
+        title="Queue"
         iconSize={15}
         active={activeRightPanel === 'queue'}
         onClick={() => onToggleRightPanel?.('queue')}
@@ -473,7 +477,7 @@ const ShuffleButton = memo(() => {
       }
     });
   }, [active]);
-  return <IconButton icon={Shuffle} size={32} iconSize={16} active={active} onClick={() => player.toggleShuffle()} />;
+  return <IconButton icon={Shuffle} size={32} iconSize={16} active={active} title="Shuffle" onClick={() => player.toggleShuffle()} />;
 });
 
 const PlayPauseButton = memo(() => {
@@ -488,7 +492,7 @@ const PlayPauseButton = memo(() => {
   }, [isPlaying, hasError]);
   return (
     <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-      <IconButton icon={isPlaying ? Pause : Play} size={44} iconSize={20} variant="solid" className={styles.playKey} onClick={() => player.togglePlay()} />
+      <IconButton icon={isPlaying ? Pause : Play} size={44} iconSize={20} variant="solid" className={styles.playKey} title={isPlaying ? 'Pause' : 'Play'} onClick={() => player.togglePlay()} />
       {hasError && (
         <span style={{ position: 'absolute', bottom: -12, display: 'flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--danger)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
           <AlertCircle size={8} />
@@ -512,7 +516,7 @@ const RepeatButton = memo(() => {
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
-      <IconButton icon={RepeatIcon} size={32} iconSize={16} active={repeat !== 'off'} onClick={() => player.toggleRepeat()} />
+      <IconButton icon={RepeatIcon} size={32} iconSize={16} active={repeat !== 'off'} title={`Repeat: ${repeat}`} onClick={() => player.toggleRepeat()} />
       {errorSkipCount > 0 && (
         <span style={{ position: 'absolute', bottom: -8, right: -2, fontSize: 9, color: 'var(--danger)', lineHeight: 1, pointerEvents: 'none' }}>
           -{errorSkipCount}
@@ -558,6 +562,7 @@ const OverrideButton = memo(({ onOpen }: { onOpen: (track: YTMTrack) => void }) 
       size={32}
       iconSize={16}
       active={hasOverride}
+      title="Local track override"
       color={hasOverride ? 'var(--accent)' : undefined}
       onClick={() => onOpen(track)}
     />
@@ -569,9 +574,9 @@ const PlayerControls = memo(() => {
     <div className={styles.buttons}>
       <DislikeButton />
       <ShuffleButton />
-      <IconButton icon={SkipBack} size={32} iconSize={20} onClick={() => player.prev()} />
+      <IconButton icon={SkipBack} size={32} iconSize={20} title="Previous track" onClick={() => player.prev()} />
       <PlayPauseButton />
-      <IconButton icon={SkipForward} size={32} iconSize={20} onClick={() => player.next()} />
+      <IconButton icon={SkipForward} size={32} iconSize={20} title="Next track" onClick={() => player.next()} />
       <RepeatButton />
       <LikeButton />
     </div>
@@ -604,11 +609,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
   ), []);
 
   return (
-    <div className={`${styles.container} ${className || ''}`}>
+    <footer aria-label="Player" className={`${styles.container} ${className || ''}`}>
       {infoSection}
       {controlSection}
       <div className={styles.extra}>
-        <span className={styles.deskLabel}>Monitor</span>
         <AutoplayButton />
         <PanelButtons activeRightPanel={activeRightPanel} onToggleRightPanel={onToggleRightPanel} />
         <div className={styles.volumeSlot}>
@@ -622,7 +626,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
           onClose={() => setOverrideTrack(null)}
         />
       )}
-    </div>
+    </footer>
   );
 });
 

@@ -14,7 +14,7 @@ export const MediaCardSkeleton: React.FC<MediaCardSkeletonProps> = ({
   if (variant === 'row') {
     return (
       <div className={`${styles.card} ${styles.row} ${className}`} style={{ cursor: 'default' }}>
-        <div className={styles.thumbWrapper} style={{ width: 48, height: 48, marginBottom: 0 }}>
+        <div className={styles.thumbWrapper}>
           <Skeleton width="100%" height="100%" borderRadius={8} />
         </div>
         <div className={styles.info} style={{ flex: 1 }}>
@@ -28,14 +28,14 @@ export const MediaCardSkeleton: React.FC<MediaCardSkeletonProps> = ({
   }
 
   return (
-    <div className={`${styles.card} ${styles.card} ${className}`} style={{ cursor: 'default' }}>
+    <div className={`${styles.card} ${className}`} style={{ cursor: 'default' }}>
       <div className={styles.thumbWrapper}>
         <Skeleton width="100%" height="100%" style={{ aspectRatio: '1 / 1' }} borderRadius={8} />
       </div>
       <div className={styles.info}>
-        <Skeleton className={styles.captionPlaceholder} width="90%" height={16} borderRadius={4} />
+        <Skeleton width="90%" height={16} borderRadius={4} />
         <div style={{ marginTop: 8 }}>
-          <Skeleton className={styles.captionPlaceholder} width="60%" height={14} borderRadius={4} />
+          <Skeleton width="60%" height={14} borderRadius={4} />
         </div>
       </div>
     </div>

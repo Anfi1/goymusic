@@ -105,34 +105,34 @@
     border-radius: var(--radius-xs);
 }
 
-/* A full-height record index meets a separate title strip and a full-width transport. */
-:root[data-layout="sleeve"] .appWindow {
-    --sidebar-width: clamp(176px, 16vw, 244px);
-    --right-panel-width: clamp(224px, 21vw, 320px);
+:root[data-layout="deck"] .appWindow {
+    --sidebar-width: 212px;
+    --right-panel-width: clamp(190px, 21vw, 280px);
     --title-height: 48px;
+    --player-height: 80px;
     grid-template-areas:
         "sidebar title title"
         "sidebar main right"
         "player player player";
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: var(--title-height) minmax(0, 1fr) var(--player-height);
-    border-color: var(--sleeve-rule);
+    border-color: var(--border-color);
 }
 
-:root[data-layout="sleeve"] .ambientBlur,
-:root[data-layout="sleeve"] .contextualBack {
+:root[data-layout="deck"] .ambientBlur,
+:root[data-layout="deck"] .contextualBack {
     display: none;
 }
 
-:root[data-layout="sleeve"] .main {
+:root[data-layout="deck"] .main {
     min-width: 0;
     background: var(--bg-base);
 }
 
-:root[data-layout="sleeve"] .scrollContent {
+:root[data-layout="deck"] .scrollContent {
     background: none;
 }
 
-:root[data-layout="sleeve"] .rightSidebar.visible {
-    border-inline-start: 1px solid var(--sleeve-rule);
+:root[data-layout="deck"] .rightSidebar.visible {
+    border-inline-start: 1px solid var(--border-color);
 }

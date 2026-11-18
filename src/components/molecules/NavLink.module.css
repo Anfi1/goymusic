@@ -1,5 +1,9 @@
 .container {
     display: flex;
+    width: 100%;
+    border: 0;
+    background: none;
+    text-align: left;
     align-items: center;
     gap: 12px;
     padding: 7px 12px;
@@ -41,4 +45,18 @@
     justify-content: center;
     padding: 7px 0;
     gap: 0;
+}
+
+:root[data-layout="deck"] .container {
+    min-height: 36px;
+    opacity: 1;
+    color: var(--text-sub);
+}
+
+:root[data-layout="deck"] .container:is(:hover, .active) {
+    background: var(--bg-mantle);
+}
+
+:root[data-layout="deck"] .container.active {
+    color: var(--accent);
 }

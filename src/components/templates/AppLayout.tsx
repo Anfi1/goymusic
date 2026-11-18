@@ -11,7 +11,6 @@ interface AppLayoutProps {
   children: React.ReactNode;
   rightPanel?: React.ReactNode;
   playerBar?: React.ReactNode;
-  isSidebarCollapsed?: boolean;
   isQueueVisible?: boolean;
   hidePlayerBar?: boolean;
   hideRightPanel?: boolean;

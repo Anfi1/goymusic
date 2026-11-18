@@ -253,65 +253,33 @@
     fill: var(--text-main) !important;
 }
 
-/* A square sleeve with its own paper caption. Compact song rows stay on the shelf. */
-:root[data-layout="sleeve"] .card {
-  padding: 0;
-  border-radius: 0;
+:root[data-layout="deck"] .card {
+  min-width: 0;
+  border-radius: var(--radius-md);
 }
 
-:root[data-layout="sleeve"] .card:not(.row) {
-  background: var(--sleeve-paper);
-  color: var(--sleeve-ink);
-  overflow: hidden;
-}
+:root[data-layout="deck"] .card:is(:hover, .active) { background: var(--bg-mantle); }
 
-:root[data-layout="sleeve"] .card:not(.row) .info {
-  border-top: 1px solid var(--sleeve-ink);
-  padding: 0.5rem 0.6rem 0.65rem;
-  gap: 2px;
-}
-
-:root[data-layout="sleeve"] .thumbWrapper {
-  border-radius: 0;
-  margin-bottom: 0;
+:root[data-layout="deck"] .thumbWrapper {
   box-shadow: none;
   background: var(--bg-mantle);
-  color: var(--sleeve-paper);
 }
 
-:root[data-layout="sleeve"] .card:not(.row) .title {
-  font-weight: 650;
-  color: var(--sleeve-ink);
+:root[data-layout="deck"] .thumbWrapper:not(.round) { border-radius: var(--radius-md); }
+:root[data-layout="deck"] .info { gap: 2px; }
+
+:root[data-layout="deck"] .title {
+  font-size: var(--fs-base);
+  font-weight: 500;
 }
 
-:root[data-layout="sleeve"] .card:not(.row) .subtitle {
-  color: color-mix(in srgb, var(--sleeve-ink) 79%, var(--sleeve-paper));
-  font-size: var(--fs-sm);
-}
+:root[data-layout="deck"] .subtitle { font-size: var(--fs-sm); }
+:root[data-layout="deck"] .row { gap: 10px; }
+:root[data-layout="deck"] .row .thumbWrapper { width: 36px; height: 36px; }
 
-:root[data-layout="sleeve"] .card:not(.row) .artistLink:hover { color: var(--sleeve-ink); }
-
-:root[data-layout="sleeve"] .card:not(.row):is(:hover, .active) .title {
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-}
-
-:root[data-layout="sleeve"] .row {
-  padding: 0.4rem;
-  border-bottom: 1px solid var(--sleeve-rule);
-}
-
-:root[data-layout="sleeve"] .row:hover { background: var(--hover); }
-
-:root[data-layout="sleeve"] .pinnedBadge {
-  background: var(--sleeve-paper);
-  color: var(--sleeve-ink);
-  border-color: var(--sleeve-ink);
-  border-radius: 0;
+:root[data-layout="deck"] .pinnedBadge {
+  background: var(--bg-raised);
+  color: var(--accent);
+  border-color: var(--border-color);
   box-shadow: none;
-}
-
-:root[data-layout="sleeve"] .captionPlaceholder {
-  background: color-mix(in srgb, var(--sleeve-ink) 18%, var(--sleeve-paper));
-  animation: none;
 }
