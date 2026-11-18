@@ -32,11 +32,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST_RELEASE=$(gh api "repos/${{ github.repository }}/releases" --paginate --slurp \
-            --jq '[.[][] | select(.draft==false and .prerelease==false) | .tag_name | ltrimstr("v")]
+          set -o pipefail
+          LATEST_RELEASE=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --paginate |
+            jq -sr '[.[][] | select(.draft==false and .prerelease==false) | .tag_name | ltrimstr("v")]
                   | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$")))
                   | sort_by(split(".") | map(tonumber))
                   | last // "0.0.0"')
+          LATEST_RELEASE=${LATEST_RELEASE%$'\r'}
 
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_RELEASE"
           AUTO_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
@@ -44,7 +46,9 @@ jobs:
           # Явный бамп в package.json имеет приоритет, если он выше авто-версии:
           # так выпускается minor/major-релиз без правки самого workflow.
           PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_VERSION=${PKG_VERSION%$'\r'}
           NEW_VERSION=$(node -e "const a='$AUTO_VERSION'.split('.').map(Number), b='$PKG_VERSION'.split('.').map(Number); const ok = b.length===3 && b.every(Number.isInteger); const higher = ok && (b[0]-a[0] || b[1]-a[1] || b[2]-a[2]) > 0; console.log(higher ? '$PKG_VERSION' : '$AUTO_VERSION')")
+          NEW_VERSION=${NEW_VERSION%$'\r'}
 
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "previous=$LATEST_RELEASE" >> "$GITHUB_OUTPUT"
