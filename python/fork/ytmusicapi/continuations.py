@@ -22,6 +22,8 @@ CONTINUATION_ITEMS = ["onResponseReceivedActions", 0, "appendContinuationItemsAc
 
 
 def get_continuation_token(results: JsonList) -> str | None:
+    if not results:
+        return None
     last_result = results[-1]
 
     if token := nav(last_result, CONTINUATION_TOKEN, True):

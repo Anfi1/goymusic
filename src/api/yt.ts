@@ -231,22 +231,6 @@ export async function getUserInfo(): Promise<YTMUser | null> {
     return null;
 }
 
-export async function getLikedSongs(limit: number | null = null, signal?: AbortSignal): Promise<{ tracks: YTMTrack[], trackCount: number }> {
-    const res = await pyCall('get_liked_songs', { limit }, signal);
-    if (res.status === 'ok') {
-        return { 
-            tracks: res.tracks || [], 
-            trackCount: res.trackCount || (res.tracks?.length || 0) 
-        };
-    }
-    return { tracks: [], trackCount: 0 };
-}
-
-export async function getLikedSongsCount(): Promise<number> {
-    const res = await pyCall('get_liked_songs', { limit: 1 });
-    return res.trackCount || 0;
-}
-
 export async function addToHistory(videoId: string): Promise<void> {
     const res = await pyCall('add_history_item', { videoId });
     if (res.status === 'ok') {
@@ -264,6 +248,8 @@ export async function getPlaylistTracks(
 ): Promise<{ 
     tracks: YTMTrack[], 
     trackCount: number, 
+    reportedTrackCount?: number,
+    unavailableCount: number,
     continuation?: string | null,
     title?: string,
     description?: string,
@@ -287,10 +273,16 @@ export async function getPlaylistTracks(
         sig = continuationOrSignal as AbortSignal;
     }
     const res = await pyCall('get_playlist_tracks', { playlistId, limit, continuation }, sig);
+    const liked = playlistId === 'LM' || playlistId === 'VLLM';
+    if (liked && (res.status !== 'ok' || !Array.isArray(res.tracks))) {
+        throw new Error(res.message || 'Liked Songs unavailable');
+    }
     if (res.status === 'ok') {
         return { 
             tracks: res.tracks || [], 
             trackCount: res.trackCount || (res.tracks?.length || 0),
+            reportedTrackCount: Number.isSafeInteger(res.trackCount) ? res.trackCount : undefined,
+            unavailableCount: res.unavailableCount ?? 0,
             continuation: res.continuation,
             title: res.title,
             description: res.description,
@@ -307,7 +299,7 @@ export async function getPlaylistTracks(
             isPinned: res.isPinned
         };
     }
-    return { tracks: [], trackCount: 0 };
+    return { tracks: [], trackCount: 0, unavailableCount: 0 };
 }
 
 export async function getAlbum(albumId: string, signal?: AbortSignal): Promise<YTMAlbum | null> {
@@ -554,15 +546,19 @@ export async function sendFeedback(token: string): Promise<boolean> {
     return res.status === 'ok';
 }
 
-export async function getContinuation(token: string): Promise<{ tracks: YTMTrack[], continuation: string | null }> {
+export async function getContinuation(token: string, liked = false): Promise<{ tracks: YTMTrack[], continuation: string | null, unavailableCount: number }> {
     const res = await pyCall('get_continuation', { token });
+    if (liked && (res.status !== 'ok' || !Array.isArray(res.tracks) || (!res.tracks.length && !res.unavailableCount))) {
+        throw new Error(res.message || 'Liked Songs continuation unavailable');
+    }
     if (res.status === 'ok') {
         return {
             tracks: res.tracks || [],
+            unavailableCount: res.unavailableCount ?? 0,
             continuation: res.continuation || null
         };
     }
-    return { tracks: [], continuation: null };
+    return { tracks: [], continuation: null, unavailableCount: 0 };
 }
 
 export interface YTMMix {

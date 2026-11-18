@@ -117,8 +117,7 @@ def parse_playlist_header_meta(header: JsonDict) -> JsonDict:
                     True,
                 ),
             }
-    if "runs" in header.get("secondSubtitle", {}):
-        second_subtitle_runs = header["secondSubtitle"]["runs"]
+    if second_subtitle_runs := header.get("secondSubtitle", {}).get("runs"):
         has_views = (len(second_subtitle_runs) > 3) * 2
         playlist_meta["views"] = None if not has_views else to_int(second_subtitle_runs[0]["text"])
         has_duration = (len(second_subtitle_runs) > 1) * 2
@@ -127,9 +126,9 @@ def parse_playlist_header_meta(header: JsonDict) -> JsonDict:
         )
         song_count_text = second_subtitle_runs[has_views + 0]["text"]
         song_count_search = re.findall(r"\d+", song_count_text)
-        # extract the digits from the text, return 0 if no match
+        # A missing count is unknown, not evidence of an empty playlist.
         playlist_meta["trackCount"] = (
-            to_int("".join(song_count_search)) if song_count_search is not None else None
+            to_int("".join(song_count_search)) if song_count_search else None
         )
 
     return playlist_meta

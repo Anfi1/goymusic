@@ -532,7 +532,7 @@ def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playl
         if not vid:
             return None
         
-        artists_data = t.get('artists', [])
+        artists_data = t.get('artists') or []
         artist_names = [a.get('name', 'Unknown') for a in artists_data]
         artist_ids = [a.get('id') or a.get('browseId') for a in artists_data]
 
@@ -582,7 +582,7 @@ def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playl
             'thumbUrl': res_thumb,
             'views': t.get('views'),
             'isAvailable': t.get('isAvailable', True),
-            'likeStatus': t.get('likeStatus') or ('LIKE' if t.get('inLibrary') else None),
+            'likeStatus': t.get('likeStatus'),
             'menu_tokens': t.get('menu_tokens'),
             'isPinned': t.get('isPinned') or t.get('pinnedToListenAgain', False),
             'description': t.get('description'),
@@ -2264,12 +2264,15 @@ def handle_request(request):
                 safe_print({'status': 'ok', 'tracks': [], 'continuation': None, 'callId': call_id})
                 return
 
-            tracks = [track_to_dict(t) for t in parse_playlist_items(continuation_items) if track_to_dict(t)]
+            parsed = parse_playlist_items(continuation_items)
+            tracks = [row for t in parsed if (row := track_to_dict(t))]
             next_token = get_continuation_token(continuation_items)
             
             safe_print({
                 'status': 'ok', 
                 'tracks': tracks, 
+                'unavailableCount': sum('musicResponsiveListItemRenderer' in row for row in continuation_items)
+                                    - sum(bool(track.get('videoId')) for track in parsed),
                 'continuation': next_token, 
                 'callId': call_id
             })
@@ -2324,8 +2327,11 @@ def handle_request(request):
                             'callId': call_id
                         })
                 else:
-                    playlist = api.get_playlist(playlist_id, limit=limit)
-                    tracks = [track_to_dict(t) for t in playlist.get('tracks', []) if track_to_dict(t)]
+                    # The local fork returns one browse shelf + its cursor for limit=None.
+                    # LM must never use a playback queue as the account's list of likes.
+                    is_liked = playlist_id in ('LM', 'VLLM')
+                    playlist = api.get_liked_songs(limit=None) if is_liked else api.get_playlist(playlist_id, limit=limit)
+                    tracks = [row for t in playlist['tracks'] if (row := track_to_dict(t))]
                     
                     author_data = playlist.get('author')
                     author = None
@@ -2349,7 +2355,8 @@ def handle_request(request):
                         'duration': clean_duration(playlist.get('duration')),
                         'duration_seconds': playlist.get('duration_seconds'),
                         'thumbUrl': playlist.get('thumbnails')[-1].get('url') if playlist.get('thumbnails') else '',
-                        'trackCount': playlist.get('trackCount', len(tracks)),
+                        'trackCount': playlist.get('trackCount') if is_liked else playlist.get('trackCount', len(tracks)),
+                        'unavailableCount': playlist.get('unavailableCount', 0),
                         'audioPlaylistId': playlist.get('audioPlaylistId'),
                         'likeStatus': playlist.get('likeStatus'),
                         'menu_tokens': playlist.get('menu_tokens'),
@@ -2358,6 +2365,8 @@ def handle_request(request):
                         'callId': call_id
                     })
             except Exception as e:
+                if playlist_id in ('LM', 'VLLM'):
+                    raise
                 try:
                     pid = playlist_id[2:] if playlist_id.startswith('VL') else playlist_id
                     data = api.get_watch_playlist(playlistId=pid, limit=limit or 50)

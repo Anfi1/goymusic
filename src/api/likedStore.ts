@@ -33,11 +33,13 @@ export interface HydratedYandexLikedEntry extends YandexLikedEntry {
   track: YTMTrack;
 }
 
+export const YT_IMPORT_VERSION = 2;
+
 export interface YtImportState {
-  version: 1;
+  version: typeof YT_IMPORT_VERSION;
   status: 'importing' | 'failed';
-  ytTotal: number;
-  scTotal: number;
+  ytTotal: number | null;
+  unavailableCount: number;
   downloadedCount: number;
   continuation: string | null;
   headIds: string[];
@@ -331,7 +333,7 @@ class LikedStore {
       tx.objectStore('yt_import_liked').clear();
       const state = tx.objectStore('state');
       state.put(virtualCount, 'virtualCount');
-      state.put(1, 'ytImportCompletedVersion');
+      state.put(YT_IMPORT_VERSION, 'ytImportCompletedVersion');
       state.delete('ytImport');
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -439,26 +441,6 @@ class LikedStore {
     if (!this.db) return;
     const tx = this.db!.transaction('yt_liked', 'readwrite');
     tx.objectStore('yt_liked').clear();
-  }
-
-  async replaceAllTracks(entries: LikedEntry[]) {
-    await this.init();
-    if (!this.db) return;
-    return new Promise<void>((resolve, reject) => {
-      const tx = this.db!.transaction('yt_liked', 'readwrite');
-      const store = tx.objectStore('yt_liked');
-      try {
-        store.clear();
-        entries.forEach(entry => store.put(entry));
-      } catch (error) {
-        tx.abort();
-        reject(error);
-        return;
-      }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
   }
 
   // ─── SoundCloud tracks ───────────────────────────────────────────────────

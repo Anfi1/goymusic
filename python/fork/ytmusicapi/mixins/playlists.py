@@ -228,6 +228,11 @@ class PlaylistsMixin(MixinProtocol):
             playlist["tracks"] = parse_playlist_items(
                 content_data["contents"], is_collaborative=is_collaborative
             )
+            if playlistId in ("LM", "VLLM"):
+                # Header counts may include deleted/unavailable rows without a videoId.
+                playlist["unavailableCount"] = sum(
+                    "musicResponsiveListItemRenderer" in row for row in content_data["contents"]
+                ) - sum(bool(track.get("videoId")) for track in playlist["tracks"])
 
             # Extract continuation token for the next page
             from ytmusicapi.continuations import get_continuation_token

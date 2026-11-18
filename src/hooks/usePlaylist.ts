@@ -1,10 +1,11 @@
 import { useMemo, useCallback, useState, useEffect, useTransition, useRef } from 'react';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getLikedSongs, getPlaylistTracks, getAlbum, getContinuation, getTrackCard, YTMTrack } from '../api/yt';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { getPlaylistTracks, getAlbum, getContinuation, getTrackCard, YTMTrack } from '../api/yt';
 import { isSoundCloudId, getSoundCloudAlbum, getSoundCloudPlaylist } from '../api/soundcloud';
 import { isYandexAlbumRouteId, isYandexPlaylistRouteId, getYandexAlbumTracks, getYandexPlaylistTracks } from '../api/yandex';
 import { player } from '../api/player';
-import { likedStore, LikedEntry, ScLikedEntry, HydratedLikedEntry, HydratedScLikedEntry } from '../api/likedStore';
+import { likedStore, HydratedLikedEntry, HydratedScLikedEntry, LikedEntry, YT_IMPORT_VERSION } from '../api/likedStore';
+import { likedPlaylistTracks } from './likedPlaylistTracks';
 import { likedManager } from '../api/likedManager';
 import { scLikedManager } from '../api/scLikedManager';
 import { tracksStore } from '../api/tracks';
@@ -47,6 +48,7 @@ const triggerGC = () => {
 export const usePlaylist = (type: PlaylistType, id?: string) => {
   const queryClient = useQueryClient();
   const [localTracks, setLocalTracks] = useState<HydratedLikedEntry[]>([]);
+  const [verifiedEmpty, setVerifiedEmpty] = useState(false);
   const [scEntries, setScEntries] = useState<HydratedScLikedEntry[]>([]);
   const [managerSyncing, setManagerSyncing] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(true);
@@ -70,18 +72,22 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
 
   useEffect(() => {
     if (isLiked) {
-      likedStore.getAllTracks().then(async tracks => {
-        const hydrated = await likedStore.hydrateTracks(tracks);
+      let active = true;
+      let revision = 0;
+      const publish = async (entries: LikedEntry[], syncing: boolean, version: number) => {
+        const hydrated = await likedStore.hydrateTracks(entries);
+        const empty = !entries.length && await likedStore.getYtImportCompletedVersion() === YT_IMPORT_VERSION;
+        if (!active || revision !== version) return;
         setLocalTracks(hydrated);
-        setIsLocalLoading(false);
-      });
-      likedManager.sync();
-      const unsub = likedManager.subscribe(async (tracks, syncing) => {
-        const hydrated = await likedStore.hydrateTracks(tracks);
-        setLocalTracks(hydrated);
+        setVerifiedEmpty(empty);
         setManagerSyncing(syncing);
         setIsLocalLoading(false);
+      };
+      likedStore.getAllTracks().then(entries => {
+        if (active && revision === 0) return publish(entries, likedManager.isSyncing, 0);
       });
+      const unsub = likedManager.subscribe((entries, syncing) => publish(entries, syncing, ++revision));
+      likedManager.sync();
       // SC-лайки: мгновенно из локального стора + подписка + фоновая сверка (как у YT).
       likedStore.getAllScTracks().then(async entries => {
         const hydrated = await likedStore.hydrateScTracks(entries);
@@ -93,6 +99,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       });
       scLikedManager.sync();
       return () => {
+        active = false;
         unsub();
         unsubSc();
         triggerGC();
@@ -121,12 +128,12 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     queryKey,
     queryFn: async ({ pageParam, signal }) => {
       if (pageParam) {
-        const res = await getContinuation(pageParam as string);
+        const res = await getContinuation(pageParam as string, isLiked);
         return { tracks: res.tracks, continuation: res.continuation, totalCount: res.tracks.length, metadata: null as any };
       }
 
       if (isLiked) {
-        const res = await getPlaylistTracks('LM', 100, signal);
+        const res = await getPlaylistTracks('LM', null, signal);
         const metadata: PlaylistMetadata = {
           id: 'LM',
           title: (res as any).title || 'Liked Songs',
@@ -145,16 +152,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
           isPinned: (res as any).isPinned
         };
         
-        // Use a faster check for local data
-        const localCount = await likedStore.getVirtualCount();
-        const hasLocal = localCount > 0;
-        
-        return { 
-          tracks: hasLocal ? [] : res.tracks, 
-          continuation: hasLocal ? null : (res.continuation || null), 
-          totalCount: metadata.trackCount, 
-          metadata 
-        };
+        return { tracks: res.tracks, continuation: res.continuation || null, totalCount: metadata.trackCount, metadata };
       } 
       
       if (id === LOCAL_PLAYLIST_ID) {
@@ -281,12 +279,6 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     staleTime: 1000 * 60 * 5,
   });
 
-  const { data: virtualCount } = useQuery({
-    queryKey: ['liked-virtual-count'],
-    queryFn: () => likedStore.getVirtualCount(),
-    enabled: isLiked
-  });
-
   // Fast comparison helper
   const getStableTrack = useCallback((track: YTMTrack) => {
     if (!track.id) return track;
@@ -298,34 +290,12 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     return track;
   }, []);
 
-  const baseTracks = useMemo(() => {
-    let tracks: YTMTrack[] = [];
+  const useLocalLikes = likedManager.isEnabled ? localTracks.length > 0 || verifiedEmpty : !data && localTracks.length > 0;
 
-    if (isLiked) {
-      if (localTracks.length > 0 || scEntries.length > 0) {
-        // Слияние по реальному времени лайка: всё с известным временем (все SC + YT-лайки,
-        // поставленные в приложении) — по убыванию времени; старые YT-лайки без времени —
-        // ниже, в порядке плейлиста YouTube (их дату лайка API YT не отдаёт).
-        const timed: { track: YTMTrack; t: number }[] = [];
-        const untimed: { track: YTMTrack; o: number }[] = [];
-        for (const e of localTracks) {
-          if (e.likedAt) timed.push({ track: e.track, t: e.likedAt });
-          else untimed.push({ track: e.track, o: e.originalIndex });
-        }
-        for (const e of scEntries) {
-          // SC-лайки всегда помечаем как LIKE (они точно лайкнуты, раз в списке)
-          const track = { ...e.track, likeStatus: 'LIKE' as const };
-          timed.push({ track, t: e.likedAt });
-        }
-        timed.sort((a, b) => b.t - a.t);
-        untimed.sort((a, b) => a.o - b.o);
-        tracks = [...timed.map(x => x.track), ...untimed.map(x => x.track)];
-      } else {
-        tracks = data?.pages.flatMap(page => (page as any).tracks) || [];
-      }
-    } else {
-      tracks = data?.pages.flatMap(page => (page as any).tracks) || [];
-    }
+  const baseTracks = useMemo(() => {
+    const tracks: YTMTrack[] = isLiked
+      ? likedPlaylistTracks(useLocalLikes ? localTracks : null, data?.pages, scEntries)
+      : data?.pages.flatMap(page => page.tracks) || [];
 
     const seen = new Set();
     return tracks.filter(track => {
@@ -333,7 +303,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       seen.add(track.id);
       return true;
     }).map(getStableTrack);
-  }, [data, localTracks, scEntries, isLiked, getStableTrack]);
+  }, [data, localTracks, scEntries, useLocalLikes, isLiked, getStableTrack]);
 
   const albumSortedTracks = useMemo(() => {
     if (!isLiked || localTracks.length === 0) return baseTracks;
@@ -373,11 +343,11 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     if (isLiked && base) {
       return {
         ...base,
-        trackCount: (virtualCount || base.trackCount || localTracks.length) + scEntries.length,
+        trackCount: useLocalLikes ? localTracks.length + scEntries.length : base.trackCount + scEntries.length,
       } as PlaylistMetadata;
     }
     return base;
-  }, [data, virtualCount, isLiked, localTracks, scEntries]);
+  }, [data, useLocalLikes, isLiked, localTracks, scEntries]);
 
   const totalReportedCount = useMemo(() => metadata?.trackCount || 0, [metadata]);
 
@@ -408,7 +378,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     totalReportedCount,
     isLoading,
     isError,
-    hasNextPage: isLiked ? false : hasNextPage,
+    hasNextPage: isLiked && (useLocalLikes || managerSyncing) ? false : hasNextPage,
     isFetchingNextPage: finalSyncing,
     fetchNextPage,
     syncPlayerQueue,
@@ -416,5 +386,5 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     sortMode,
     setSortMode,
     isSorting: isPending
-  }), [allTracks, metadata, totalReportedCount, isLoading, isError, hasNextPage, finalSyncing, fetchNextPage, syncPlayerQueue, refetch, isLiked, sortMode, setSortMode, isPending]);
+  }), [allTracks, metadata, totalReportedCount, isLoading, isError, hasNextPage, finalSyncing, fetchNextPage, syncPlayerQueue, refetch, isLiked, useLocalLikes, managerSyncing, sortMode, setSortMode, isPending]);
 };
