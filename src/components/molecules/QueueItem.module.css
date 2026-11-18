@@ -223,24 +223,24 @@
 
 :root[data-layout="deck"] .item {
     gap: 10px;
-    padding: 7px 8px;
+    padding: 6px 8px;
     border-radius: var(--radius-sm);
     transition: background-color 0.15s;
 }
 
 :root[data-layout="deck"] .item.active {
-    background: var(--bg-mantle);
+    background: var(--accent-soft);
     border-color: transparent;
 }
 
 :root[data-layout="deck"] .item:is(:hover, :focus-within) {
-    background: var(--bg-raised);
+    background: var(--hover);
     border-color: transparent;
 }
 
 :root[data-layout="deck"] .coverWrapper {
-    width: 28px;
-    height: 28px;
+    width: var(--search-track-artwork, 40px);
+    height: var(--search-track-artwork, 40px);
     border-radius: var(--radius-sm);
     background: var(--bg-mantle);
     box-shadow: none;

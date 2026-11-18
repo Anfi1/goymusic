@@ -56,6 +56,7 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
       {thumb && (
         <div
           className={styles.ambientBlur}
+          aria-hidden="true"
           style={{ backgroundImage: `url(${thumb})` }}
         />
       )}
@@ -89,7 +90,11 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
             </div>
           </main>
           
-          <aside className={`${styles.rightSidebar} ${isQueueVisible && !hideRightPanel ? styles.visible : ''} ${hideRightPanel ? styles.hiddenPanel : ''}`}>
+          <aside
+            className={`${styles.rightSidebar} ${isQueueVisible && !hideRightPanel ? styles.visible : ''} ${hideRightPanel ? styles.hiddenPanel : ''}`}
+            aria-label="Playback panel"
+            inert={!isQueueVisible || hideRightPanel}
+          >
             {rightPanel}
           </aside>
 

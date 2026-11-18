@@ -206,7 +206,6 @@
 }
 
 :root[data-layout="deck"] .panel {
-    background: var(--bg-crust);
     color: var(--text-main);
 }
 

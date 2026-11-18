@@ -1,14 +1,16 @@
 import React, { useState, useImperativeHandle, forwardRef, useMemo, useCallback } from 'react';
 import { ContextMenu } from '../molecules/ContextMenu';
 import { ShareDialog } from '../molecules/ShareDialog';
-import { useTrackMenu } from '../../hooks/useTrackMenu';
+import { useTrackMenu, UseTrackMenuOptions } from '../../hooks/useTrackMenu';
 import { getTrackLink } from '../../api/trackLink';
 import { YTMTrack } from '../../api/yt';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 
+type RuntimeOptions = Omit<UseTrackMenuOptions, 'track'> & { keyboard?: boolean };
+
 export interface TrackContextMenuHandle {
   /** Открыть меню в координатах события для указанного трека */
-  open: (e: React.MouseEvent | MouseEvent, track: YTMTrack, options?: any) => void;
+  open: (position: Pick<MouseEvent, 'clientX' | 'clientY'>, track: YTMTrack, options?: RuntimeOptions) => void;
   /** Закрыть меню */
   close: () => void;
 }
@@ -39,7 +41,7 @@ export const TrackContextMenu = forwardRef<TrackContextMenuHandle, TrackContextM
     x: number;
     y: number;
     track: YTMTrack;
-    runtimeOptions: any;
+    runtimeOptions: RuntimeOptions;
   } | null>(null);
 
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
@@ -62,7 +64,7 @@ export const TrackContextMenu = forwardRef<TrackContextMenuHandle, TrackContextM
   }));
 
   const menuOptions = useMemo(() => {
-    if (!menuState) return { track: {} as YTMTrack };
+    if (!menuState) return { track: null };
     return {
       track: menuState.track,
       onSelectArtist,
@@ -88,6 +90,7 @@ export const TrackContextMenu = forwardRef<TrackContextMenuHandle, TrackContextM
           y={menuState.y}
           items={items}
           onClose={handleClose}
+          focusOnOpen={menuState.runtimeOptions.keyboard}
         />
       )}
       {overrideTrack && (

@@ -459,7 +459,7 @@ const StickyTitlePanel = memo(({
   const coverUrl = metadata?.thumbUrl || (playlistTracks[0]?.thumbUrl || '');
   
   return (
-    <div className={`${styles.stickyHeaderContainer} ${isVisible ? styles.isSticky : ''}`}>
+    <div aria-hidden={!isVisible} className={`${styles.stickyHeaderContainer} ${isVisible ? styles.isSticky : ''}`}>
       <div className={`${styles.stickyTitleRow} ${isVisible ? styles.visible : ''}`}>
         <div className={styles.stickyTitleContent}>
           <div className={styles.stickyThumbWrapper}>
@@ -545,6 +545,7 @@ export const MainView = memo<MainViewProps>(({
 
   const isSearch = activeView.type === 'search';
   const playlistType: PlaylistType = useMemo(() => activeView.type === 'liked' ? 'liked' : (activeView.type === 'album' ? 'album' : 'playlist'), [activeView.type]);
+  const isDeckAlbum = isDeck && playlistType === 'album';
   const playlistId = activeView.playlistId || activeView.albumId;
 
   const {
@@ -593,11 +594,24 @@ export const MainView = memo<MainViewProps>(({
     playlistMetadata?.owned && playlistType === 'playlist' && playlistId !== 'LM'
   , [playlistMetadata?.owned, playlistType, playlistId]);
 
+  // Observe the in-flow header, not the recycled rows. The sticky title follows
+  // the real cover/title height even when fonts, metadata or panel widths change.
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!deckScroller || !header) return;
+    const threshold = playlistType === 'album' ? 0.25 : 0;
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsSticky(entry.boundingClientRect.top < (entry.rootBounds?.top ?? 0)
+        && (!entry.isIntersecting || entry.intersectionRatio < threshold));
+    }, { root: deckScroller, threshold });
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [deckScroller, playlistType]);
+
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-    const thresholdReached = top > (isDeck && headerRef.current ? headerRef.current.offsetHeight : STICKY_THRESHOLD);
+    const thresholdReached = top > STICKY_THRESHOLD;
     if (isSticky !== thresholdReached) setIsSticky(thresholdReached);
-    if (isDeck) return;
     
     if (headerRef.current) {
       const translateY = top * 0.5;
@@ -613,7 +627,7 @@ export const MainView = memo<MainViewProps>(({
       const tableTranslateY = Math.max(0, HEADER_HEIGHT - top);
       tableRef.current.style.transform = `translate3d(0, ${tableTranslateY}px, 0)`;
     }
-  }, [isDeck, isSticky, isSearch]);
+  }, [isSticky, isSearch]);
 
   const handleHeaderAction = useCallback(async (type: string, payload?: any) => {
     if (type === 'artist' && payload) onSelectArtist(payload);
@@ -854,12 +868,15 @@ export const MainView = memo<MainViewProps>(({
   if (!isAuthenticated && !isInitializing) return null;
 
   return (
-    <div className={styles.container} style={{ perspective: '1000px', isolation: 'isolate' }}>
+    <div
+      className={isDeckAlbum ? `${styles.container} ${styles.deckAlbum}` : styles.container}
+      style={{ '--album-art': isDeckAlbum && playlistMetadata?.thumbUrl
+        ? `url(${JSON.stringify(playlistMetadata.thumbUrl)})` : undefined } as React.CSSProperties}
+    >
       <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div
         className={styles.virtuosoWrapper}
         ref={isDeck ? attachDeckScroller : undefined}
-        onScroll={isDeck ? handleScroll : undefined}
         onDragOver={isDeck ? handleDragOverContainer : undefined}
       >
         {isDeck && <LargeHeader {...virtuosoContext} />}

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Play, ListMusic, Plus, Trash2, PlusCircle, Radio, ListVideo, HardDriveDownload, Link } from 'lucide-react';
+import { Play, ListMusic, Plus, Trash2, PlusCircle, Radio, ListVideo, HardDriveDownload, Link, Copy } from 'lucide-react';
 import { player } from '../api/player';
 import { 
   addPlaylistItems, 
@@ -13,11 +13,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ContextMenuItem } from '../components/molecules/ContextMenu';
 import { useLibrary } from './useLibrary';
 
-interface UseTrackMenuOptions {
-  track: YTMTrack;
+export interface UseTrackMenuOptions {
+  track: YTMTrack | null;
   playlistId?: string;
   isOwnedPlaylist?: boolean;
-  type?: 'queue' | 'suggested' | 'list';
+  type?: 'queue' | 'suggested' | 'list' | 'now-playing';
   index?: number;
   timestamp?: number; // Added for history removal
   onSelectArtist?: (id: string) => void;
@@ -47,7 +47,7 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
   const queryClient = useQueryClient();
   
   // Получаем плейлисты из кэша (синхронизировано с сайдбаром)
-  const { ownedPlaylists, isLoading } = useLibrary(true);
+  const { ownedPlaylists, isLoading } = useLibrary(track !== null);
 
   const menuItems = useMemo(() => {
     if (!track) return [];
@@ -71,7 +71,13 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
       items.push({
         label: 'Play Now', icon: Play,
         onClick: () => {
-          if (track.id) player.playSingle(track);
+          if (type === 'now-playing') {
+            if (player.currentTrack?.id !== track.id) return;
+            player.seek(0);
+            if (!player.isPlaying) player.togglePlay();
+          } else if (track.id) {
+            player.playSingle(track);
+          }
         }
       });
       items.push({
@@ -112,6 +118,22 @@ export const useTrackMenu = (options: UseTrackMenuOptions) => {
         label: 'Go to Playlist', icon: ListMusic,
         onClick: () => onSelectPlaylist?.(tid, track.album || 'Playlist')
       });
+    }
+
+    if (type === 'now-playing') {
+      const copyItem = (label: string, text: string): ContextMenuItem => ({
+        label, icon: Copy,
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            showToast('Copied to clipboard', 'success');
+          } catch {
+            showToast('Could not copy to clipboard', 'error');
+          }
+        },
+      });
+      if (track.title) items.push(copyItem('Copy Title', track.title));
+      if (track.artists?.length) items.push(copyItem('Copy Artist', track.artists.join(', ')));
     }
 
     // Copy Link

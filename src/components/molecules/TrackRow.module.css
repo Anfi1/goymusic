@@ -332,7 +332,7 @@ tr:hover .bestBadge {
     pointer-events: none;
 }
 
-:root[data-layout="deck"] .row { height: 44px; box-shadow: none; }
+:root[data-layout="deck"] .row { height: var(--search-track-height, 44px); box-shadow: none; }
 
 /* Match the row height requested by each fixed-size virtual table. */
 :root[data-layout="deck"] .row[data-index] { height: var(--virtual-track-height, 56px); }
@@ -351,8 +351,8 @@ tr:hover .bestBadge {
 :root[data-layout="deck"] .indexWrapper { height: 32px; }
 
 :root[data-layout="deck"] :is(.thumb, .thumbPlaceholder) {
-    width: 32px;
-    height: 32px;
+    width: var(--search-track-artwork, 32px);
+    height: var(--search-track-artwork, 32px);
     border-radius: var(--radius-sm);
 }
 

@@ -108,4 +108,34 @@
     padding: 2px;
 }
 
+:root[data-layout="deck"] .card {
+    width: 124px;
+    padding: 4px;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+    box-shadow: none;
+    transform: none;
+    font: inherit;
+}
+
+:root[data-layout="deck"] .thumbnailWrapper {
+    width: 112px;
+    height: 112px;
+    box-shadow: none;
+}
+
+:root[data-layout="deck"] .card:is(:hover, :focus-visible) .name {
+    color: var(--accent);
+}
+
+:root[data-layout="deck"] .card:focus-visible {
+    outline: none;
+}
+
+:root[data-layout="deck"] .card:focus-visible .thumbnailWrapper {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
 

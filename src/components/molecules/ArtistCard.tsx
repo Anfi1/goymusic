@@ -23,11 +23,11 @@ interface ArtistCardProps {
 export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, source, artistPro, verified, onClick }) => {
   const isSc = resolveSource(source) === 'soundcloud';
   return (
-    <div className={styles.card} onClick={onClick}>
+    <button type="button" className={styles.card} onClick={onClick}>
       <div className={styles.thumbnailWrapper}>
         <LazyImage
           src={thumbUrl || ''}
-          alt={name}
+          alt=""
           className={styles.thumbnail}
           placeholder={<div className={styles.thumbnailPlaceholder} />}
         />
@@ -48,6 +48,6 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ id, name, thumbUrl, sour
         )}
       </div>
       <div className={styles.name}>{name}</div>
-    </div>
+    </button>
   );
 };

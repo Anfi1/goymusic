@@ -445,7 +445,6 @@
 }
 
 :root[data-layout="deck"] .container {
-    background: var(--bg-base);
     padding: clamp(18px, 3vw, 44px);
 }
 

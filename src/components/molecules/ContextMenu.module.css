@@ -56,7 +56,15 @@
     }
 }
 
+.entry {
+    position: relative;
+}
+
 .item {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: start;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -70,7 +78,7 @@
     white-space: nowrap;
 }
 
-.item:hover {
+.item:is(:hover, :focus-visible, [aria-expanded="true"]) {
     background: color-mix(in srgb, var(--accent) 15%, transparent);
     color: var(--accent);
 }
@@ -183,7 +191,13 @@
     margin: 4px 6px;
 }
 
-.item.danger:hover {
+.item.danger:is(:hover, :focus-visible) {
     background: color-mix(in srgb, var(--danger) 15%, transparent);
     color: var(--danger);
+}
+
+@media (max-height: 480px) {
+    .menu .item {
+        padding-block: 5px;
+    }
 }

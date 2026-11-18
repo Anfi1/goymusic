@@ -11,8 +11,8 @@ import { player } from '../../api/player';
 import { openImageViewer } from '../molecules/ImageViewer';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
+import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { YTMTrack } from '../../api/yt';
-import { useToast } from '../atoms/Toast';
 import styles from './PlayerBar.module.css';
 
 interface PlayerBarProps {
@@ -20,6 +20,7 @@ interface PlayerBarProps {
   onToggleRightPanel?: (panel: 'queue' | 'lyrics') => void;
   onSelectArtist?: (id: string) => void;
   onSelectAlbum?: (id: string) => void;
+  onSelectPlaylist?: (id: string, title: string) => void;
   className?: string;
 }
 
@@ -144,7 +145,12 @@ const AutoplayButton = memo(() => {
   );
 });
 
-const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onSelectArtist?: (id: string) => void, onSelectAlbum?: (id: string) => void, onOpenOverride: (track: YTMTrack) => void }) => {
+type TrackInfoProps = Pick<PlayerBarProps, 'onSelectArtist' | 'onSelectAlbum' | 'onSelectPlaylist'> & {
+  onOpenOverride: (track: YTMTrack) => void;
+};
+
+const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onOpenOverride }: TrackInfoProps) => {
+  const menuRef = useRef<TrackContextMenuHandle>(null);
   const [track, setTrack] = useState(player.currentTrack);
   const [isLoading, setIsLoading] = useState(player.isStreamLoading);
   const [failedThumb, setFailedThumb] = useState<string>();
@@ -153,11 +159,7 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
     return player.subscribe((ev) => {
       if (ev === 'tick') return;
 
-      setTrack(prev => {
-        const curr = player.currentTrack;
-        if (prev?.id === curr?.id && prev?.likeStatus === curr?.likeStatus) return prev;
-        return curr ? { ...curr } : null;
-      });
+      setTrack(player.currentTrack);
 
       setIsLoading(prev => {
         if (prev === player.isStreamLoading) return prev;
@@ -183,26 +185,35 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
     }
   };
 
-  const { showToast } = useToast();
-
-  const handleCopyTitle = (e: React.MouseEvent) => {
+  const openMenu = (e: React.MouseEvent) => {
+    if (!track?.id || player.currentTrack?.id !== track.id) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!track?.title) return;
-    navigator.clipboard.writeText(track.title);
-    showToast('Название скопировано', 'success');
+    menuRef.current?.open(e, player.currentTrack, { type: 'now-playing' });
   };
 
-  const handleCopyArtist = (e: React.MouseEvent) => {
+  const openKeyboardMenu = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
+    if (!track?.id || player.currentTrack?.id !== track.id) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!track?.artists?.length) return;
-    navigator.clipboard.writeText(track.artists.join(', '));
-    showToast('Исполнитель скопирован', 'success');
+    const { left, top } = e.currentTarget.getBoundingClientRect();
+    menuRef.current?.open({ clientX: left, clientY: top }, player.currentTrack, { type: 'now-playing', keyboard: true });
   };
 
   return (
-    <div className={`${styles.nowPlaying} ${(track?.albumId || player.queueSourceId) ? styles.clickable : ''} ${isLoading ? styles.loading : ''}`} onClick={handleSourceClick}>
+    <>
+    <div
+      className={`${styles.nowPlaying} ${(track?.albumId || player.queueSourceId) ? styles.clickable : ''} ${isLoading ? styles.loading : ''}`}
+      role="group"
+      aria-label="Now playing"
+      aria-haspopup={track?.id ? 'menu' : undefined}
+      aria-keyshortcuts={track?.id ? 'Shift+F10' : undefined}
+      tabIndex={track?.id ? 0 : undefined}
+      onClick={handleSourceClick}
+      onContextMenu={openMenu}
+      onKeyDown={openKeyboardMenu}
+    >
       <div className={styles.artWrapper} onClick={handleArtClick}>
         {track?.thumbUrl && track.thumbUrl !== failedThumb ? (
           <img src={track.thumbUrl} alt="" className={styles.albumArt} onError={() => setFailedThumb(track.thumbUrl)} />
@@ -219,8 +230,8 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
         {isLoading && <div className={styles.spinner} />}
       </div>
       <div className={styles.trackInfo}>
-        <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="" onContextMenu={handleCopyTitle}>{track?.title || 'No track selected'}</div>
-        <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="" onContextMenu={handleCopyArtist}>
+        <div className={styles.title} data-tooltip={track?.title ?? undefined} data-tooltip-overflow="">{track?.title || 'No track selected'}</div>
+        <div className={styles.artist} data-tooltip={track?.artists?.join(', ')} data-tooltip-overflow="">
           {track?.artists?.map((artist: string, i: number) => {
             const id = track.artistIds?.[i];
             return (
@@ -238,6 +249,16 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onOpenOverride }: { onS
         </div>
       )}
     </div>
+    {track?.id && (
+      <TrackContextMenu
+        key={`${track.source ?? ''}:${track.id}`}
+        ref={menuRef}
+        onSelectArtist={onSelectArtist}
+        onSelectAlbum={onSelectAlbum}
+        onSelectPlaylist={onSelectPlaylist}
+      />
+    )}
+    </>
   );
 });
 
@@ -589,6 +610,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
   onToggleRightPanel,
   onSelectArtist,
   onSelectAlbum,
+  onSelectPlaylist,
   className
 }) => {
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
@@ -597,9 +619,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
     <TrackInfo
       onSelectArtist={onSelectArtist}
       onSelectAlbum={onSelectAlbum}
+      onSelectPlaylist={onSelectPlaylist}
       onOpenOverride={setOverrideTrack}
     />
-  ), [onSelectArtist, onSelectAlbum]);
+  ), [onSelectArtist, onSelectAlbum, onSelectPlaylist]);
 
   const controlSection = useMemo(() => (
     <div className={styles.controls}>

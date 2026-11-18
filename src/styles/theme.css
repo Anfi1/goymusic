@@ -151,8 +151,8 @@
     --solid-mantle: var(--bg-mantle);
     --panel-bg: var(--bg-mantle);
     --text-main: #e9ebea;
-    --text-sub: #a0a6a5;
-    --text-dim: #959c9b;
+    --text-sub: #b2bab7;
+    --text-dim: #a6aeab;
     --accent: #a6d5c6;
     --accent-hover: #bee4d8;
     --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -160,10 +160,10 @@
     --border-color: #323536;
     --border-subtle: var(--border-color);
     --hover: var(--bg-raised);
-    --glass-surface: var(--bg-mantle);
-    --glass-surface-player: #1d2020;
-    --glass-surface-main: var(--bg-base);
-    --bg-main-glass: var(--bg-base);
+    --glass-surface: rgba(19, 21, 22, 0.55);
+    --glass-surface-player: rgba(23, 25, 26, 0.55);
+    --glass-surface-main: rgba(10, 12, 13, 0.5);
+    --bg-main-glass: var(--glass-surface-main);
     --glass-popover-bg: var(--bg-raised);
     --glass-popover-blur: 0px;
     --glass-blur: 0px;

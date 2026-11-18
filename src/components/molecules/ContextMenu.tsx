@@ -29,6 +29,7 @@ interface ContextMenuProps {
   items: ContextMenuItem[];
   /** Обработчик закрытия меню */
   onClose: () => void;
+  focusOnOpen?: boolean;
 }
 
 const EMPTY_STYLES: React.CSSProperties = {};
@@ -47,6 +48,7 @@ const MenuItem = memo(({
   onMouseEnter,
   onMouseLeave,
   onClick,
+  onClose,
   subMenuStyles
 }: {
   item: ContextMenuItem;
@@ -57,6 +59,7 @@ const MenuItem = memo(({
   onMouseEnter: (i: number, el: HTMLDivElement | null) => void;
   onMouseLeave: () => void;
   onClick: (e: React.MouseEvent, item: ContextMenuItem, index: number) => void;
+  onClose: () => void;
   subMenuStyles?: React.CSSProperties;
 }) => {
   const itemRef = useRef<HTMLDivElement>(null);
@@ -74,24 +77,39 @@ const MenuItem = memo(({
   return (
     <div
       ref={itemRef}
-      className={`${styles.item} ${item.isDanger ? styles.danger : ''} ${item.children ? styles.hasChildren : ''} ${isActive ? styles.active : ''} ${isLoading ? styles.loading : ''}`}
+      className={styles.entry}
       onMouseEnter={() => onMouseEnter(index, itemRef.current)}
       onMouseLeave={onMouseLeave}
-      onClick={(e) => onClick(e, item, index)}
     >
-      <div className={styles.icon}>
-        {isLoading ? (
-          <Loader2 size={16} className={styles.spinner} />
-        ) : Icon ? (
-          <Icon size={16} />
-        ) : null}
-      </div>
-      <span className={styles.label}>{item.label}</span>
-      {item.children && !isLoading && <ChevronRight size={14} className={styles.chevron} />}
+      <button
+        type="button"
+        role="menuitem"
+        aria-haspopup={item.children ? 'menu' : undefined}
+        aria-expanded={item.children ? isActive : undefined}
+        className={`${styles.item} ${item.isDanger ? styles.danger : ''} ${isLoading ? styles.loading : ''}`}
+        onClick={(e) => {
+          if (item.children) {
+            e.stopPropagation();
+            onMouseEnter(index, itemRef.current);
+          } else {
+            onClick(e, item, index);
+          }
+        }}
+      >
+        <span className={styles.icon}>
+          {isLoading ? (
+            <Loader2 size={16} className={styles.spinner} />
+          ) : Icon ? (
+            <Icon size={16} />
+          ) : null}
+        </span>
+        <span className={styles.label}>{item.label}</span>
+        {item.children && !isLoading && <ChevronRight size={14} className={styles.chevron} />}
+      </button>
 
       {item.children && (isActive || isLeaving) && !isLoading && (
-        <div className={`${styles.subMenu} ${isLeaving ? styles.leaving : ''}`} style={subMenuStyles || EMPTY_STYLES}>
-          <MenuList items={item.children} onClose={onMouseLeave} /> 
+        <div role="menu" aria-label={item.label} inert={isLeaving} className={`${styles.subMenu} ${isLeaving ? styles.leaving : ''}`} style={subMenuStyles || EMPTY_STYLES}>
+          <MenuList items={item.children} onClose={onClose} />
         </div>
       )}
     </div>
@@ -202,6 +220,7 @@ const MenuList: React.FC<{ items: ContextMenuItem[]; onClose: () => void }> = me
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onClick={handleItemClick}
+          onClose={onClose}
           subMenuStyles={(activeSubMenu === i || leavingSubMenu === i) ? subMenuStyles : undefined}
         />
       ))}
@@ -216,27 +235,37 @@ MenuList.displayName = 'MenuList';
  * Компонент контекстного меню.
  * </summary>
  */
-export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }) => {
+export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose, focusOnOpen }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
   useLayoutEffect(() => {
     if (menuRef.current) {
-      const menuRect = menuRef.current.getBoundingClientRect();
+      const { offsetWidth: width, offsetHeight: height } = menuRef.current;
       let newX = x;
       let newY = y;
 
-      if (x + menuRect.width > window.innerWidth) {
-        newX = x - menuRect.width;
+      if (x + width > window.innerWidth) {
+        newX = x - width;
       }
 
-      if (y + menuRect.height > window.innerHeight) {
-        newY = window.innerHeight - menuRect.height - 10;
+      if (y + height > window.innerHeight) {
+        newY = window.innerHeight - height - 10;
       }
 
       setPos({ x: Math.max(10, newX), y: Math.max(10, newY) });
     }
   }, [x, y]);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!focusOnOpen || !menu) return;
+    const opener = document.activeElement;
+    menu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    return () => {
+      if (opener instanceof HTMLElement && menu.contains(document.activeElement)) opener.focus();
+    };
+  }, [focusOnOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -251,6 +280,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
       <div className={styles.overlay} onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div 
         ref={menuRef}
+        role="menu"
+        onBlur={(e) => {
+          if (focusOnOpen && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) onClose();
+        }}
         className={styles.menu}
         style={{ top: pos.y, left: pos.x }}
       >

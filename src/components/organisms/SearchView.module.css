@@ -137,7 +137,7 @@
 }
 
 .topResultThumb { width: 100%; height: 100%; object-fit: cover; }
-.topResultThumb.round { border-radius: 50%; }
+.topResultThumbWrapper.round { border-radius: 50%; }
 
 .topResultInfo { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .topResultTitle { font-size: var(--fs-xl); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -311,9 +311,12 @@
 
 :root[data-layout="deck"] .container {
     --search-gutter: clamp(18px, 3vw, 44px);
+    --search-track-artwork: 48px;
+    --search-track-height: 64px;
+    container-name: deck-search;
+    container-type: inline-size;
     min-width: 0;
     min-height: 0;
-    background: var(--bg-base);
 }
 
 :root[data-layout="deck"] .tabBar {
@@ -355,6 +358,11 @@
     background: var(--bg-mantle);
 }
 
+:root[data-layout="deck"] .topResultCard.artistResult:is(:hover, :focus-visible) {
+    background: transparent;
+    color: var(--accent);
+}
+
 :root[data-layout="deck"] :is(.topResultMeta, .albumArtists) {
     opacity: 1;
     color: var(--text-sub);
@@ -364,6 +372,8 @@
     border-radius: var(--radius-md);
 }
 
+:root[data-layout="deck"] .topResultThumbWrapper.round { border-radius: 50%; }
+
 :root[data-layout="deck"] :is(.scrollNavBtn, .loadMoreBtn) {
     border-color: var(--border-color);
     background: var(--bg-raised);
@@ -372,3 +382,11 @@
 
 :root[data-layout="deck"] .scrollNavBtn:focus-visible { opacity: 1; }
 :root[data-layout="deck"] :is(.queueItemWrapper, .albumsGrid) { padding-inline: var(--search-gutter); }
+
+/* Album and duration share a cell; leave title space in narrow panes. */
+@container deck-search (max-width: 540px) {
+    .trackList {
+        --track-album-width: 6%;
+        --track-actions-width: 84px;
+    }
+}

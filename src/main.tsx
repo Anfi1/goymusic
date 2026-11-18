@@ -4,8 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { initMediaSession } from './api/mediaSession'
 import { restoreDesktopLayout } from './utils/desktopLayout'
+import { readInterfaceScale } from './utils/interfaceScale'
 
 restoreDesktopLayout()
+window.bridge.setInterfaceScale(readInterfaceScale())
 initMediaSession()
 
 // Initialize react-scan ONLY in development and ONLY if requested

@@ -16,6 +16,8 @@
     top: calc(100% + 12px);
     right: 0;
     min-width: 720px;
+    max-height: calc(100dvh - var(--title-height) - 20px);
+    overflow-y: auto;
     background: var(--glass-popover-bg);
     backdrop-filter: blur(var(--glass-popover-blur));
     -webkit-backdrop-filter: blur(var(--glass-popover-blur));
@@ -338,4 +340,23 @@
 .resetBtn:hover {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+@media (max-width: 899px) {
+    .menu {
+        position: fixed;
+        inset: calc(var(--title-height) + 4px) var(--space-sm) auto auto;
+        width: min(720px, calc(100vw - 2 * var(--space-sm)));
+        min-width: 0;
+    }
+}
+
+@media (max-height: 620px) {
+    .visualizer {
+        height: min(42vh, 350px);
+    }
+
+    .canvas {
+        min-height: 0;
+    }
 }

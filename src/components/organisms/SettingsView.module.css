@@ -249,3 +249,14 @@ input:disabled:checked + .slider:before {
     outline: 2px solid var(--accent);
     outline-offset: 3px;
 }
+
+.scaleRow {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.scaleRow > .col { flex: 1 1 14rem; }
+.scaleRow select {
+    min-width: 7rem;
+    width: fit-content;
+}

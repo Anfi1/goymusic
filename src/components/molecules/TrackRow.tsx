@@ -222,8 +222,8 @@ export const TrackColumnGroup = memo(({ hideAlbum }: { hideAlbum?: boolean }) =>
   <colgroup>
     <col style={{ width: 40 }} />
     <col />
-    {!hideAlbum && <col style={{ width: '25%' }} />}
-    <col style={{ width: 112 }} />
+    {!hideAlbum && <col style={{ width: 'var(--track-album-width, 25%)' }} />}
+    <col style={{ width: 'var(--track-actions-width, 112px)' }} />
   </colgroup>
 ));
 

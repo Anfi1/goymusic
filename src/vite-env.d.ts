@@ -17,6 +17,7 @@ interface Window {
     winMaximize: () => void;
     winFullscreen: () => void;
     winClose: () => void;
+    setInterfaceScale: (percent: import('./utils/interfaceScale').InterfaceScale) => void;
     onWindowState: (callback: (state: { isMaximized: boolean, isFullScreen: boolean }) => void) => () => void;
     onFocusChanged: (callback: (focused: boolean) => void) => () => void;
     setRPC: (data: {

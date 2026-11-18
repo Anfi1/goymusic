@@ -16,6 +16,7 @@ import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
 import { isDeckLayout, setDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
+import { interfaceScales, isInterfaceScale, readInterfaceScale, setInterfaceScale } from '../../utils/interfaceScale';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -24,6 +25,7 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const deckEnabled = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
+    const [scale, setScale] = useState(readInterfaceScale);
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
     const [rpcEnabled, setRpcEnabled] = useState(player.rpcEnabled);
@@ -354,8 +356,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                     <span aria-hidden="true">{deckEnabled ? 'On' : 'Off'}</span>
                 </button>
                 <p id="layout-description" className={styles.subtitle}>
-                    Use compact navigation, a slim queue and a single playback bar. Switch off to return to the classic player.
+                    Use the Deck player layout. Switch off to return to the classic player.
                 </p>
+            </section>
+
+            <section className={styles.section} aria-labelledby="accessibility-title">
+                <h3 id="accessibility-title" className={styles.sectionTitle}>Accessibility</h3>
+                <div className={`${styles.row} ${styles.scaleRow}`}>
+                    <div className={styles.col}>
+                        <label htmlFor="interface-scale">Interface scale</label>
+                        <span id="scale-description" className={styles.subtitle}>Text, artwork and controls in windowed and full-screen mode.</span>
+                    </div>
+                    <select id="interface-scale" aria-describedby="scale-description" className={styles.select} value={scale} onChange={event => {
+                        const next = Number(event.target.value);
+                        if (isInterfaceScale(next)) {
+                            setInterfaceScale(next);
+                            setScale(next);
+                        }
+                    }}>
+                        {interfaceScales.map(percent => <option key={percent} value={percent}>{percent}%</option>)}
+                    </select>
+                </div>
             </section>
 
             <div className={styles.section}>

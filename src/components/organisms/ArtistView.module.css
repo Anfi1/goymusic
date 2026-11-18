@@ -1,3 +1,9 @@
+.viewport {
+    position: relative;
+    height: 100%;
+    overflow: clip;
+}
+
 .container {
     padding: 1rem 2rem;
     height: 100%;
@@ -210,7 +216,8 @@
     gap: 0;
     animation: slideUpFromBottom 0.35s cubic-bezier(0.32, 0.72, 0, 1);
     z-index: 1000;
-    position: fixed;
+    position: absolute;
+    inset: 0;
 }
 
 @keyframes slideUpFromBottom {

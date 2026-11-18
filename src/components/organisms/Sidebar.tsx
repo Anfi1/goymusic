@@ -30,23 +30,15 @@ interface SidebarProps {
   activeViewType?: string;
 }
 
-const SidebarHeader = memo(({ 
-  collapsed, 
-  onToggleCollapse, 
-  onSelectView,
-  activeViewType
-}: { 
-  collapsed: boolean, 
-  onToggleCollapse?: () => void, 
-  onSelectView?: (view: ActiveView) => void,
-  activeViewType?: string
-}) => {
+const deckCollapsedKey = 'goymusic-deck-sidebar-collapsed';
+
+function useHomeLogoAction(onSelectView: SidebarProps['onSelectView'], activeViewType?: string) {
   const [clickCount, setClickCount] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleLogoClick = useCallback(() => {
+  return useCallback(() => {
     console.log(`[easter-egg] Click on logo. View: ${activeViewType}, Count: ${clickCount + 1}`);
 
     if (activeViewType === 'home') {
@@ -92,7 +84,19 @@ const SidebarHeader = memo(({
 
     onSelectView?.({ type: 'home' });
   }, [onSelectView, activeViewType, clickCount]);
+}
 
+const SidebarHeader = memo(({
+  collapsed,
+  showLogo,
+  onToggleCollapse,
+  onLogoClick
+}: {
+  collapsed: boolean;
+  showLogo: boolean;
+  onToggleCollapse?: () => void;
+  onLogoClick: () => void;
+}) => {
   return (
     <div className={sidebarStyles.header}>
       <button
@@ -105,9 +109,9 @@ const SidebarHeader = memo(({
       >
         {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
       </button>
-      {!collapsed && (
+      {showLogo && (
         <h2 className={sidebarStyles.logo}>
-          <button type="button" className={sidebarStyles.logoButton} onClick={handleLogoClick}>GoyMusic</button>
+          <button type="button" className={sidebarStyles.logoButton} onClick={onLogoClick}>GoyMusic</button>
         </h2>
       )}
     </div>
@@ -286,9 +290,14 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
   activeViewType
 }) => {
   const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
-  const [deckExpanded, setDeckExpanded] = useState(false);
-  const collapsed = deck ? !deckExpanded : classicCollapsed;
-  const toggleDeck = useCallback(() => setDeckExpanded(open => !open), []);
+  const [deckCollapsed, setDeckCollapsed] = useState(() => localStorage.getItem(deckCollapsedKey) === 'true');
+  const collapsed = deck ? deckCollapsed : classicCollapsed;
+  const toggleDeck = useCallback(() => {
+    const next = !deckCollapsed;
+    localStorage.setItem(deckCollapsedKey, String(next));
+    setDeckCollapsed(next);
+  }, [deckCollapsed]);
+  const handleLogoClick = useHomeLogoAction(onSelectView, activeViewType);
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const playlistMenuRef = useRef<PlaylistContextMenuRef>(null);
@@ -356,8 +365,8 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
       <SidebarHeader 
         collapsed={collapsed} 
         onToggleCollapse={deck ? toggleDeck : onToggleCollapse}
-        onSelectView={onSelectView} 
-        activeViewType={activeViewType}
+        showLogo={!deck && !collapsed}
+        onLogoClick={handleLogoClick}
       />
 
       {!deck && account}
@@ -367,7 +376,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           icon={Home}
           label={collapsed ? '' : 'Home'}
           active={activeViewType === 'home'}
-          onClick={handleNavigateHome}
+          onClick={deck ? handleLogoClick : handleNavigateHome}
           tooltip={collapsed ? 'Home' : undefined}
         />
         <NavLink

@@ -220,7 +220,6 @@
 :root[data-layout="deck"] .container {
     padding: clamp(18px, 3vw, 44px);
     gap: 24px;
-    background: var(--bg-base);
 }
 
 :root[data-layout="deck"] .sectionHeader {

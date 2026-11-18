@@ -50,9 +50,11 @@ const MainContentWrapper = memo(
     navigate,
   }: any) => {
     const viewKey = `${activeView.type}-${activeView.playlistId || ''}-${activeView.artistId || ''}-${activeView.albumId || ''}-${activeView.searchQuery || ''}-${refreshKey}`;
+    const detailRoute = activeView.type === 'album' ? `album-${activeView.albumId}`
+      : activeView.type === 'artist' ? `artist-${activeView.artistId}` : undefined;
 
     return (
-      <div style={{ height: '100%' }}>
+      <div key={detailRoute} data-detail-route={detailRoute} style={{ height: '100%' }}>
         {activeView.type === 'settings' ? (
           <SettingsView key="settings" onLogout={handleLogout} />
         ) : activeView.type === 'history' ? (
@@ -614,6 +616,7 @@ function App() {
         onToggleRightPanel={toggleRightPanel}
         onSelectArtist={handleSelectArtist}
         onSelectAlbum={handleSelectAlbum}
+        onSelectPlaylist={handleSelectPlaylist}
       />
     );
   }, [
@@ -623,6 +626,7 @@ function App() {
     toggleRightPanel,
     handleSelectArtist,
     handleSelectAlbum,
+    handleSelectPlaylist,
   ]);
 
   const rightPanelComp = useMemo(() => {

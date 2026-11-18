@@ -11,7 +11,7 @@ import { ArtistCard } from '../molecules/ArtistCard';
 import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
 import { QueueItem } from '../molecules/QueueItem';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
-import { Play, ChevronLeft, ChevronRight, MoveRight, ListMusic } from 'lucide-react';
+import { Play, ChevronLeft, ChevronRight, ListMusic } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
 import styles from './SearchView.module.css';
 
@@ -27,10 +27,9 @@ type FilterMode = 'all' | 'songs' | 'videos' | 'albums';
 
 const PAGE_SIZE = 20;
 
-// Matches QueueItem layout: cover 44px | title+artist | duration
 const QueueItemSkeleton = () => (
   <div className={styles.skeletonRow}>
-    <Skeleton width={44} height={44} borderRadius={8} />
+    <Skeleton width="var(--search-track-artwork, 44px)" height="var(--search-track-artwork, 44px)" borderRadius={8} />
     <div className={styles.skeletonRowInfo}>
       <Skeleton width="55%" height={13} borderRadius={4} />
       <Skeleton width="35%" height={11} borderRadius={4} />
@@ -277,14 +276,15 @@ export const SearchView: React.FC<SearchViewProps> = ({
   }, []);
 
   useEffect(() => {
-    checkScroll();
-    window.addEventListener('resize', checkScroll);
-    return () => window.removeEventListener('resize', checkScroll);
-  }, [checkScroll, searchData]);
+    const observer = new ResizeObserver(checkScroll);
+    for (const ref of [artistsScrollRef, albumsScrollRef, playlistsScrollRef]) {
+      if (ref.current) observer.observe(ref.current);
+    }
+    return () => observer.disconnect();
+  }, [checkScroll, activeFilter, artists.length, albums.length, playlists.length, isArtistsLoading, isAlbumsLoading, isPlaylistsLoading]);
 
   const scrollSection = (ref: React.RefObject<HTMLDivElement | null>, dir: 'left' | 'right') => {
-    ref.current?.scrollBy({ left: dir === 'left' ? -600 : 600, behavior: 'smooth' });
-    setTimeout(checkScroll, 400);
+    ref.current?.scrollBy({ left: dir === 'left' ? -600 : 600 });
   };
 
   const menuItems: ContextMenuItem[] = [
@@ -352,7 +352,15 @@ export const SearchView: React.FC<SearchViewProps> = ({
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>Top Result</h2>
               <div
-                className={styles.topResultCard}
+                className={`${styles.topResultCard} ${topResult.resultType === 'artist' ? styles.artistResult : ''}`}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => {
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    e.currentTarget.click();
+                  }
+                }}
                 onClick={() => {
                   if (topResult.resultType === 'artist') onSelectArtist(topResult.id);
                   else if (topResult.resultType === 'album') onSelectAlbum(topResult.id);
@@ -361,8 +369,8 @@ export const SearchView: React.FC<SearchViewProps> = ({
                 }}
                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: topResult }); }}
               >
-                <div className={styles.topResultThumbWrapper}>
-                  <LazyImage src={topResult.thumbUrl} className={`${styles.topResultThumb} ${topResult.resultType === 'artist' ? styles.round : ''}`} />
+                <div className={`${styles.topResultThumbWrapper} ${topResult.resultType === 'artist' ? styles.round : ''}`}>
+                  <LazyImage src={topResult.thumbUrl} className={styles.topResultThumb} />
                 </div>
                 <div className={styles.topResultInfo}>
                   <div className={styles.topResultTitle}>{topResult.title || topResult.name}</div>
@@ -398,7 +406,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
           ) : tracks.length > 0 && (
             <section className={styles.section}>
               <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('songs')}>
-                Songs <MoveRight size={15} className={styles.sectionArrow} />
+                Songs <ChevronRight size={20} className={styles.sectionArrow} />
               </button>
               <table className={styles.trackList}>
                 <TrackColumnGroup />
@@ -441,13 +449,13 @@ export const SearchView: React.FC<SearchViewProps> = ({
               <h2 className={styles.sectionTitle}>Artists</h2>
               <div className={styles.scrollWrapper}>
                 {canScrollArtists.left && (
-                  <button className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(artistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
+                  <button aria-label="Previous artists" className={`${styles.scrollNavBtn} ${styles.left}`} onClick={() => scrollSection(artistsScrollRef, 'left')}><ChevronLeft size={24} /></button>
                 )}
                 <div className={styles.horizontalScroll} ref={artistsScrollRef} onScroll={checkScroll}>
                   {artists.map(artist => <ArtistCard key={artist.id} {...artist} onClick={() => onSelectArtist(artist.id)} />)}
                 </div>
                 {canScrollArtists.right && (
-                  <button className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(artistsScrollRef, 'right')}><ChevronRight size={24} /></button>
+                  <button aria-label="Next artists" className={`${styles.scrollNavBtn} ${styles.right}`} onClick={() => scrollSection(artistsScrollRef, 'right')}><ChevronRight size={24} /></button>
                 )}
               </div>
             </section>
@@ -493,7 +501,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
           ) : albums.length > 0 && (
             <section className={styles.section}>
               <button className={styles.sectionTitleBtn} onClick={() => setActiveFilter('albums')}>
-                Albums <MoveRight size={15} className={styles.sectionArrow} />
+                Albums <ChevronRight size={20} className={styles.sectionArrow} />
               </button>
               <div className={styles.scrollWrapper}>
                 {canScrollAlbums.left && (

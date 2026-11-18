@@ -7,6 +7,8 @@
     min-height: 0;
     overflow: hidden;
     position: relative;
+    perspective: 1000px;
+    isolation: isolate;
 }
 
 .virtuosoWrapper {
@@ -853,13 +855,14 @@
 :root[data-layout="deck"] .container {
     --collection-gutter: clamp(18px, 3vw, 44px);
     --virtual-track-height: 44px;
-    background: var(--bg-base);
+    --sticky-title-height: 52px;
 }
 
 :root[data-layout="deck"] .virtuosoWrapper {
     overflow-y: auto;
     padding: var(--collection-gutter);
     scrollbar-width: thin;
+    scroll-padding-block-start: var(--sticky-title-height);
 }
 
 :root[data-layout="deck"] .header {
@@ -874,6 +877,53 @@
 }
 
 :root[data-layout="deck"] .coverWrapper { width: var(--cover-size); }
+
+/* Keep the measured header in flow; only its artwork and contents recede. */
+:root[data-layout="deck"] .deckAlbum .header {
+    margin: calc(-1 * var(--collection-gutter)) calc(-1 * var(--collection-gutter)) 0;
+    padding: var(--collection-gutter) var(--collection-gutter) 26px;
+    overflow: clip;
+    isolation: isolate;
+    view-timeline-name: --album-header;
+    view-timeline-inset: 0;
+}
+
+.deckAlbum .header::before,
+.deckAlbum .stickyHeaderContainer::before {
+    content: "";
+    position: absolute;
+    inset: -18px;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--album-art, none) center / cover no-repeat;
+    filter: blur(18px);
+    opacity: 0.22;
+}
+
+.deckAlbum .header::before {
+    mask-image: linear-gradient(to bottom, black 48%, transparent 95%);
+}
+
+.deckAlbum .stickyHeaderContainer {
+    overflow: clip;
+    isolation: isolate;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .deckAlbum .header::before,
+    .deckAlbum .header > :is(.coverWrapper, .info):not(:has(:focus-visible)) {
+        animation: albumHeaderRecede auto linear both;
+        animation-timeline: --album-header;
+        animation-range: exit 0% exit 85%;
+    }
+}
+
+@keyframes albumHeaderRecede {
+    to {
+        transform: translateY(30%);
+        opacity: 0;
+    }
+}
 
 :root[data-layout="deck"] .coverContainer {
     width: 100%;
@@ -936,13 +986,13 @@
 }
 
 :root[data-layout="deck"] .stickyHeaderContainer.isSticky {
-    background: var(--bg-base);
+    background: var(--solid-base);
     border-color: var(--border-color);
     backdrop-filter: none;
 }
 
-:root[data-layout="deck"] :is(.stickyTitleRow.visible, .stickyTitleContent) { height: 52px; }
+:root[data-layout="deck"] :is(.stickyTitleRow.visible, .stickyTitleContent) { height: var(--sticky-title-height); }
 :root[data-layout="deck"] .stickyTitleContent { gap: 10px; padding-inline: var(--collection-gutter); }
 :root[data-layout="deck"] .stickyThumbWrapper { width: 32px; height: 32px; box-shadow: none; }
-:root[data-layout="deck"] .stickyMainTitle { font-size: var(--fs-base); font-weight: 550; }
+:root[data-layout="deck"] .stickyMainTitle { display: block; font-size: var(--fs-base); font-weight: 550; }
 :root[data-layout="deck"] .stickyTrackCount { color: var(--text-sub); opacity: 1; font-weight: 400; }

@@ -162,9 +162,9 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
 
   return (
     <header className={styles.titleBar}>
-      <strong className={styles.brand}>GoyMusic</strong>
       {/* Left: Navigation Controls */}
       <div className={styles.leftControls} style={NO_DRAG_STYLE}>
+        <strong className={styles.brand}>GoyMusic</strong>
         {!isInitializing && onBack && (
           <IconButton 
             icon={ChevronLeft} 

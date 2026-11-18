@@ -373,8 +373,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   // UI State
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
   const [isPlaying, setIsPlaying] = useState<boolean>(player.isPlaying);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [modalBounds, setModalBounds] = useState({ top: 0, left: 0, width: '100vw', height: '100vh' });
   const [isTableScrolled, setIsTableScrolled] = useState(false);
   const modalContentRef = useRef<HTMLDivElement>(null);
 
@@ -385,41 +383,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       setIsPlaying(player.isPlaying);
     });
   }, []);
-
-  useEffect(() => {
-    // Don't scroll to top when switching to main from modal close
-  }, [viewMode, discoCategory]);
-
-  // Measure container bounds for fixed modal positioning
-  useEffect(() => {
-    if (isModalOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setModalBounds({
-        top: rect.top,
-        left: rect.left,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-      });
-    }
-  }, [isModalOpen]);
-
-  // Update bounds on resize
-  useEffect(() => {
-    if (!isModalOpen) return;
-    const handleResize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setModalBounds({
-          top: rect.top,
-          left: rect.left,
-          width: `${rect.width}px`,
-          height: `${rect.height}px`,
-        });
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isModalOpen]);
 
   // Track scroll position in modal to darken table header
   useEffect(() => {
@@ -454,8 +417,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
 
   if (!detail) return <div className={styles.container}>Artist not found.</div>;
 
-  return (
-    <div className={styles.container} ref={containerRef} data-artist-view>
+  const overview = (
+    <div className={styles.container} data-artist-view>
       <header className={styles.header}>
         <div className={styles.bannerWrapper} style={{ '--shadow-color': shadowColor } as React.CSSProperties}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
@@ -754,18 +717,18 @@ export const ArtistView = React.memo<ArtistViewProps>(({
           </div>
         </section>
       )}
+    </div>
+  );
+
+  return (
+    <div className={styles.viewport}>
+      {overview}
       <TrackContextMenu ref={trackMenuRef} />
 
       {/* All Songs Modal */}
       {viewMode === 'all-songs' && (
         <div 
           className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}
-          style={{
-            top: modalBounds.top,
-            left: modalBounds.left,
-            width: modalBounds.width,
-            height: modalBounds.height,
-          }}
         >
           <button className={styles.allSongsBackBtn} onClick={closeModal}>
             <ArrowLeft size={22} />
@@ -879,12 +842,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         return (
           <div 
             className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}
-            style={{
-              top: modalBounds.top,
-              left: modalBounds.left,
-              width: modalBounds.width,
-              height: modalBounds.height,
-            }}
           >
             <button className={styles.allSongsBackBtn} onClick={closeModal}>
               <ArrowLeft size={22} />

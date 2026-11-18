@@ -1,4 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
+import { isInterfaceScale } from '../src/utils/interfaceScale'
 
 contextBridge.exposeInMainWorld('bridge', {
   ping: () => ipcRenderer.invoke('ping'),
@@ -17,6 +18,9 @@ contextBridge.exposeInMainWorld('bridge', {
   winFullscreen: () => ipcRenderer.send('win:fullscreen'),
   winClose: () => ipcRenderer.send('win:close'),
   winSetBackgroundMaterial: (material: 'mica' | 'acrylic') => ipcRenderer.send('win:set-background-material', material),
+  setInterfaceScale: (percent: number) => {
+    if (isInterfaceScale(percent)) webFrame.setZoomFactor(percent / 100)
+  },
   winGetBounds: () => ipcRenderer.invoke('win:get-bounds'),
   onWindowState: (callback: (state: { isMaximized: boolean, isFullScreen: boolean }) => void) => {
     const listener = (e: any, state: any) => callback(state);
