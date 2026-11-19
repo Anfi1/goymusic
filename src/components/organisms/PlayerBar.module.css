@@ -372,7 +372,6 @@
 :root[data-layout="deck"] .progress {
     width: auto;
     flex: none;
-    margin-inline-start: auto;
 }
 
 :root[data-layout="deck"] .clock {
@@ -438,12 +437,6 @@
     row-gap: 0;
 }
 
-/* Center the utility buttons between transport and the end-aligned volume. */
-:root[data-layout="deck"] .extra > :first-child,
-:root[data-layout="deck"][data-deck-time="tooltip"] .volumeSlot {
-    margin-inline-start: auto;
-}
-
 :root[data-layout="deck"] .volumeSlot {
     margin-left: 0;
 }
@@ -476,6 +469,5 @@
     :root[data-layout="deck"] .progress,
     :root[data-layout="deck"] .volumeSlot {
         grid-column: span 2;
-        margin: 0;
     }
 }
