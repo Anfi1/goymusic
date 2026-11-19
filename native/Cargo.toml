@@ -1,0 +1,27 @@
+[package]
+name = "goymusic-native"
+version = "7.1.7-rust"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "goymusic-native"
+path = "src/main.rs"
+
+[dependencies]
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "crisp", "advanced", "canvas", "image-without-codecs", "lazy", "tokio", "x11"] }
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+rfd = "0.15"
+cpal = "0.15.3"
+ringbuf = "0.4.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "3.5.2", default-features = false, features = ["rustls"] }
+tempfile = "3"
+url = "2.5"
+percent-encoding = "2.3"
+tokio = { version = "1", features = ["rt", "sync"] }
+
+[target.'cfg(windows)'.dependencies]
+souvlaki = "0.7"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }

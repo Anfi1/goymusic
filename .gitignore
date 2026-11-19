@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-electron/
+native/target/
 *.log
 .env
 .vscode/

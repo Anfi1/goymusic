@@ -1,0 +1,98 @@
+name: Native Deck preview
+
+on:
+  push:
+    branches: [preview/native-717]
+
+concurrency:
+  group: publish-native-717-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ZIP: GoyMusic-Deck-7.1.7-rust-windows-x64.zip
+  TAG: v7.1.7-rust
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+      sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.2'
+          architecture: x64
+      - name: Select the tested Rust toolchain
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup override set 1.100.0
+      - name: Build the locked native executable
+        run: cargo build --release --locked --manifest-path native/Cargo.toml --bin goymusic-native --target-dir native/target
+      - name: Assemble portable ZIP
+        run: python native/packaging/bundle.py native/target/release/goymusic-native.exe "$env:RUNNER_TEMP/$env:ZIP"
+      - name: Extract the actual release candidate outside the checkout
+        run: python -m zipfile -e "$env:RUNNER_TEMP/$env:ZIP" "$env:RUNNER_TEMP/Unpacked Deck"
+      - name: Exercise native catalog and decoder against the packaged FFmpeg
+        run: |
+          $env:GOYMUSIC_TEST_FFMPEG = "$env:RUNNER_TEMP/Unpacked Deck/tools/ffmpeg.exe"
+          cargo test --release --locked --manifest-path native/Cargo.toml --target-dir native/target -- --nocapture
+      - name: Start Windows Audio on the hosted runner
+        run: |
+          Set-Service AudioEndpointBuilder -StartupType Manual
+          Set-Service Audiosrv -StartupType Manual
+          Start-Service AudioEndpointBuilder
+          Start-Service Audiosrv
+      - name: Install a Windows render endpoint (runner only)
+        uses: LABSN/sound-ci-helpers@e9d6ba52163a3283714a68412036ddf33f78d49c
+      - name: Install host-side window and audio observers (not in the ZIP)
+        run: python -m pip install pywin32 pycaw==20260927 trustme==1.2.1
+      - name: Verify packaged RPC, track windows, TLS trust and local/HTTPS audio output
+        timeout-minutes: 4
+        run: python native/packaging/smoke.py "$env:RUNNER_TEMP/Unpacked Deck"
+      - name: Record tested ZIP digest
+        id: digest
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP/$env:ZIP").Hash.ToLowerInvariant()
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: tested-native-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/${{ env.ZIP }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: native/packaging
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact }}
+          merge-multiple: true
+      - name: Publish only the tested portable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTED_SHA256: ${{ needs.verify.outputs.sha256 }}
+        run: bash native/packaging/publish.sh
