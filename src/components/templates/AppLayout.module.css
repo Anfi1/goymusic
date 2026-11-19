@@ -115,8 +115,8 @@
     left: -15%;
     width: 130%;
     height: 130%;
-    opacity: 0.48;
-    filter: blur(80px) saturate(1.45) brightness(0.5);
+    opacity: var(--deck-art-opacity);
+    filter: var(--deck-art-filter);
 }
 
 :root[data-layout="deck"] .contextualBack {
@@ -129,6 +129,11 @@
 
 :root[data-layout="deck"] .rightSidebar {
     background: var(--glass-surface);
+}
+
+:root[data-layout="deck"] .rightSidebar.visible {
+    border-inline-start: 1px solid var(--border-subtle);
+    box-shadow: -3px 0 12px rgb(0 0 0 / 10%);
 }
 
 /* At high interface zoom, keep navigation and the player reachable without

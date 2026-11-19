@@ -231,6 +231,7 @@ input:disabled:checked + .slider:before {
 :root[data-layout="deck"] .container {
     max-width: 48rem;
     padding: clamp(1rem, 3vw, 3rem);
+    padding-block-start: var(--deck-page-top);
 }
 
 :root[data-layout="deck"] .section {

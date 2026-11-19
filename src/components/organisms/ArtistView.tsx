@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
 import { 
@@ -18,7 +18,7 @@ import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { LazyImage } from '../atoms/LazyImage';
 import { player } from '../../api/player';
 import { 
-  ChevronRight, ArrowLeft, Heart,
+  ChevronRight, ChevronDown, ArrowLeft, Heart,
   Users, Loader2, Check, Plus, Eye, Headphones, CheckCircle,
   Music, Clock, Play, Shuffle
 } from 'lucide-react';
@@ -28,6 +28,7 @@ import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { likedStore } from '../../api/likedStore';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { formatStatValue } from '../../utils/formatStatValue';
+import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 
 function extractDominantColor(url: string): Promise<string> {
   return new Promise((resolve) => {
@@ -99,6 +100,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   onSheetBackChange
 }) => {
   const queryClient = useQueryClient();
+  const SheetBackIcon = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout) ? ChevronDown : ArrowLeft;
   const [viewMode, setViewMode] = useState<ViewMode>('main');
   const [discoCategory, setDiscoCategory] = useState<'Album' | 'Single'>('Album');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
@@ -425,7 +427,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   if (!detail) return <div className={styles.container}>Artist not found.</div>;
 
   const overview = (
-    <div className={styles.container} data-artist-view inert={isModalOpen}>
+    <div className={styles.container} data-artist-view inert={isModalOpen} data-sheet-covered={(isModalOpen && !isClosing) || undefined}>
       <header className={styles.header}>
         <div className={styles.bannerWrapper} style={{ '--shadow-color': shadowColor } as React.CSSProperties}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
@@ -735,7 +737,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       {viewMode === 'all-songs' && (
         <div ref={sheetRef} data-artist-sheet={viewMode} data-closing={isClosing || undefined} className={styles.allSongsView} role="region" aria-label="All Songs">
           <button ref={sheetBackRef} className={styles.allSongsBackBtn} onClick={closeModal} aria-label="Back to artist">
-            <ArrowLeft size={22} />
+            <SheetBackIcon size={22} aria-hidden="true" />
           </button>
           <header className={styles.allSongsHeader}>
             <h1 className={styles.allSongsTitle}>All Songs</h1>
@@ -846,7 +848,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         return (
           <div ref={sheetRef} data-artist-sheet={viewMode} data-closing={isClosing || undefined} className={styles.allSongsView} role="region" aria-label="Discography">
             <button ref={sheetBackRef} className={styles.allSongsBackBtn} onClick={closeModal} aria-label="Back to artist">
-              <ArrowLeft size={22} />
+              <SheetBackIcon size={22} aria-hidden="true" />
             </button>
             <header className={styles.discoHeader}>
               <div className={styles.viewSwitcher}>

@@ -5,12 +5,30 @@ import { likedStore, LikedEntry, YtImportState, YT_IMPORT_VERSION } from './like
 import { tracksStore } from './tracks';
 import { scLikedManager } from './scLikedManager';
 
+export type LikedSyncProgress =
+  | { phase: 'idle' | 'checking' | 'saving' | 'failed' }
+  | { phase: 'importing'; processed: number; total: number | null };
+
+export function likedSyncLabel(progress: LikedSyncProgress): string | null {
+  switch (progress.phase) {
+    case 'idle': return null;
+    case 'checking': return 'Checking YouTube likes…';
+    case 'importing': return progress.total !== null && progress.total >= progress.processed
+      ? `Syncing YouTube likes: ${progress.processed} of ${progress.total}`
+      : `Syncing YouTube likes: ${progress.processed} processed`;
+    case 'saving': return 'Saving YouTube likes…';
+    case 'failed': return 'YouTube likes sync failed';
+  }
+}
+
 class LikedManager {
   private _isSyncing = false;
   private _isEnabled = true;
   private ytRevision = 0;
   private syncTimer?: number;
-  private listeners: ((tracks: LikedEntry[], isSyncing: boolean) => void)[] = [];
+  private progress: LikedSyncProgress = { phase: 'idle' };
+  private progressListeners = new Set<() => void>();
+  private listeners: ((tracks: LikedEntry[]) => void)[] = [];
 
   constructor() {
     this._isEnabled = localStorage.getItem('liked-mirror-enabled') !== 'false';
@@ -19,7 +37,16 @@ class LikedManager {
     }
   }
 
-  get isSyncing() { return this._isSyncing; }
+  getProgress = () => this.progress;
+  subscribeProgress = (listener: () => void) => {
+    this.progressListeners.add(listener);
+    return () => { this.progressListeners.delete(listener); };
+  };
+
+  private setProgress(progress: LikedSyncProgress) {
+    this.progress = progress;
+    this.progressListeners.forEach(listener => listener());
+  }
   get isEnabled() { return this._isEnabled; }
 
   toggleEnabled(value: boolean) {
@@ -27,10 +54,14 @@ class LikedManager {
     localStorage.setItem('liked-mirror-enabled', value.toString());
     if (value) {
       this.sync();
+    } else {
+      this.ytRevision++;
+      clearTimeout(this.syncTimer);
+      this.setProgress({ phase: 'idle' });
     }
   }
 
-  subscribe(listener: (tracks: LikedEntry[], isSyncing: boolean) => void) {
+  subscribe(listener: (tracks: LikedEntry[]) => void) {
     this.listeners.push(listener);
     return () => {
       this.listeners = this.listeners.filter(l => l !== listener);
@@ -39,7 +70,7 @@ class LikedManager {
 
   private async notify(tracks?: LikedEntry[]) {
     const visibleTracks = tracks ? [...tracks] : await likedStore.getAllTracks();
-    this.listeners.forEach(l => l(visibleTracks, this._isSyncing));
+    this.listeners.forEach(l => l(visibleTracks));
   }
 
   private scheduleSync() {
@@ -51,6 +82,8 @@ class LikedManager {
     if (this._isSyncing || !this._isEnabled) return;
     this._isSyncing = true;
     const revision = this.ytRevision;
+    this.setProgress({ phase: 'checking' });
+    let failed = false;
 
     let importState: YtImportState | null = null;
     try {
@@ -86,6 +119,16 @@ class LikedManager {
         downloadedCount: 0, continuation: null, headIds, startedAt: now, updatedAt: now,
       };
 
+      const publishCheckpoint = (state: YtImportState) => {
+        if (revision !== this.ytRevision) return;
+        this.setProgress({
+          phase: 'importing', processed: state.downloadedCount + state.unavailableCount, total: ytTotal,
+        });
+      };
+      if (canResume) {
+        publishCheckpoint(importState);
+        if (!currentLocal.length && revision === this.ytRevision) await this.notify(entries);
+      }
       const addPage = async (page: { tracks: YTMTrack[], continuation?: string | null, unavailableCount: number }, previous: YtImportState) => {
         const newTracks = page.tracks.filter(track => {
           if (!track.id) throw new Error('Invalid Liked Songs row');
@@ -105,6 +148,7 @@ class LikedManager {
         };
         await likedStore.saveYtImportPage(pageEntries, nextState);
         entries.push(...pageEntries);
+        publishCheckpoint(nextState);
         if (!currentLocal.length && revision === this.ytRevision) await this.notify(entries);
         return nextState;
       };
@@ -135,8 +179,10 @@ class LikedManager {
         syncedAt,
         likedAt: likedAtMap.get(entry.trackId) ?? (completedVersion === YT_IMPORT_VERSION && !likedAtMap.has(entry.trackId) ? syncedAt : undefined),
       }));
+      this.setProgress({ phase: 'saving' });
       await likedStore.commitYtImport(finalEntries, ytTotal ?? entries.length + importState.unavailableCount);
     } catch (error) {
+      failed = true;
       console.error('[liked] sync failed:', error);
       if (importState) {
         try {
@@ -149,12 +195,19 @@ class LikedManager {
       try {
         if (revision !== this.ytRevision) {
           // A successful rating changed LM while this cursor still described the old list.
-          this.scheduleSync();
+          if (this._isEnabled) this.scheduleSync();
           await likedStore.clearYtImport();
         }
       } finally {
-        this._isSyncing = false;
-        await this.notify();
+        try {
+          await this.notify();
+        } catch (error) {
+          failed = true;
+          console.error('[liked] failed to read committed mirror:', error);
+        } finally {
+          this._isSyncing = false;
+          this.setProgress({ phase: failed && revision === this.ytRevision ? 'failed' : 'idle' });
+        }
       }
     }
   }

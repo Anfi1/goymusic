@@ -343,12 +343,12 @@ tr:is(:hover, :focus-within) .bestBadge {
 :root[data-layout="deck"] .row td { padding: 4px 8px; border: 0; }
 :root[data-layout="deck"] .row td:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
 :root[data-layout="deck"] .row td:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
-:root[data-layout="deck"] :is(.durationCell, .metaCell) { padding-right: 10px !important; }
+:root[data-layout="deck"] :is(.durationCell, .metaCell) { padding-right: calc(10px + var(--track-inline-gutter, 0px)) !important; }
 :root[data-layout="deck"] .durationWrapper { gap: 4px; }
 :root[data-layout="deck"] .titleCell { gap: 10px; }
 :root[data-layout="deck"] .titleWrapper { gap: 0; }
 :root[data-layout="deck"] .title { font-size: var(--fs-base); line-height: 1.25; }
-:root[data-layout="deck"] .indexWrapper { height: 32px; }
+:root[data-layout="deck"] .indexWrapper { height: 32px; margin-inline-start: var(--track-inline-gutter, auto); }
 
 :root[data-layout="deck"] :is(.thumb, .thumbPlaceholder) {
     width: var(--search-track-artwork, 32px);

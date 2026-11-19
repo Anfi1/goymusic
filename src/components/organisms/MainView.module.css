@@ -852,12 +852,22 @@
     scroll-padding-block-start: var(--sticky-title-height);
 }
 
+:root[data-layout="deck"] .container:not(.deckAlbum) .virtuosoWrapper {
+    padding-block-start: var(--deck-page-top);
+}
+
+:root[data-layout="deck"] .deckAlbum .virtuosoWrapper {
+    /* Paint even the first (initially offscreen) frame of the route slide. */
+    content-visibility: visible;
+    padding-inline: 0;
+}
+
 :root[data-layout="deck"] .deckAlbum .virtuosoWrapper[aria-busy="true"] {
-    /* Opaque fills stay legible over the tinted, translucent Deck surface. */
-    --bg-raised: color-mix(in srgb, var(--bg-mantle) 73%, var(--text-main));
-    display: flex;
-    flex-direction: column;
     overflow-y: hidden;
+}
+
+.deckAlbum [aria-busy="true"] .albumTrackSurface {
+    pointer-events: none;
 }
 
 :root[data-layout="deck"] .header {
@@ -878,14 +888,32 @@
    the moving art and title. The real Virtuoso root paints above both. */
 :root[data-layout="deck"] .deckAlbum .header {
     align-items: flex-start;
-    margin: calc(-1 * var(--collection-gutter)) calc(-1 * var(--collection-gutter)) 0;
+    margin: calc(-1 * var(--collection-gutter)) 0 0;
     padding: var(--collection-gutter) var(--collection-gutter) 26px;
     z-index: 0;
 }
 
 .albumTrackSurface {
+    --track-inline-gutter: var(--collection-gutter);
+    --search-track-artwork: 36px;
     z-index: 1;
+}
+
+/* Paint the group on its actual cells so the background, hover target and
+   selected row share the full width, but the index and actions stay inset. */
+.albumTrackSurface :where(tr[data-index] > td) {
     background: color-mix(in srgb, var(--glass-surface-main) 35%, transparent);
+}
+
+.albumTrackSurface tr[data-index="0"] { --album-row-top: var(--radius-md); }
+.albumTrackSurface tr[data-album-last] { --album-row-bottom: var(--radius-md); }
+
+:root[data-layout="deck"] .albumTrackSurface .trackList td:first-child {
+    border-radius: var(--album-row-top, 0px) 0 0 var(--album-row-bottom, 0px);
+}
+
+:root[data-layout="deck"] .albumTrackSurface .trackList td:last-child {
+    border-radius: 0 var(--album-row-top, 0px) var(--album-row-bottom, 0px) 0;
 }
 
 .deckAlbum .header::before {
@@ -902,12 +930,6 @@
     mask-image: linear-gradient(to bottom, black 48%, transparent 95%);
 }
 
-.albumLoadingTracks {
-    min-height: 0;
-    overflow: clip;
-    pointer-events: none;
-}
-
 /* Fill the real artwork slot even though its height comes from aspect-ratio. */
 .albumLoadingCover { position: absolute; inset: 0; }
 .albumLoadingCover::after {
@@ -920,26 +942,27 @@
     border: 1px solid var(--border-color);
 }
 
-/* Delay only the preview paint, never the response. With animations disabled
-   the default is visible, not an indefinitely empty scrollport. */
-.deckAlbum [aria-busy="true"] > :is(.header, .albumLoadingTracks) {
-    animation: revealAlbumPlaceholder 100ms ease-out 120ms backwards;
-}
-
-@keyframes revealAlbumPlaceholder {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
 .deckAlbum .headerMeta { animation: none; }
 .deckAlbum .label { min-height: 16px; line-height: 16px; }
 
 @media (prefers-reduced-motion: no-preference) {
+    /* A long title or wrapped credits can exceed the preview. Grow to the real
+       height without shifting the first row abruptly; cached headers skip this. */
+    .deckAlbum [aria-busy="false"] .measuredAlbumHeader {
+        interpolate-size: allow-keywords;
+        animation: sizeAlbumHeader var(--deck-motion-duration) ease-out;
+    }
+
     .deckAlbum [aria-busy="false"] .header > :is(.coverWrapper, .info):not(:has(:focus-visible)) {
         transform: translate3d(0, calc(var(--album-scroll, 0) * 0.5px), 0);
         opacity: calc(1 - var(--album-scroll, 0) / 260);
         filter: blur(calc(var(--album-scroll, 0) * 0.025px));
     }
+}
+
+@keyframes sizeAlbumHeader {
+    from { height: var(--album-preview-height); }
+    to { height: auto; }
 }
 
 :root[data-layout="deck"] .coverContainer {

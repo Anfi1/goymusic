@@ -4,6 +4,10 @@
     overflow-y: auto;
 }
 
+:root[data-layout="deck"] .container {
+    padding-block-start: var(--deck-page-top);
+}
+
 .header {
     display: flex;
     align-items: center;

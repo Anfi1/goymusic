@@ -7,6 +7,11 @@
   --text-muted: rgba(255, 255, 255, 0.4);
 }
 
+:root[data-layout="deck"] .container {
+  --text-main: inherit;
+  --text-sub: inherit;
+}
+
 /* ─── Left: station wheel (поверх сцены, без границы) ───────────────────── */
 .sidebar {
   position: absolute;
@@ -41,6 +46,10 @@
   flex-shrink: 0;
   z-index: 3;
   transition: right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root[data-layout="deck"] .filterStrip {
+  /* The chip list already includes 6px of top padding. */
+  top: calc(var(--deck-page-top) - 6px);
 }
 .filterStripOpen {
   z-index: 10;

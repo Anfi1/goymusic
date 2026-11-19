@@ -17,7 +17,7 @@ import { player } from '../../api/player';
 import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import { getAlbumLink } from '../../api/trackLink';
 import { playlistQueryKey, usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
-import { likedManager } from '../../api/likedManager';
+import { likedSyncLabel } from '../../api/likedManager';
 import { likedStore } from '../../api/likedStore';
 import { LOCAL_PLAYLIST_ID } from '../../api/localOverrides';
 import { ActiveView } from '../../types';
@@ -63,15 +63,9 @@ const STICKY_THRESHOLD = 160;
 const AUTO_SCROLL_THRESHOLD = 100;
 const MAX_SCROLL_SPEED = 12;
 
-// This preview describes the visible list, not the length of an unknown album.
-const albumLoadingTracks = (
-  <div className={styles.albumLoadingTracks} role="status" aria-label="Loading album">
-    <table className={styles.trackList} aria-hidden="true" data-testid="album-skeleton-tracks">
-      <TrackColumnGroup hideAlbum />
-      <tbody>{Array.from({ length: 6 }, (_, i) => <TrackRowSkeleton key={i} index={i} hideAlbum albumPreview />)}</tbody>
-    </table>
-  </div>
-);
+// Count-only preview: use the real table without inventing playable tracks.
+const ALBUM_PREVIEW_ROWS = 6;
+const DECK_ALBUM_TRACK_HEIGHT = 50;
 
 const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, context, ...props }, ref) => (
   <div 
@@ -102,6 +96,7 @@ const VirtuosoTable = React.forwardRef<HTMLTableElement, any>(({ context, ...pro
       if (context?.tableRef) (context.tableRef as any).current = node;
     }}
     className={styles.trackList} 
+    data-testid={context?.isDeck && context.playlistType === 'album' && context.showSkeletons ? 'album-skeleton-tracks' : undefined}
     style={{ 
       ...props.style, 
       borderCollapse: context?.isDeck ? 'separate' : 'collapse',
@@ -154,12 +149,17 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
     cancelPrefetchRequest();
   }, []);
 
-  if (context.showSkeletons) return <TrackRowSkeleton {...rest} ref={ref} index={props['data-index']} hideAlbum={context.playlistType === 'album'} />;
+  if (context.showSkeletons) return (
+    <TrackRowSkeleton {...rest} ref={ref} index={index} hideAlbum={context.playlistType === 'album'}
+      data-album-last={index === context.albumEndIndex || undefined}
+      albumPreview={context.isDeck && context.playlistType === 'album'} />
+  );
   
   return (
     <tr
       {...rest}
       ref={ref}
+      data-album-last={index === context.albumEndIndex || undefined}
       className={`${trackStyles.row} ${isActive ? trackStyles.active : ''} ${!isAvailable ? trackStyles.unavailable : ''} ${context.draggedIdx === index ? styles.draggingRow : ''} ${context.dragOverIdx === index ? styles.dropTarget : ''}`}
       onClick={isAvailable ? () => (isActive ? player.togglePlay() : context.onPlay(index)) : undefined}
       onContextMenu={(e) => { e.preventDefault(); context.onContextMenu(e, track); }}
@@ -197,12 +197,12 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
 
 const VirtuosoFooter = memo(({ context }: any) => (
   <tfoot>
-    {context.isSyncing && (
+    {context.isFetchingNextPage && (
       <tr>
         <td colSpan={4}>
           <div className={styles.loadMoreIndicator} style={{ padding: '2rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
             <Loader2 className="animate-spin" size={20} />
-            <span style={{ fontSize: '13px', fontWeight: 600 }}>Syncing library...</span>
+            <span style={{ fontSize: '13px', fontWeight: 600 }}>Loading more tracks…</span>
           </div>
         </td>
       </tr>
@@ -242,7 +242,7 @@ function useFitTitle(ref: React.RefObject<HTMLElement | null>, text?: string) {
 
 const LargeHeader = memo(({
   metadata, tracks, totalReportedCount, showSkeletons,
-  isSyncing: isFetchingNextPage, handleHeaderAction, isHeaderActionLoading, isDeck,
+  isSyncing: isFetchingNextPage, isSticky, likedCountLabel, handleHeaderAction, isHeaderActionLoading, isDeck,
   headerRef, playlistType, sortMode, setSortMode, isSorting,
   isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource
 }: any) => {
@@ -275,12 +275,22 @@ const LargeHeader = memo(({
   const isLocal = metadata?.id === LOCAL_PLAYLIST_ID;
   const targetRatingId = isLocal ? undefined : metadata?.audioPlaylistId || metadata?.id;
   const isYandexMeta = isYandexAlbumRouteId(metadata?.id) || isYandexPlaylistRouteId(metadata?.id);
-  const displayCount = showSkeletons ? '...' : 
-    (tracks.length >= totalReportedCount || !totalReportedCount) ? `${tracks.length} songs` : `${tracks.length} of ${totalReportedCount}`;
+  const displayCount = showSkeletons ? '...' : likedCountLabel ?? (
+    tracks.length >= totalReportedCount || !totalReportedCount ? `${tracks.length} songs` : `${tracks.length} of ${totalReportedCount}`);
 
   const description = isLikedSongs ? 'Your private collection of favorite tracks' : metadata?.description;
   const actionSize = isDeck ? 32 : 42;
   const isDeckAlbum = isDeck && playlistType === 'album';
+  const [previewHeight, setPreviewHeight] = useState<number>();
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!isDeckAlbum || !showSkeletons || !header) return;
+    // Preserve the outgoing border box, including resizes while the query is pending.
+    setPreviewHeight(header.getBoundingClientRect().height);
+    const observer = new ResizeObserver(([entry]) => setPreviewHeight(entry.borderBoxSize[0].blockSize));
+    observer.observe(header, { box: 'border-box' });
+    return () => observer.disconnect();
+  }, [isDeckAlbum, showSkeletons, headerRef]);
   const stats = (
     <div className={styles.statsUnderCover}>
       {showSkeletons ? (
@@ -291,14 +301,17 @@ const LargeHeader = memo(({
       ) : (
         <>
           {metadata?.year && <div className={styles.yearUnder}>{metadata.year}</div>}
-          <div className={styles.trackCountUnder}>{displayCount}</div>
+          <div className={styles.trackCountUnder} style={isLikedSongsView && isSticky ? { visibility: 'hidden' } : undefined}>{displayCount}</div>
         </>
       )}
     </div>
   );
 
   return (
-    <div ref={headerRef} className={styles.header} aria-hidden={showSkeletons || undefined}>
+    <div ref={headerRef}
+      className={isDeckAlbum && previewHeight !== undefined ? `${styles.header} ${styles.measuredAlbumHeader}` : styles.header}
+      style={isDeckAlbum && previewHeight !== undefined ? { '--album-preview-height': `${previewHeight}px` } as React.CSSProperties : undefined}
+      aria-hidden={showSkeletons || undefined}>
       <div className={styles.coverWrapper}>
         <div 
           className={`${styles.coverContainer} ${!showSkeletons ? styles.zoomable : ''}`}
@@ -330,7 +343,7 @@ const LargeHeader = memo(({
         {showSkeletons ? (
           <>
             <div className={styles.label}><Skeleton width={80} height={12} borderRadius={4} /></div>
-            <Skeleton width={isDeckAlbum ? 'min(80%, 23rem)' : '85%'} height={isDeckAlbum ? 'clamp(24px, 2.8vw, 42px)' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
+            <Skeleton width={isDeckAlbum ? 'min(80%, 23rem)' : '85%'} height={isDeckAlbum ? 'calc(var(--fs-collection-title) * 1.03)' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
             <div className={styles.headerMeta} style={{ animation: 'none' }}>
               <div className={styles.metaTextInfo}>
                 <Skeleton width={140} height={14} borderRadius={4} />
@@ -359,7 +372,7 @@ const LargeHeader = memo(({
                     e.stopPropagation();
                     setSortMode(sortMode === 'date' ? 'album' : 'date');
                   }}
-                  data-tooltip={isFetchingNextPage ? 'Syncing library...' : (sortMode === 'date' ? 'Sorted by Date' : 'Sorted by Album')}
+                  data-tooltip={isFetchingNextPage ? 'Sorting unavailable while loading' : (sortMode === 'date' ? 'Sorted by Date' : 'Sorted by Album')}
                 >
                   {sortMode === 'date' ? <Calendar size={14} /> : <ArrowDownAZ size={14} />}
                   <span>{sortMode === 'date' ? 'By Date' : 'By Album'}</span>
@@ -477,7 +490,7 @@ const LargeHeader = memo(({
 });
 
 const StickyTitlePanel = memo(({ 
-  isVisible, metadata, playlistTracks, totalReportedCount, isFetchingNextPage, viewLabel, viewTitle
+  isVisible, metadata, playlistTracks, totalReportedCount, likedCountLabel, isFetchingNextPage, viewLabel, viewTitle
 }: any) => {
   const coverUrl = metadata?.thumbUrl || (playlistTracks[0]?.thumbUrl || '');
   
@@ -497,7 +510,7 @@ const StickyTitlePanel = memo(({
             <div className={styles.stickyLabel}>{viewLabel}</div>
             <div className={styles.stickyMainTitle} data-tooltip={viewTitle} data-tooltip-overflow="">
               {viewTitle}
-              <span className={styles.stickyTrackCount}> • {playlistTracks.length} of {totalReportedCount}</span>
+              {isVisible && <span className={styles.stickyTrackCount}> • {likedCountLabel ?? `${playlistTracks.length} of ${totalReportedCount}`}</span>}
             </div>
           </div>
         </div>
@@ -575,11 +588,12 @@ export const MainView = memo<MainViewProps>(({
   const {
     tracks: playlistTracks, metadata: playlistMetadata, totalReportedCount,
     isLoading: isPlaylistLoading, hasNextPage, isFetchingNextPage, fetchNextPage, syncPlayerQueue,
-    sortMode, setSortMode, isSorting
+    sortMode, setSortMode, isSorting, likedProgress, isMirroring
   } = usePlaylist(playlistType, playlistId);
 
   const isLikedSongsView = playlistType === 'liked' || playlistId === 'LM';
-  const isSyncing = isLikedSongsView ? (likedManager.isSyncing || isFetchingNextPage) : isFetchingNextPage;
+  const isSyncing = isMirroring || isFetchingNextPage;
+  const mirrorLabel = likedProgress && likedSyncLabel(likedProgress);
 
   // Yandex-лайки подмешиваются прямо в общий список Liked Songs (не отдельная страница) --
   // сперва кэш (мгновенно), затем свежие данные с сервера в фоне. Без проверки isYandexEnabled()
@@ -804,6 +818,8 @@ export const MainView = memo<MainViewProps>(({
     if (!isLikedSongsView || showSkeletons) return mergedLikedTracks;
     return mergedLikedTracks.filter((t: YTMTrack) => effectiveLikedSources.includes(resolveSource(t.source)));
   }, [mergedLikedTracks, isLikedSongsView, showSkeletons, effectiveLikedSources]);
+  // Source filters and cached tracks describe the table, not the YouTube import.
+  const likedCountLabel = isLikedSongsView ? mirrorLabel ?? `${displayTracks.length} songs` : null;
 
   const handleContextMenu = useCallback((e: any, track: any) => trackMenuRef.current?.open(e, track), []);
   const handlePlayTrack = useCallback((idx: number) => player.playTrackList(displayTracks, idx, playlistId || playlistType), [displayTracks, playlistId, playlistType]);
@@ -902,8 +918,10 @@ export const MainView = memo<MainViewProps>(({
     TableFooter: VirtuosoFooter
   }), [isDeck]);
 
+  const albumEndIndex = !isDeckAlbum || hasNextPage ? -1 : (isAlbumLoading ? ALBUM_PREVIEW_ROWS : displayTracks.length) - 1;
   const virtuosoContext = useMemo(() => ({
-    isDeck, isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing,
+    isDeck, isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
+    albumEndIndex,
     onScroll: handleScroll, onPlay: handlePlayTrack, onContextMenu: handleContextMenu,
     metadata: playlistMetadata, handleHeaderAction, isHeaderActionLoading,
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
@@ -911,7 +929,8 @@ export const MainView = memo<MainViewProps>(({
     onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
     isLikedSongsView, likedSources, activeLikedSources: effectiveLikedSources, onToggleLikedSource: handleToggleLikedSource
   }), [
-    isDeck, isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing,
+    isDeck, isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
+    albumEndIndex,
     handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
     dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
@@ -924,34 +943,40 @@ export const MainView = memo<MainViewProps>(({
   return (
     <div
       className={isDeckAlbum ? `${styles.container} ${styles.deckAlbum}` : styles.container}
-      style={{ '--album-art': isDeckAlbum && playlistMetadata?.thumbUrl
-        ? `url(${JSON.stringify(playlistMetadata.thumbUrl)})` : undefined } as React.CSSProperties}
+      style={isDeckAlbum ? {
+        '--virtual-track-height': `${DECK_ALBUM_TRACK_HEIGHT}px`,
+        '--album-art': playlistMetadata?.thumbUrl ? `url(${JSON.stringify(playlistMetadata.thumbUrl)})` : undefined,
+      } as React.CSSProperties : undefined}
     >
-      <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
+      <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} likedCountLabel={likedCountLabel} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div
         className={isDeck ? `${styles.virtuosoWrapper} deck-scroll` : styles.virtuosoWrapper}
         data-collection-scroll={isDeck ? playlistType : undefined}
         data-testid={isAlbumLoading ? 'album-skeleton' : undefined}
         aria-busy={isDeckAlbum ? !!showSkeletons : undefined}
+        role={isAlbumLoading ? 'status' : undefined}
+        aria-label={isAlbumLoading ? 'Loading album' : undefined}
         ref={isDeck ? attachDeckScroller : undefined}
         onDragOver={isDeck ? handleDragOverContainer : undefined}
       >
         {isDeck && <LargeHeader {...virtuosoContext} />}
-        {isAlbumLoading ? albumLoadingTracks : (!isDeck || deckScroller) && <TableVirtuoso
+        {(!isDeck || deckScroller) && <TableVirtuoso
           key={sortMode}
           ref={virtuosoRef} 
           customScrollParent={isDeck ? deckScroller ?? undefined : undefined}
           className={isDeckAlbum ? styles.albumTrackSurface : undefined}
           style={isDeck ? undefined : { height: '100%' }}
-          data={displayTracks} 
+          data={isAlbumLoading ? undefined : displayTracks}
+          totalCount={isAlbumLoading ? ALBUM_PREVIEW_ROWS : displayTracks.length}
+          initialItemCount={isAlbumLoading ? ALBUM_PREVIEW_ROWS : 0}
           context={virtuosoContext} 
           components={virtuosoComponents} 
           overscan={400} 
           increaseViewportBy={500} 
-          fixedItemHeight={isDeck ? 44 : 56}
+          fixedItemHeight={isDeckAlbum ? DECK_ALBUM_TRACK_HEIGHT : isDeck ? 44 : 56}
           endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }} 
-          computeItemKey={(index, track) => track.setVideoId || track.id || index}
-          itemContent={(index, track) => <RenderTrackRow index={index} track={track} hideAlbum={playlistType === 'album'} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />} 
+          computeItemKey={(index, track) => track?.setVideoId || track?.id || index}
+          itemContent={(index, track) => track && <RenderTrackRow index={index} track={track} hideAlbum={playlistType === 'album'} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />}
         />}
       </div>
       <TrackContextMenu ref={trackMenuRef} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} playlistId={playlistId || undefined} isOwnedPlaylist={!!playlistMetadata?.owned} />

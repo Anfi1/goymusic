@@ -41,64 +41,69 @@ export function useRouteStack() {
   const pageRef = useRef<HTMLDivElement>(null);
   const pending = useRef<{ transition: ViewTransition; commit: () => void } | null>(null);
 
-  // A second navigation may arrive before Chromium calls the snapshot's update.
-  // Apply that pop exactly once, in input order, before handling the next one.
-  const finishPop = useCallback(() => {
-    const pop = pending.current;
-    if (!pop) return;
+  // If another input beats Chromium's update callback, apply the previous
+  // navigation exactly once, in order, before capturing the next viewport.
+  const finishTransition = useCallback(() => {
+    const current = pending.current;
+    if (!current) return;
     pending.current = null;
-    pop.transition.skipTransition();
-    pop.commit();
+    current.transition.skipTransition();
+    current.commit();
+  }, []);
+
+  const changeRoute = useCallback((direction: 'forward' | 'back', animate: boolean, update: () => void) => {
+    if (!animate || !isDeckLayout() || !document.startViewTransition ||
+        !CSS.supports('selector(:active-view-transition-type(route-back))') || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      update();
+      return;
+    }
+    let applied = false;
+    const commit = () => {
+      if (applied) return;
+      applied = true;
+      flushSync(update);
+    };
+    const transition = document.startViewTransition({ types: [`route-${direction}`], update: commit });
+    pending.current = { transition, commit };
+    void transition.finished.finally(() => {
+      if (pending.current?.transition === transition) pending.current = null;
+    });
   }, []);
 
   const navigate = useCallback((view: ActiveView) => {
-    finishPop();
+    finishTransition();
     const page = isDeckLayout() ? pageRef.current : null;
     const visibleKey = page?.dataset.routePage;
     const scrollTop = page ? scroller(page).scrollTop : 0;
     const nextKey = routeKey(view);
-    setStack(prev => {
+    const detail = view.type === 'artist' || view.type === 'album';
+    changeRoute('forward', !!page && nextKey !== visibleKey && detail, () => setStack(prev => {
       const currentKey = routeKey(prev.entry.view);
       if (currentKey === nextKey) return { ...prev, refreshKey: prev.refreshKey + 1 };
       const history = prev.history.slice(1 - historyLimit);
       history.push({ view: prev.entry.view, scrollTop: visibleKey === currentKey ? scrollTop : prev.entry.scrollTop });
       return { ...prev, entry: { view, scrollTop: 0 }, history, direction: 'forward' };
-    });
-  }, [finishPop]);
+    }));
+  }, [changeRoute, finishTransition]);
 
   const back = useCallback(() => {
-    finishPop();
+    finishTransition();
     const page = pageRef.current;
     if (!page?.hasAttribute('data-route-can-back')) return;
-    let applied = false;
-    const commit = () => {
-      if (applied) return;
-      applied = true;
-      delete page.dataset.routeCapture;
-      flushSync(() => setStack(prev => {
-        const entry = prev.history.at(-1);
-        return entry ? { ...prev, entry, history: prev.history.slice(0, -1), direction: 'back' } : prev;
-      }));
-    };
-    if (!isDeckLayout() || !document.startViewTransition || !matchMedia('(prefers-reduced-motion: no-preference)').matches) {
-      commit();
-      return;
-    }
-    // Only the old viewport is captured. No second mounted page, menus, IDs or
-    // focusable controls; the destination paints normally below its snapshot.
-    page.dataset.routeCapture = '';
-    const transition = document.startViewTransition({ types: ['route-back'], update: commit });
-    pending.current = { transition, commit };
-    void transition.finished.finally(() => {
-      if (pending.current?.transition === transition) pending.current = null;
-    });
-  }, [finishPop]);
+    changeRoute('back', true, () => setStack(prev => {
+      const entry = prev.history.at(-1);
+      return entry ? { ...prev, entry, history: prev.history.slice(0, -1), direction: 'back' } : prev;
+    }));
+  }, [changeRoute, finishTransition]);
 
-  const refresh = useCallback(() => setStack(prev => ({ ...prev, refreshKey: prev.refreshKey + 1 })), []);
+  const refresh = useCallback(() => {
+    finishTransition();
+    setStack(prev => ({ ...prev, refreshKey: prev.refreshKey + 1 }));
+  }, [finishTransition]);
   const reset = useCallback(() => {
-    finishPop();
+    finishTransition();
     setStack({ entry: { view: { type: 'home' }, scrollTop: 0 }, history: [], direction: 'initial', refreshKey: 0 });
-  }, [finishPop]);
+  }, [finishTransition]);
   return { ...stack, pageRef, navigate, back, refresh, reset };
 }
 

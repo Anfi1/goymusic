@@ -255,8 +255,17 @@
 }
 
 :root[data-layout="deck"] .container {
-    padding: var(--collection-gutter);
+    padding: var(--deck-page-top) var(--collection-gutter) var(--collection-gutter);
     gap: 24px;
+}
+
+:root[data-layout="deck"] .songCard {
+    --shelf-track-artwork: var(--deck-list-artwork);
+    min-block-size: var(--deck-list-row-height);
+}
+
+:root[data-layout="deck"] .sourceToggle {
+    top: var(--deck-page-top);
 }
 
 /* Align the artwork itself (not its padded pointer target) to the album gutter. */

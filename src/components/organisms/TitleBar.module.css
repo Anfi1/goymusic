@@ -237,15 +237,11 @@
     margin: 0 0.5rem;
 }
 
+:root[data-layout="deck"] .themeToggle { display: none; }
+
 :root[data-layout="deck"] .titleBar {
     grid-template-columns: minmax(0, 1fr) min(36vw, 360px) minmax(0, 1fr);
     background: var(--glass-surface);
-    border: 0;
-}
-
-:root[data-layout="deck"] .leftControls {
-    padding-inline-start: 4px;
-    gap: 2px;
 }
 
 :root[data-layout="deck"] .searchRegion {

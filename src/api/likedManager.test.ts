@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { likedStore, type LikedEntry } from './likedStore';
+import { likedStore, type LikedEntry, YT_IMPORT_VERSION } from './likedStore';
 import { tracksStore } from './tracks';
-import { likedManager } from './likedManager';
+import { likedManager, likedSyncLabel } from './likedManager';
 import type { YTMTrack } from './yt';
 import { likedPlaylistTracks } from '../hooks/likedPlaylistTracks';
 
@@ -51,6 +51,61 @@ async function refresh() {
 }
 
 describe('Liked Songs mirror', () => {
+  it('checks an up-to-date mirror without reporting the cached rows as newly imported', async () => {
+    vi.mocked(likedStore.getYtImportCompletedVersion).mockResolvedValue(YT_IMPORT_VERSION);
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a, b], trackCount: 3, continuation: 'next' });
+    const phases: string[] = [];
+    const stop = likedManager.subscribeProgress(() => phases.push(likedManager.getProgress().phase));
+    try {
+      await refresh();
+      expect(phases).toEqual(['checking', 'idle']);
+      expect(likedStore.saveYtImportPage).not.toHaveBeenCalled();
+    } finally { stop(); }
+  });
+
+  it('reports saved YouTube pages during a refresh without counting the visible cache', async () => {
+    const labels: (string | null)[] = [];
+    const stop = likedManager.subscribeProgress(() => labels.push(likedSyncLabel(likedManager.getProgress())));
+    const whileSaving: (string | null)[] = [];
+    vi.mocked(likedStore.saveYtImportPage).mockImplementation(async () => {
+      whileSaving.push(likedSyncLabel(likedManager.getProgress()));
+    });
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a], trackCount: 4, unavailableCount: 1, continuation: 'next' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [b, c] });
+    try {
+      const refreshing = refresh();
+      // A second caller must not reset progress or start a competing import.
+      await likedManager.sync();
+      const { snapshots } = await refreshing;
+      expect(snapshots.every(ids => ids.join() === 'a,b,c')).toBe(true);
+      expect(pyCall).toHaveBeenCalledTimes(2);
+      expect(whileSaving).toEqual(['Checking YouTube likes…', 'Syncing YouTube likes: 2 of 4']);
+      expect(labels).toEqual([
+        'Checking YouTube likes…', 'Syncing YouTube likes: 2 of 4', 'Syncing YouTube likes: 4 of 4',
+        'Saving YouTube likes…', null,
+      ]);
+    } finally { stop(); }
+  });
+
+  it('restores checkpoint progress, leaves an unknown total unknown, and stops on failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(likedStore.getYtImportState).mockResolvedValue({
+      version: YT_IMPORT_VERSION, status: 'importing', ytTotal: null, unavailableCount: 1,
+      downloadedCount: 2, continuation: 'checkpoint', headIds: ['a'], startedAt: 1, updatedAt: 2,
+    });
+    vi.spyOn(likedStore, 'getYtImportTracks').mockResolvedValue(committed.slice(0, 2));
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a], continuation: 'first-page' })
+      .mockResolvedValueOnce({ status: 'error', message: 'offline' });
+    const labels: (string | null)[] = [];
+    const stop = likedManager.subscribeProgress(() => labels.push(likedSyncLabel(likedManager.getProgress())));
+    try {
+      expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+      expect(pyCall.mock.calls[1][1].token).toBe('checkpoint');
+      expect(labels).toEqual(['Checking YouTube likes…', 'Syncing YouTube likes: 3 processed', 'YouTube likes sync failed']);
+      expect(likedStore.commitYtImport).not.toHaveBeenCalled();
+    } finally { stop(); }
+  });
+
   it('repairs a one-row v1 mirror whose saved virtual count already matches YouTube', async () => {
     committed = committed.slice(0, 1);
     metadata.delete('b'); metadata.delete('c');

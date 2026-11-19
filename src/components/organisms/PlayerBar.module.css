@@ -292,16 +292,19 @@
 }
 
 :root[data-layout="deck"] .container {
+    --player-wing-width: clamp(250px, 25vw, 310px);
     position: relative;
     grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
     grid-template-areas: "track transport tools";
     column-gap: var(--space-sm);
-    padding: var(--space-sm) clamp(12px, 2vw, 28px) 0;
+    padding: var(--space-md) clamp(12px, 2vw, 28px) 0;
     border-top: none;
 }
 
 :root[data-layout="deck"] .nowPlaying {
     grid-area: track;
+    justify-self: start;
+    width: min(100%, var(--player-wing-width));
     gap: 10px;
 }
 
@@ -340,15 +343,27 @@
 }
 
 :root[data-layout="deck"] .buttons {
-    gap: clamp(2px, 0.4vw, 8px);
+    gap: clamp(3px, 0.6vw, 9px);
 }
 
-:root[data-layout="deck"] .playKey {
-    max-width: 38px;
-    max-height: 38px;
+:root[data-layout="deck"] .buttons button {
+    min-width: 38px;
+    min-height: 38px;
 }
 
-:root[data-layout="deck"] .playKey svg {
+:root[data-layout="deck"] .buttons button svg {
+    width: 21px;
+    height: 21px;
+}
+
+:root[data-layout="deck"] .buttons .playKey {
+    min-width: 46px;
+    min-height: 46px;
+}
+
+:root[data-layout="deck"] .buttons .playKey svg {
+    width: 24px;
+    height: 24px;
     fill: currentColor;
 }
 
@@ -398,14 +413,18 @@
 
 :root[data-layout="deck"] .extra {
     grid-area: tools;
+    justify-self: end;
+    width: min(100%, var(--player-wing-width));
 }
 
 :root[data-layout="deck"] .volumeSlot {
+    flex: 1;
+    min-width: 0;
     margin-left: 4px;
 }
 
 :root[data-layout="deck"] .volume {
-    width: clamp(172px, 20vw, 288px);
+    width: 100%;
     gap: var(--space-sm);
     --slider-rail-height: 6px;
 }
@@ -418,18 +437,19 @@
 }
 
 @media (max-width: 899px) {
+    :root[data-layout="deck"] .container {
+        --player-wing-width: 200px;
+    }
+
     :root[data-layout="deck"] .extra {
         display: grid;
-        grid-template-columns: auto auto;
+        grid-template-columns: minmax(0, 1fr) auto;
         justify-items: end;
     }
 
     :root[data-layout="deck"] .volumeSlot {
         grid-column: span 2;
+        width: 100%;
         margin: 0;
-    }
-
-    :root[data-layout="deck"] .volume {
-        width: clamp(156px, 23vw, 200px);
     }
 }

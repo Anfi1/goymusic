@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect, useTransition, useRef } from 'react';
+import { useMemo, useCallback, useState, useEffect, useTransition, useRef, useSyncExternalStore } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getPlaylistTracks, getAlbum, getContinuation, getTrackCard, YTMTrack } from '../api/yt';
 import { isSoundCloudId, getSoundCloudAlbum, getSoundCloudPlaylist } from '../api/soundcloud';
@@ -51,7 +51,6 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
   const [localTracks, setLocalTracks] = useState<HydratedLikedEntry[]>([]);
   const [verifiedEmpty, setVerifiedEmpty] = useState(false);
   const [scEntries, setScEntries] = useState<HydratedScLikedEntry[]>([]);
-  const [managerSyncing, setManagerSyncing] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(true);
   const [sortMode, setSortModeState] = useState<SortMode>(() => {
     return (localStorage.getItem('liked-songs-sort-mode') as SortMode) || 'date';
@@ -70,24 +69,27 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
   
   const queryKey = playlistQueryKey(type, id);
   const isLiked = type === 'liked' || id === 'LM';
+  const likedProgress = useSyncExternalStore(
+    likedManager.subscribeProgress, () => isLiked ? likedManager.getProgress() : null,
+  );
+  const managerSyncing = likedProgress?.phase === 'checking' || likedProgress?.phase === 'importing' || likedProgress?.phase === 'saving';
 
   useEffect(() => {
     if (isLiked) {
       let active = true;
       let revision = 0;
-      const publish = async (entries: LikedEntry[], syncing: boolean, version: number) => {
+      const publish = async (entries: LikedEntry[], version: number) => {
         const hydrated = await likedStore.hydrateTracks(entries);
         const empty = !entries.length && await likedStore.getYtImportCompletedVersion() === YT_IMPORT_VERSION;
         if (!active || revision !== version) return;
         setLocalTracks(hydrated);
         setVerifiedEmpty(empty);
-        setManagerSyncing(syncing);
         setIsLocalLoading(false);
       };
       likedStore.getAllTracks().then(entries => {
-        if (active && revision === 0) return publish(entries, likedManager.isSyncing, 0);
+        if (active && revision === 0) return publish(entries, 0);
       });
-      const unsub = likedManager.subscribe((entries, syncing) => publish(entries, syncing, ++revision));
+      const unsub = likedManager.subscribe(entries => publish(entries, ++revision));
       likedManager.sync();
       // SC-лайки: мгновенно из локального стора + подписка + фоновая сверка (как у YT).
       likedStore.getAllScTracks().then(async entries => {
@@ -375,7 +377,6 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     }
   }, [allTracks, isLiked, syncPlayerQueue]);
 
-  const finalSyncing = isLiked ? (managerSyncing || isFetchingNextPage) : isFetchingNextPage;
   const isLoading = isLiked ? (isLocalLoading && isQueryLoading && localTracks.length === 0) : isQueryLoading;
 
   return useMemo(() => ({
@@ -385,12 +386,14 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     isLoading,
     isError,
     hasNextPage: isLiked && (useLocalLikes || managerSyncing) ? false : hasNextPage,
-    isFetchingNextPage: finalSyncing,
+    isFetchingNextPage,
+    likedProgress,
+    isMirroring: managerSyncing,
     fetchNextPage,
     syncPlayerQueue,
     refetch,
     sortMode,
     setSortMode,
     isSorting: isPending
-  }), [allTracks, metadata, totalReportedCount, isLoading, isError, hasNextPage, finalSyncing, fetchNextPage, syncPlayerQueue, refetch, isLiked, useLocalLikes, managerSyncing, sortMode, setSortMode, isPending]);
+  }), [allTracks, metadata, totalReportedCount, isLoading, isError, hasNextPage, isFetchingNextPage, likedProgress, fetchNextPage, syncPlayerQueue, refetch, isLiked, useLocalLikes, managerSyncing, sortMode, setSortMode, isPending]);
 };

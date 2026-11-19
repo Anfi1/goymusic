@@ -2,6 +2,33 @@ const storageKey = 'goymusic-desktop-layout';
 const layoutChanged = 'goymusic-desktop-layout-changed';
 const nyanKey = 'goymusic-deck-nyan';
 
+export const deckSpeeds = { fast: 'Fast', medium: 'Medium', slow: 'Slow' } as const;
+export const deckDimming = { light: 'Light', dim: 'Darker', original: 'Like Classic' } as const;
+
+function deckChoice<T extends string>(attribute: string, choices: Record<T, string>, fallback: T) {
+    const key = `goymusic-${attribute}`;
+    const valid = (value: string | null): value is T => value !== null && Object.hasOwn(choices, value);
+    return {
+        read: (): T => {
+            const value = document.documentElement.getAttribute(`data-${attribute}`);
+            return valid(value) ? value : fallback;
+        },
+        restore: () => {
+            const value = localStorage.getItem(key);
+            document.documentElement.setAttribute(`data-${attribute}`, valid(value) ? value : fallback);
+        },
+        set: (value: string) => {
+            if (!valid(value)) return;
+            localStorage.setItem(key, value);
+            document.documentElement.setAttribute(`data-${attribute}`, value);
+            window.dispatchEvent(new Event(layoutChanged));
+        },
+    };
+}
+
+export const deckSpeed = deckChoice('deck-speed', deckSpeeds, 'medium');
+export const deckDim = deckChoice('deck-dim', deckDimming, 'light');
+
 export function isDeckNyanEnabled(): boolean {
     return document.documentElement.dataset.nyan === 'on';
 }
@@ -27,6 +54,8 @@ export function subscribeDesktopLayout(notify: () => void): () => void {
 }
 
 export function restoreDesktopLayout() {
+    deckSpeed.restore();
+    deckDim.restore();
     if (localStorage.getItem(nyanKey) === 'on') document.documentElement.dataset.nyan = 'on';
     const saved = localStorage.getItem(storageKey);
     if (saved === 'sleeve') localStorage.setItem(storageKey, 'deck');

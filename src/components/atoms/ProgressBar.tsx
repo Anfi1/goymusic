@@ -137,8 +137,10 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
       </div>
 
       {(showThumb || nyanMode) && interactive && (
-        <div className={styles.thumbWrapper}>
-          <div className={`${styles.thumb} ${nyanMode ? styles.nyanThumb : ''} ${!isPlaying ? styles.paused : ''}`} />
+        <div className={nyanMode ? styles.nyanViewport : undefined} aria-hidden="true">
+          <div className={styles.thumbWrapper}>
+            <div className={`${styles.thumb} ${nyanMode ? styles.nyanThumb : ''} ${!isPlaying ? styles.paused : ''}`} />
+          </div>
         </div>
       )}
     </div>

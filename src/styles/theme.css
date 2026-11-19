@@ -145,6 +145,9 @@
     --font-main: "Segoe UI", system-ui, sans-serif;
     --title-height: 32px;
     --collection-gutter: clamp(18px, 3vw, 44px);
+    --deck-page-top: 1rem;
+    --deck-list-artwork: 40px;
+    --deck-list-row-height: calc(var(--deck-list-artwork) + 14px);
     --bg-crust: #131516;
     --bg-base: #17191a;
     --bg-mantle: #212425;
@@ -159,30 +162,70 @@
     --accent-hover: #bee4d8;
     --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
     --on-accent: #151a18;
-    /* One bounded wash under the entire shell; opaque overlays use the same
-       hue as the art but don't expose the text and artwork underneath. */
+    /* The shell uses one blurred cover. For sticky headers, composite its
+       sampled colour over the same floor and under the same central scrim. */
     --deck-ink: var(--track-color, var(--accent));
     --deck-floor: color-mix(in srgb, var(--bg-raised) 90%, var(--accent));
+    --deck-art-brightness: 0.5;
+    --deck-art-filter: blur(80px) saturate(1.5) brightness(var(--deck-art-brightness));
+    --deck-art-opacity: 0.48;
+    --deck-art-average: rgb(from var(--track-color) calc(r * var(--deck-art-brightness)) calc(g * var(--deck-art-brightness)) calc(b * var(--deck-art-brightness)));
+    --deck-wash: color-mix(in srgb, var(--deck-floor), var(--deck-art-average, var(--deck-floor)) calc(var(--deck-art-opacity) * 100%));
+    --deck-scrim: var(--bg-base);
+    --deck-panel-strength: 12%;
+    --deck-main-strength: 20%;
+    --deck-player-strength: 30%;
     --deck-highlight: color-mix(in srgb, var(--deck-ink) 42%, var(--accent));
     --cover-hover: color-mix(in srgb, var(--deck-highlight) 19%, transparent);
     --deck-selected: color-mix(in srgb, var(--deck-highlight) 21%, transparent);
-    --deck-sheet: color-mix(in srgb, var(--bg-mantle) 84%, var(--deck-ink));
-    --deck-popover: color-mix(in srgb, var(--deck-sheet) 97%, transparent);
-    --border-color: rgb(255 255 255 / 12%);
-    --border-subtle: rgb(255 255 255 / 7%);
+    --deck-sheet: color-mix(in srgb, var(--deck-wash), var(--deck-scrim) var(--deck-main-strength));
+    --deck-popover: color-mix(in srgb, var(--bg-mantle) 84%, var(--deck-ink));
+    --border-color: rgb(255 255 255 / 10%);
+    --border-subtle: rgb(255 255 255 / 5%);
     --hover: var(--cover-hover);
-    --glass-surface: color-mix(in srgb, var(--bg-base) 20%, transparent);
-    --glass-surface-player: var(--glass-surface);
-    --glass-surface-main: var(--glass-surface);
+    --glass-surface: color-mix(in srgb, var(--deck-scrim) var(--deck-panel-strength), transparent);
+    --glass-surface-player: color-mix(in srgb, var(--deck-scrim) var(--deck-player-strength), transparent);
+    --glass-surface-main: color-mix(in srgb, var(--deck-scrim) var(--deck-main-strength), transparent);
     --bg-main-glass: var(--glass-surface-main);
     --glass-popover-bg: var(--deck-popover);
     --glass-popover-blur: 0px;
-    --glass-blur: 0px;
     --radius-xs: 2px;
     --radius-sm: 3px;
     --radius-md: 5px;
     --radius-lg: 7px;
     --radius-xl: 9px;
+}
+
+/* Light is the original Deck palette above, including before preferences
+   load. Dim and Original lower the surfaces AND the text, not UI opacity. */
+:root[data-layout="deck"][data-deck-dim="dim"] {
+    --bg-crust: #141515;
+    --bg-base: #181919;
+    --bg-mantle: #212323;
+    --bg-raised: #292b2b;
+    --deck-floor: #282c2b;
+    --deck-scrim: #0b0c0c;
+    --deck-panel-strength: 24%;
+    --deck-main-strength: 30%;
+    --deck-player-strength: 42%;
+    --text-main: #e2e4e3;
+    --text-sub: #bac0bd;
+    --text-dim: #9da5a1;
+}
+
+:root[data-layout="deck"][data-deck-dim="original"] {
+    --bg-crust: #141414;
+    --bg-base: #191919;
+    --bg-mantle: #212121;
+    --bg-raised: #282828;
+    --deck-floor: var(--bg-base);
+    --deck-scrim: black;
+    --deck-panel-strength: 35%;
+    --deck-main-strength: 40%;
+    --deck-player-strength: 55%;
+    --text-main: #dcdcdc;
+    --text-sub: #b2b2b2;
+    --text-dim: #999;
 }
 
 :root[data-layout="deck"] .deck-scroll {

@@ -220,10 +220,10 @@ const ThumbPlaceholder = <div className={styles.thumbPlaceholder} />;
 // Внутри альбома колонка альбома не нужна -- её место тоже уходит названию.
 export const TrackColumnGroup = memo(({ hideAlbum }: { hideAlbum?: boolean }) => (
   <colgroup>
-    <col style={{ width: 40 }} />
+    <col style={{ width: 'calc(40px + var(--track-inline-gutter, 0px))' }} />
     <col />
     {!hideAlbum && <col style={{ width: 'var(--track-album-width, 25%)' }} />}
-    <col style={{ width: 'var(--track-actions-width, 112px)' }} />
+    <col style={{ width: 'calc(var(--track-actions-width, 112px) + var(--track-inline-gutter, 0px))' }} />
   </colgroup>
 ));
 

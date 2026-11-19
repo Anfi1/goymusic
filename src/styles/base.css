@@ -2,8 +2,19 @@
 
 :root {
     --font-main: 'Inter', system-ui, -apple-system, sans-serif;
-    --sheet-enter-motion: 350ms cubic-bezier(0.32, 0.72, 0, 1);
-    --sheet-exit-motion: 260ms cubic-bezier(0.4, 0, 0.8, 0.5);
+}
+
+:root[data-layout="deck"] {
+    --deck-motion-duration: 305ms;
+    --deck-slide-motion: var(--deck-motion-duration) cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+:root[data-layout="deck"][data-deck-speed="fast"] {
+    --deck-motion-duration: 260ms;
+}
+
+:root[data-layout="deck"][data-deck-speed="slow"] {
+    --deck-motion-duration: 350ms;
 }
 
 * {
@@ -110,49 +121,59 @@ button {
     overflow: auto;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    :root[data-layout="deck"] [data-route-direction="forward"] > [data-detail-route] {
-        animation: detailRouteEntry var(--sheet-enter-motion);
-    }
-}
-
-/* Capture only the departing viewport, never the shell or the page below. */
-:root:active-view-transition-type(route-back) {
+/* Capture the center only. The shell, including the playing artwork under
+   transparent routes, keeps painting normally throughout the transition. */
+:root:is(:active-view-transition-type(route-forward), :active-view-transition-type(route-back)) {
     view-transition-name: none;
 }
 
-[data-route-capture] {
-    view-transition-name: route-pop;
+:root:is(:active-view-transition-type(route-forward), :active-view-transition-type(route-back)) [data-route-page] {
+    view-transition-name: route-page;
 }
 
-:root:active-view-transition-type(route-back)::view-transition {
+:root:is(:active-view-transition-type(route-forward), :active-view-transition-type(route-back))::view-transition {
     pointer-events: none;
 }
 
-::view-transition-group(route-pop) {
+::view-transition-group(route-page) {
     animation: none;
     overflow: clip;
 }
 
-::view-transition-old(route-pop) {
+/* The incoming image is live, so data can replace a skeleton mid-slide.
+   Clip the stationary image at the moving edge instead of giving either
+   image an opaque backing or cross-fading overlapping text. */
+::view-transition-old(route-page),
+::view-transition-new(route-page) {
     mix-blend-mode: normal;
-    background: var(--deck-sheet);
-    animation: routePageExit var(--sheet-exit-motion) both;
+    animation: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    ::view-transition-old(route-pop) { animation: none; }
+@media (prefers-reduced-motion: no-preference) {
+    :root:active-view-transition-type(route-back)::view-transition-old(route-page),
+    :root:active-view-transition-type(route-forward)::view-transition-new(route-page) {
+        animation: routeSlide var(--deck-slide-motion) both;
+    }
+
+    :root:active-view-transition-type(route-back)::view-transition-new(route-page),
+    :root:active-view-transition-type(route-forward)::view-transition-old(route-page) {
+        animation: routeReveal var(--deck-slide-motion) both;
+    }
+
+    :root:active-view-transition-type(route-forward)::view-transition-old(route-page),
+    :root:active-view-transition-type(route-forward)::view-transition-new(route-page) {
+        animation-direction: reverse;
+    }
 }
 
-@keyframes routePageExit {
+@keyframes routeSlide {
+    from { transform: translateY(0); }
     to { transform: translateY(100%); }
 }
 
-@keyframes detailRouteEntry {
-    from {
-        transform: translateY(12%);
-        opacity: 0.5;
-    }
+@keyframes routeReveal {
+    from { clip-path: inset(0 0 100% 0); }
+    to { clip-path: inset(0); }
 }
 
 @keyframes lazyImageShimmer {

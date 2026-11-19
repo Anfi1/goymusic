@@ -238,8 +238,8 @@
 }
 
 :root[data-layout="deck"] .coverWrapper {
-    width: var(--search-track-artwork, 40px);
-    height: var(--search-track-artwork, 40px);
+    width: var(--search-track-artwork, var(--deck-list-artwork));
+    height: var(--search-track-artwork, var(--deck-list-artwork));
     border-radius: var(--radius-sm);
     background: var(--deck-selected);
     box-shadow: none;

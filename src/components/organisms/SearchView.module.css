@@ -310,7 +310,7 @@
 }
 
 :root[data-layout="deck"] .container {
-    --search-gutter: clamp(18px, 3vw, 44px);
+    --search-gutter: var(--collection-gutter);
     --search-track-artwork: 48px;
     --search-track-height: 64px;
     container-name: deck-search;
@@ -322,7 +322,7 @@
 :root[data-layout="deck"] .tabBar {
     flex-wrap: wrap;
     gap: 4px;
-    padding: 16px var(--search-gutter) 8px;
+    padding: var(--deck-page-top) var(--search-gutter) 8px;
     border: 0;
 }
 

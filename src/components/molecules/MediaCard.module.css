@@ -314,7 +314,10 @@ button.title {
 
 :root[data-layout="deck"] .subtitle { font-size: var(--fs-sm); }
 :root[data-layout="deck"] .row { gap: 10px; }
-:root[data-layout="deck"] .row .thumbWrapper { width: 36px; height: 36px; }
+:root[data-layout="deck"] .row .thumbWrapper {
+  width: var(--shelf-track-artwork, 36px);
+  height: var(--shelf-track-artwork, 36px);
+}
 
 :root[data-layout="deck"] .pinnedBadge {
   background: var(--deck-popover);

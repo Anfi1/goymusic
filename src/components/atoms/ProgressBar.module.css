@@ -153,7 +153,6 @@
     border-radius: 0 !important;
     box-shadow: none !important;
     opacity: 1 !important;
-    transform: translate(50%, -50%) !important;
 }
 
 .thumb.paused {
@@ -202,9 +201,24 @@
     border-radius: inherit;
 }
 
-:root[data-layout="deck"][data-nyan="on"] .largeTarget .thumbWrapper:has(.nyanThumb) {
-    left: calc(var(--nyan-width) / 2);
-    width: calc(100% - var(--nyan-width));
+/* The nose follows the actual seek position; at zero the sprite is just
+   outside the rail. Clip its paint, never the focusable pointer target. */
+:root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanViewport {
+    position: absolute;
+    inset: 0;
+    overflow: clip;
+    z-index: 3;
+    pointer-events: none;
+}
+
+:root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanThumb {
+    transform: translateY(-50%);
+}
+
+/* The tail bobs through the sprite's first 8px. Underlap it in every
+   frame; fill and sprite still travel on identical full-width transforms. */
+:root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanFill {
+    left: calc(8px - var(--nyan-width));
 }
 
 @media (prefers-reduced-motion: reduce) {

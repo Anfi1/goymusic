@@ -15,7 +15,7 @@ import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
-import { isDeckLayout, isDeckNyanEnabled, setDeckLayout, setDeckNyanEnabled, subscribeDesktopLayout } from '../../utils/desktopLayout';
+import { deckDim, deckDimming, deckSpeed, deckSpeeds, isDeckLayout, isDeckNyanEnabled, setDeckLayout, setDeckNyanEnabled, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import { interfaceScales, isInterfaceScale, readInterfaceScale, setInterfaceScale } from '../../utils/interfaceScale';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
@@ -26,6 +26,8 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const deckEnabled = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
     const nyanEnabled = useSyncExternalStore(subscribeDesktopLayout, isDeckNyanEnabled);
+    const speed = useSyncExternalStore(subscribeDesktopLayout, deckSpeed.read);
+    const dim = useSyncExternalStore(subscribeDesktopLayout, deckDim.read);
     const [scale, setScale] = useState(readInterfaceScale);
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
@@ -360,11 +362,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                     Use the Deck player layout. Switch off to return to the classic player.
                 </p>
                 {deckEnabled && (
-                    <button type="button" className={styles.nyanToggle} aria-pressed={nyanEnabled}
-                        onClick={() => setDeckNyanEnabled(!nyanEnabled)}>
-                        Nyan Cat on the progress bar
-                        <span aria-hidden="true">{nyanEnabled ? 'On' : 'Off'}</span>
-                    </button>
+                    <>
+                        <div className={styles.row}>
+                            <label htmlFor="deck-dimming">Dimming</label>
+                            <select className={styles.select} id="deck-dimming" value={dim} onChange={e => deckDim.set(e.target.value)}>
+                                {Object.entries(deckDimming).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                            </select>
+                        </div>
+                        <div className={styles.row}>
+                            <label htmlFor="deck-speed">Transition speed</label>
+                            <select className={styles.select} id="deck-speed" value={speed} onChange={e => deckSpeed.set(e.target.value)}>
+                                {Object.entries(deckSpeeds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                            </select>
+                        </div>
+                        <button type="button" className={styles.nyanToggle} aria-pressed={nyanEnabled}
+                            onClick={() => setDeckNyanEnabled(!nyanEnabled)}>
+                            Nyan Cat on the progress bar
+                            <span aria-hidden="true">{nyanEnabled ? 'On' : 'Off'}</span>
+                        </button>
+                    </>
                 )}
             </section>
 

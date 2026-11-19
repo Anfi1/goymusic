@@ -445,7 +445,7 @@
 }
 
 :root[data-layout="deck"] .container {
-    padding: clamp(18px, 3vw, 44px);
+    padding: var(--deck-page-top) var(--collection-gutter) var(--collection-gutter);
 }
 
 :root[data-layout="deck"] .headerRow { flex-wrap: wrap; }
