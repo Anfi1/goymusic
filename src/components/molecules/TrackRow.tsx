@@ -1,4 +1,4 @@
-import React, { useState, forwardRef, Fragment, useEffect, memo, useCallback } from 'react';
+import React, { useState, forwardRef, useEffect, memo, useCallback } from 'react';
 import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload, Zap, Headphones } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
 import { LazyImage } from '../atoms/LazyImage';
@@ -11,6 +11,7 @@ import styles from './TrackRow.module.css';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { resolveSource } from '../../api/source';
 import { formatStatValue } from '../../utils/formatStatValue';
+import { TrackCredits } from './TrackCredits';
 
 interface TrackRowProps {
   id?: string;
@@ -280,13 +281,6 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
     cancelPrefetchRequest();
   }, []);
 
-  const handleArtistClick = useCallback((e: React.MouseEvent, aid?: string) => {
-    if (aid && onSelectArtist) {
-      e.stopPropagation();
-      onSelectArtist(aid);
-    }
-  }, [onSelectArtist]);
-
   const handleAlbumClick = useCallback((e: React.MouseEvent) => {
     if (albumId && onSelectAlbum) {
       e.stopPropagation();
@@ -358,15 +352,8 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
             </div>
             <div className={styles.subLine}>
               <div className={styles.artist}>
-                {artists.map((artist, i) => {
-                  const aid = artistIds[i];
-                  return (
-                    <Fragment key={i}>
-                      <span className={aid ? styles.link : ''} onClick={(e) => handleArtistClick(e, aid)} data-tooltip={artist} data-tooltip-overflow="">{artist}</span>
-                      {i < artists.length - 1 && ', '}
-                    </Fragment>
-                  );
-                })}
+                <TrackCredits videoId={id} source={source} artists={artists} artistIds={artistIds}
+                  linkClass={styles.link} onSelectArtist={onSelectArtist} />
               </div>
               {views && (
                 <span className={styles.plays} data-tooltip="Plays">

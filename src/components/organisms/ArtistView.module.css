@@ -52,6 +52,14 @@
     padding: 2.5rem;
 }
 
+.channelLabel {
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-main);
+}
+
 .name {
     font-size: 4rem;
     font-weight: 900;
@@ -206,6 +214,12 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 10px;
+}
+
+.grid > * {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 /* All Songs View */
@@ -382,6 +396,17 @@
     position: relative;
     overflow: hidden;
     padding: 0;
+}
+
+.channelUploads {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem 1.5rem;
+}
+
+.channelUploads > button {
+    margin: 1rem auto;
 }
 
 .virtuosoWrapper {

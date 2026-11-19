@@ -127,6 +127,7 @@ export interface YTMSearchResult {
 }
 
 export interface YTMArtistDetail {
+    profileType?: 'artist';
     name: string;
     description: string;
     thumbUrl: string;
@@ -153,6 +154,16 @@ export interface YTMArtistDetail {
     seeAllSongsId?: string;
     seeAllSongsParams?: string;
     continuation?: string | null;
+}
+
+export interface YTMChannelDetail {
+    profileType: 'channel';
+    channelId: string;
+    name: string;
+    description: string;
+    thumbUrl: string;
+    videosPreview: YTMTrack[];
+    videosId?: string | null;
 }
 
 export interface YTMHomeSection {
@@ -358,7 +369,7 @@ export async function searchMore(query: string, offset: number, filter: 'songs' 
     return [];
 }
 
-export async function getArtistDetail(artistId: string): Promise<YTMArtistDetail | null> {
+export async function getArtistDetail(artistId: string): Promise<YTMArtistDetail | YTMChannelDetail | null> {
     const res = await pyCall('get_artist', { artistId });
     if (res.status === 'ok') {
         return res;
@@ -366,15 +377,15 @@ export async function getArtistDetail(artistId: string): Promise<YTMArtistDetail
     return null;
 }
 
-export async function getArtistSongs(browseId: string, params?: string): Promise<{ tracks: YTMTrack[], continuation: string | null }> {
-    const res = await pyCall('get_artist_songs', { browseId, params });
+export async function getArtistSongs(browseId: string, params?: string, signal?: AbortSignal): Promise<{ tracks: YTMTrack[], continuation: string | null, error?: string }> {
+    const res = await pyCall('get_artist_songs', { browseId, params }, signal);
     if (res.status === 'ok') {
         return {
             tracks: res.tracks || [],
             continuation: res.continuation || null
         };
     }
-    return { tracks: [], continuation: null };
+    return { tracks: [], continuation: null, error: res.message || 'Could not load this page' };
 }
 
 export async function subscribeArtist(channelId: string): Promise<boolean> {
@@ -458,11 +469,24 @@ export async function getTrackCard(videoId: string): Promise<YTMTrack | null> {
     const v = (await getTrackInfo(videoId).catch(() => null))?.videoDetails;
     if (!v?.title) return null;
     const s = Number(v.lengthSeconds) || 0;
+    // A catalog artist is not necessarily the uploader. Only pair names and
+    // channel IDs from the same source, retaining gaps for unlinked artists.
+    const hasCatalog = Array.isArray(v.artists) && v.artists.length > 0;
+    const names = hasCatalog ? v.artists : [v.author?.replace(/ - Topic$/, '')];
+    const ids = hasCatalog ? v.artistIds : [v.channelId];
+    const artists: string[] = [];
+    const artistIds: string[] = [];
+    names.forEach((name: unknown, index: number) => {
+        if (typeof name !== 'string' || !name.trim()) return;
+        artists.push(name.trim());
+        const id = ids?.[index];
+        artistIds.push(typeof id === 'string' && /^UC[\w-]{22}$/.test(id) ? id : '');
+    });
     return {
         id: videoId,
         title: v.title,
-        artists: v.author ? [v.author.replace(/ - Topic$/, '')] : [],
-        artistIds: v.channelId ? [v.channelId] : [],
+        artists,
+        artistIds,
         album: '',
         duration: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`,
         thumbUrl: v.thumbnail?.thumbnails?.at(-1)?.url || '',

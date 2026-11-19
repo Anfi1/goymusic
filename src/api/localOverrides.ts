@@ -1,3 +1,5 @@
+import { isYoutubeVideoId } from './source';
+
 export interface LocalOverride {
   videoId: string;
   filename: string;
@@ -143,14 +145,13 @@ export function songFileId(id: string): string {
   return s || 'Unknown';
 }
 
-const YT_ID = /^[A-Za-z0-9_-]{11}$/;
 // <id>_<время в мс>.ext, у сохранённого потока с префиксом dl_direct_
 const SONG_FILE = /^(?:dl_direct_)?(.+)_(\d{13})\.[^.]+$/;
 
 export function parseSongFile(filename: string, idsByFileId: Map<string, string>) {
   const m = SONG_FILE.exec(filename);
   if (!m) return null;
-  const videoId = idsByFileId.get(m[1]) ?? (YT_ID.test(m[1]) ? m[1] : null);
+  const videoId = idsByFileId.get(m[1]) ?? (isYoutubeVideoId(m[1]) ? m[1] : null);
   return videoId ? { videoId, addedAt: Number(m[2]) } : null;
 }
 

@@ -20,7 +20,7 @@ def parse_watch_video_renderer(item):
         p_type = nav(run, ['navigationEndpoint', 'browseEndpoint', 'browseEndpointContextSupportedConfigs', 'browseEndpointContextMusicConfig', 'pageType'], True)
         if p_type == 'MUSIC_PAGE_TYPE_ARTIST':
             artists.append(text)
-            if b_id: artist_ids.append(b_id)
+            artist_ids.append(b_id)
         elif p_type == 'MUSIC_PAGE_TYPE_ALBUM':
             album = text
             album_id = b_id

@@ -11,6 +11,7 @@ import { ArtistCard } from '../molecules/ArtistCard';
 import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
 import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { QueueItem } from '../molecules/QueueItem';
+import { TrackCredits } from '../molecules/TrackCredits';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
 import { Play, ChevronLeft, ChevronRight, ListMusic } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
@@ -381,15 +382,9 @@ export const SearchView: React.FC<SearchViewProps> = ({
                     <span className={styles.capitalize}>{topResult.resultType}</span>
                     {topResult.artists && (<>
                       {' • '}
-                      {topResult.artists.map((name: string, idx: number) => (
-                        <React.Fragment key={idx}>
-                          <span
-                            className={topResult.artistIds?.[idx] ? styles.songLink : ''}
-                            onClick={(e) => { const aid = topResult.artistIds?.[idx]; if (aid) { e.stopPropagation(); onSelectArtist(aid); } }}
-                          >{name}</span>
-                          {idx < topResult.artists.length - 1 && ', '}
-                        </React.Fragment>
-                      ))}
+                      <TrackCredits videoId={['song', 'video'].includes(topResult.resultType) ? topResult.id : undefined}
+                        source={topResult.source} artists={topResult.artists} artistIds={topResult.artistIds}
+                        linkClass={styles.songLink} onSelectArtist={onSelectArtist} />
                     </>)}
                     {topResult.views && <span> • {topResult.views}</span>}
                   </div>

@@ -1,10 +1,14 @@
 """Search, artists, albums and tracks from the YouTube Music catalog."""
+from requests.exceptions import RequestException
+from ytmusicapi.exceptions import YTMusicError
 from ytmusicapi.navigation import (
     CAROUSEL_TITLE, NAVIGATION_BROWSE_ID, SECTION_LIST, SINGLE_COLUMN_TAB, TITLE, TITLE_TEXT, nav,
 )
+from ytmusicapi.parsers._utils import parse_duration
 
 from .account import playlist_to_dict
 from .formatting import _extract_badge_label, album_to_dict, artist_to_dict, clean_duration, track_to_dict
+from . import youtube_channel
 
 
 def get_search_suggestions(request, ctx):
@@ -109,6 +113,13 @@ def get_artist(request, ctx):
     # 1. Делаем сырой запрос для ручного парсинга
     body = {"browseId": artist_id}
     raw_response = api._send_request("browse", body)
+    # Creator pages have a visual header, unlike an official artist's immersive
+    # header. A network failure or a broken artist parser is not a channel.
+    header = raw_response.get('header') or {}
+    if (youtube_channel.CHANNEL_ID.fullmatch(artist_id or '') and 'musicVisualHeaderRenderer' in header
+            and 'musicImmersiveHeaderRenderer' not in header):
+        ctx.emit({'status': 'ok', **youtube_channel.channel_profile(artist_id, header['musicVisualHeaderRenderer'])})
+        return
 
     # 2. Используем либу для базы
     info = api.get_artist(artist_id)
@@ -272,6 +283,9 @@ def get_artist_songs(request, ctx):
     browse_id = request.get('browseId')
     params = request.get('params')
     continuation = request.get('continuation')
+    if youtube_channel.UPLOADS_ID.fullmatch(browse_id or ''):
+        ctx.emit({'status': 'ok', **youtube_channel.uploads(browse_id, continuation or params)})
+        return
     api = ctx.get_api()
 
     if browse_id.startswith('VL') or browse_id.startswith('PL'):
@@ -315,7 +329,63 @@ def get_artist_songs(request, ctx):
 
 def get_track_info(request, ctx):
     api = ctx.get_api()
-    info = api.get_song(request.get('videoId'))
+    video_id = request.get('videoId') or ''
+    if not youtube_channel.VIDEO_ID.fullmatch(video_id):
+        raise ValueError('Invalid YouTube video ID')
+    # Keep the existing song response; get_song sometimes has a playability
+    # status but no metadata. Public metadata does not change that status.
+    lookup_errors = (YTMusicError, RequestException, ValueError, KeyError, IndexError)
+    try:
+        info = api.get_song(video_id) or {}
+    except lookup_errors:
+        info = {}
+    details = info.get('videoDetails') or {}
+    if details.get('videoId', video_id) != video_id:
+        info.pop('videoDetails', None)
+        details = {}
+    try:
+        queue = api.get_watch_playlist(videoId=video_id, limit=1) or {}
+        track = next((t for t in queue.get('tracks', []) if t.get('videoId') == video_id), {})
+    except lookup_errors:
+        track = {}
+    credits = [(a['name'], a.get('id')) for a in track.get('artists') or [] if a.get('name')]
+    kind = track.get('videoType') or details.get('musicVideoType')
+    is_upload = kind == 'MUSIC_VIDEO_TYPE_UGC'
+    if not details.get('title') and track.get('title'):
+        details['title'] = track['title']
+    if not details.get('thumbnail') and track.get('thumbnail'):
+        details['thumbnail'] = {'thumbnails': track['thumbnail']}
+    if not details.get('lengthSeconds') and (seconds := parse_duration(track.get('length'))) is not None:
+        details['lengthSeconds'] = str(seconds)
+
+    need_uploader = (not kind or is_upload or not any(cid for _, cid in credits))
+    if (not details.get('title') or
+            (need_uploader and not (details.get('channelId') and details.get('author')))):
+        try:
+            public = youtube_channel.public_video_metadata(video_id)
+        except (RequestException, ValueError):
+            if not details.get('title') and not info:
+                raise
+        else:
+            # Identity is a pair; don't put an old channel ID beside a new name.
+            if public.get('author'):
+                details.update(author=public['author'], channelId=public.get('channelId'))
+            for key in ('title', 'thumbnail'):
+                if not details.get(key):
+                    details[key] = public.get(key)
+
+    uploader = details.get('author')
+    channel_id = details.get('channelId')
+    if uploader and (is_upload or not credits or (not kind and not any(cid for _, cid in credits))):
+        credits = [(uploader.removesuffix(' - Topic'), channel_id)]
+    elif uploader and channel_id:
+        # Backfill only this same artist, never a label/uploader against an
+        # unrelated artist. Keep null slots for the other unlinked credits.
+        credits = [(name, cid or (channel_id if name == uploader.removesuffix(' - Topic') else None))
+                   for name, cid in credits]
+    if details.get('title'):
+        details.update(videoId=video_id, artists=[name for name, _ in credits], artistIds=[cid for _, cid in credits])
+        info['videoDetails'] = details
     ctx.emit({'status': 'ok', 'info': info})
 
 

@@ -202,8 +202,8 @@ export default function HistoryCharts({
           Array.isArray(h.track.artists) && h.track.artists.length
             ? h.track.artists[0]
             : 'Unknown';
-        const artistId = h.track.artistIds?.[0] || artistName;
-        const key = `artist:${artistId}`;
+        const artistId = h.track.artistIds?.[0];
+        const key = artistId ? `artist:${artistId}` : `artist-label:${artistName}`;
         const title = artistName;
         const subtitle = h.track.album || '';
         const existing = map.get(key);
@@ -365,9 +365,8 @@ export default function HistoryCharts({
     const artistIds = Array.from(
       new Set(
         agg
-          .filter((item) => item.type === 'artist' && item.key !== 'other')
-          .map((item) => item.key.replace(/^artist:/, ''))
-          .filter((id) => id && id !== 'Unknown')
+          .map((item) => item.artistId)
+          .filter((id): id is string => !!id)
       )
     );
 
@@ -574,7 +573,7 @@ export default function HistoryCharts({
                         onMouseEnter={() => setHoveredIndex(i)}
                         onMouseLeave={() => setHoveredIndex(null)}
                         onClick={() => handleLegendClick(slice)}
-                        style={{ cursor: slice.key === 'other' ? 'default' : 'pointer' }}
+                        style={{ cursor: slice.key === 'other' || (slice.type === 'artist' && !slice.artistId) ? 'default' : 'pointer' }}
                       >
                         {/* Invisible trigger — stays in place */}
                         <path
@@ -692,6 +691,7 @@ export default function HistoryCharts({
                   key={s.key}
                   className={`${styles.legendItem} ${isHighlighted ? styles.legendItemHover : ''}`}
                   type="button"
+                  disabled={s.type === 'artist' && !s.artistId}
                   onMouseEnter={() => setHoveredIndex(i)}
                   onMouseLeave={() => setHoveredIndex(null)}
                   onClick={() => handleLegendClick(s)}

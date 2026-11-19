@@ -8,6 +8,7 @@ import {
   subscribeArtist, 
   unsubscribeArtist,
   getContinuation,
+  type YTMChannelDetail,
   YTMTrack 
 } from '../../api/yt';
 import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
@@ -90,7 +91,7 @@ interface ArtistViewProps {
   onSheetBackChange: (back: (() => void) | null) => void;
 }
 
-type ViewMode = 'main' | 'all-songs' | 'discography';
+type ViewMode = 'main' | 'all-songs' | 'discography' | 'all-videos';
 
 export const ArtistView = React.memo<ArtistViewProps>(({ 
   artistId, 
@@ -225,6 +226,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     },
     staleTime: 1000 * 60 * 10,
   });
+  const channel: YTMChannelDetail | undefined = detail?.profileType === 'channel' ? detail : undefined;
 
   // Extract dominant color from artist image for shadow
   useEffect(() => {
@@ -259,8 +261,22 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       const res = await getArtistSongs(detail!.videosId!);
       return res.tracks;
     },
-    enabled: !!detail?.videosId,
+    enabled: !channel && !!detail?.videosId,
   });
+
+  const channelPages = useInfiniteQuery({
+    queryKey: ['channel-videos', channel?.videosId],
+    enabled: viewMode === 'all-videos' && !!channel?.videosId,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = await getArtistSongs(channel!.videosId!, pageParam ?? undefined, signal);
+      if (page.error) throw new Error(page.error);
+      return page;
+    },
+    getNextPageParam: page => page.continuation,
+  });
+  const allChannelVideos = useMemo(() => channelPages.data?.pages.flatMap(page => page.tracks)
+    ?? channel?.videosPreview ?? [], [channelPages.data, channel]);
 
   // Combine for UI
   const discography = useMemo(() => {
@@ -413,10 +429,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
       <div className={styles.container}>
         <header className={styles.header}><Skeleton width="100%" height={250} borderRadius={12} /></header>
         <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Top Songs</h2>
-            <button className={styles.seeAllBtn} disabled>See all</button>
-          </div>
+          <div className={styles.sectionHeader}><Skeleton width={140} height={28} /></div>
           <table className={styles.trackList}>
             {isDeck && <TrackColumnGroup />}
             <tbody>{Array.from({ length: 5 }).map((_, i) => <TrackRowSkeleton key={i} index={i} />)}</tbody>
@@ -426,16 +439,28 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     );
   }
 
-  if (!detail) return <div className={styles.container}>Artist not found.</div>;
+  if (!detail) return <div className={styles.container}>Profile not found.</div>;
+
+  const renderChannelVideos = (tracks: YTMTrack[]) => (
+    <div className={styles.grid}>
+      {tracks.map((video, index) => {
+        const play = () => player.playTrackList(tracks, index, artistId, 'artist');
+        return <MediaCard key={video.id} id={video.id} title={video.title} thumbUrl={video.thumbUrl}
+          type="video" description={video.duration} isActive={activeTrackId === video.id}
+          onClick={play} onPlayClick={play} onContextMenu={e => handleContextMenu(e, video)} />;
+      })}
+    </div>
+  );
 
   const overview = (
     <div className={styles.container} data-artist-view inert={isModalOpen} data-sheet-covered={(isModalOpen && !isClosing) || undefined}>
       <header className={styles.header}>
         <div className={styles.bannerWrapper} style={{ '--shadow-color': shadowColor } as React.CSSProperties}>
-          <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
+          <LazyImage src={detail.thumbUrl} alt="" className={styles.bannerImage} />
           <div className={styles.bannerOverlay}>
               <div>
                 <div className={styles.badgesRow}>
+                  {channel && <span className={styles.channelLabel}>Channel</span>}
                   {detail.artistPro && <span className="pro-badge pro-badge--lg" data-tooltip="Artist PRO"><span>★</span></span>}
                   {detail.verified && <CheckCircle size={32} className={`verified-badge-lg ${styles.verifiedBadge}`} data-tooltip="Verified" />}
                 </div>
@@ -454,10 +479,17 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 {detail.isSoundCloud && detail.tracksCount > 0 && <div className={styles.statItem}><span>{detail.tracksCount} tracks</span></div>}
                 {detail.views && <div className={styles.statItem}><Eye size={16} /><span>{formatStatValue(detail.views)}</span></div>}
               </div>
-              {!detail.isSoundCloud && !detail.isYandex && (
+              {!channel && !detail.isSoundCloud && !detail.isYandex && (
                 <div className={styles.headerActions}>
                   <button className={`${styles.subscribeBtn} ${detail.subscribed ? styles.subscribed : ''}`} aria-pressed={!!detail.subscribed} onClick={handleToggleSubscribe}>
                     {detail.subscribed ? <><Check size={18} /> Subscribed</> : <><Plus size={18} /> Subscribe</>}
+                  </button>
+                </div>
+              )}
+              {!!channel?.videosPreview.length && (
+                <div className={styles.headerActions}>
+                  <button className={styles.subscribeBtn} onClick={() => player.playTrackList(channel.videosPreview, 0, artistId, 'artist')}>
+                    <Play size={18} /> Play
                   </button>
                 </div>
               )}
@@ -476,7 +508,20 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         </div>
       </header>
 
-      {detail.topSongs?.length > 0 && (
+      {channel && (
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Videos</h2>
+            {channel.videosId && <button className={styles.seeAllBtn} onClick={e => openSheet('all-videos', e.currentTarget)}>
+              See all <ChevronRight size={16} />
+            </button>}
+          </div>
+          {channel.videosPreview.length ? renderChannelVideos(channel.videosPreview)
+            : <p className={styles.allSongsEmptyHint}>{channel.videosId ? 'Open the full list to browse uploads.' : 'No public videos available.'}</p>}
+        </section>
+      )}
+
+      {!channel && detail.topSongs?.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Top Songs</h2>
@@ -626,7 +671,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         </section>
       )}
 
-      {discography.length > 0 && (
+      {!channel && discography.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Discography</h2>
@@ -649,7 +694,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         </section>
       )}
 
-      {videos.length > 0 && (
+      {!channel && videos.length > 0 && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Videos</h2>
           <Carousel 
@@ -734,6 +779,29 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     <div className={styles.viewport}>
       {overview}
       <TrackContextMenu ref={trackMenuRef} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} />
+
+      {viewMode === 'all-videos' && channel && (
+        <div ref={sheetRef} data-artist-sheet={viewMode} data-closing={isClosing || undefined} className={styles.allSongsView} role="region" aria-label="All Videos">
+          <button ref={sheetBackRef} className={styles.allSongsBackBtn} onClick={closeModal} aria-label="Back to channel">
+            <SheetBackIcon size={22} aria-hidden="true" />
+          </button>
+          <header className={styles.allSongsHeader}>
+            <h1 className={styles.allSongsTitle}>All Videos</h1>
+            <span className={styles.allSongsArtistName}>{channel.name}</span>
+          </header>
+          <div className={styles.channelUploads} aria-busy={channelPages.isFetching}>
+            {renderChannelVideos(allChannelVideos)}
+            {channelPages.isLoading && <p role="status">Loading…</p>}
+            {channelPages.isSuccess && !allChannelVideos.length && <p>No public videos available.</p>}
+            {channelPages.isError && <p role="status">Could not load videos.</p>}
+            {channelPages.isError && !channelPages.isFetchNextPageError
+              ? <button className={styles.seeAllBtn} onClick={() => channelPages.refetch()}>Try again</button>
+              : channelPages.hasNextPage && <button className={styles.seeAllBtn} disabled={channelPages.isFetchingNextPage} onClick={() => channelPages.fetchNextPage()}>
+                  {channelPages.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                </button>}
+          </div>
+        </div>
+      )}
 
       {/* All Songs Modal */}
       {viewMode === 'all-songs' && (

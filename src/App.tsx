@@ -24,7 +24,7 @@ import { ToastProvider } from './components/atoms/Toast';
 import { isLoggedIn, loadAuth, clearTokens } from './api/yt';
 import { player } from './api/player';
 import { parseDeepLink } from './api/trackLink';
-import { resolveScTrack } from './api/soundcloud';
+import { playSharedTrack } from './api/sharedPlayback';
 import { RouteViewport, useRouteStack } from './components/templates/RouteViewport';
 import './styles/theme.css';
 import './styles/base.css';
@@ -143,6 +143,8 @@ const MemoizedTitleBar = memo(TitleBar);
 const deckCollapsedKey = 'goymusic-deck-sidebar-collapsed';
 
 function App() {
+  const queryClient = useQueryClient();
+
   const [theme, setTheme] = useState<'dark' | 'glass'>('dark');
   const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
   const [classicCollapsed, setClassicCollapsed] = useState(false);
@@ -195,29 +197,12 @@ function App() {
       const link = parseDeepLink(url);
       if (!link) return;
       if (link.type === 'track') {
-        let track = {
-          id: link.id,
-          title: link.title,
-          artists: link.artists,
-          thumbUrl: link.thumbUrl,
-          album: '',
-          duration: '',
-          scUrl: link.scUrl,
-          source: link.source,
-        } as any;
-        if (link.source === 'soundcloud' && link.scUrl) {
-          const resolved = await resolveScTrack(link.scUrl);
-          if (resolved) track = resolved;
-        }
-        player.startRadio(track);
-        if (link.startTime && link.startTime > 0) {
-          player.seek(link.startTime);
-        }
+        await playSharedTrack(link, queryClient);
       } else if (link.type === 'album') {
         navigate({ type: 'album', albumId: link.id });
       }
     });
-  }, [navigate]);
+  }, [navigate, queryClient]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -440,8 +425,6 @@ function App() {
     }
     back();
   }, [artistSheetBack, back]);
-
-  const queryClient = useQueryClient();
 
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries();

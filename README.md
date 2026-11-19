@@ -6,6 +6,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 
 - YouTube Music streaming with account authentication
 - YouTube Music Home keeps **Listen again** first and **Quick picks** second when both shelves are available. Other shelves keep their feed order.
+- Shared YouTube videos can open the uploader's channel from the player. Channel profiles show uploaded videos, which play as audio; artist profiles keep their music catalog.
 - Crossfade playback with dual audio engine
 - Live spectrum and EQ response, with built-in Flat, Bass Boost, Rock, Vocal Focus and Warm presets. Saved presets remain separate from the built-ins.
 - Discord Rich Presence integration

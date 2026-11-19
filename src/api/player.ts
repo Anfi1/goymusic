@@ -1,5 +1,6 @@
 import { YTMTrack, getQueueRecommendations, rateSong, searchMore } from './yt';
 import type { TrackSource } from './source';
+import { withVideoCredits } from './trackCredits';
 import { streamCache, CacheEntry } from './cache';
 import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, registerYandexTrack, ensureLoudness } from './stream';
 import { likedManager } from './likedManager';
@@ -1163,7 +1164,7 @@ class PlayerStore {
         registerSoundCloudTrack(track.id, match.scUrl);
         track.scUrl = match.scUrl;
         track.source = 'soundcloud';
-        if (this.currentTrack?.id === track.id) this.currentTrack = { ...track };
+        if (this.currentTrack?.id === track.id) this.currentTrack = { ...this.currentTrack, scUrl: match.scUrl, source: 'soundcloud' };
         const qi = this.queue.findIndex(t => t.id === track.id);
         if (qi !== -1) this.queue[qi] = { ...this.queue[qi], scUrl: match.scUrl, source: 'soundcloud' };
         this.notify('state');
@@ -1197,7 +1198,7 @@ class PlayerStore {
         track.yandexId = match.yandexId;
         track.yandexAlbumId = match.yandexAlbumId;
         track.source = 'yandex';
-        if (this.currentTrack?.id === track.id) this.currentTrack = { ...track };
+        if (this.currentTrack?.id === track.id) this.currentTrack = { ...this.currentTrack, yandexId: match.yandexId, yandexAlbumId: match.yandexAlbumId, source: 'yandex' };
         const qi = this.queue.findIndex(t => t.id === track.id);
         if (qi !== -1) this.queue[qi] = { ...this.queue[qi], yandexId: match.yandexId, yandexAlbumId: match.yandexAlbumId, source: 'yandex' };
         this.notify('state');
@@ -1227,9 +1228,27 @@ class PlayerStore {
         }
     }
 
-    async startRadio(track: YTMTrack) {
+    applySharedVideoCard(card: YTMTrack) {
+        if (!this.queue.some(t => t.id === card.id)) return;
+        const hydrate = (t: YTMTrack) => t.id !== card.id ? t : {
+            ...withVideoCredits(t, card),
+            title: card.title || t.title,
+            duration: t.duration || card.duration,
+            thumbUrl: card.thumbUrl || t.thumbUrl,
+        };
+        this.queue = this.queue.map(hydrate);
+        this.originalQueue = this.originalQueue.map(hydrate);
+        if (this.currentTrack?.id === card.id) this.currentTrack = hydrate(this.currentTrack);
+        this.saveState();
+        this.notify('state');
+    }
+
+    async startRadio(track: YTMTrack, startTime = 0) {
         if (track.isAvailable === false) return;
         const alreadyPlayingThisTrack = this.currentTrack?.id === track.id && !this.hasStreamError;
+        if (this.currentTrack?.id === track.id && this.currentTrack.artistIds?.some(Boolean)) {
+            track = withVideoCredits(track, this.currentTrack);
+        }
         this.queueSourceId = null;
         this.queueSourceType = null;
         // Для SC/Yandex-трека YT-плейлист RDAMVM невалиден (нет YT videoId) — радио пойдёт
@@ -1242,7 +1261,8 @@ class PlayerStore {
         this.recommendations = [];
         this.notify('state');
         // Трек уже играет -- не сбрасывать позицию и не перезапрашивать стрим заново.
-        if (!alreadyPlayingThisTrack) await this.startPlayback(track);
+        if (!alreadyPlayingThisTrack) await this.startPlayback(track, false, startTime);
+        else if (startTime > 0) this.seek(startTime);
         await this.fetchRecommendations(track.id, true);
     }
 
@@ -1293,27 +1313,33 @@ class PlayerStore {
     }
 
 
-    // YT-логика без изменений. Seeding альбома/плейлиста/RD работает только в этом режиме.
+    // Seeding альбома/плейлиста/RD работает только в этом режиме.
     private async fetchYouTubeRecommendations(videoId: string, forceReplace: boolean) {
         const track = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
         const rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
         const { tracks } = await getQueueRecommendations(videoId, rid);
+        if (this.currentTrack?.id !== videoId) return;
         if (tracks.length > 0) {
             const qIds = new Set(this.queue.map(t => t.id));
             if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD') || rid === 'MLCT')) {
                 const currentIndex = tracks.findIndex(t => t.id === videoId);
                 if (currentIndex !== -1) {
+                    const seed = this.currentTrack;
+                    const result = tracks[currentIndex];
+                    const seedItem = {
+                        ...(seed.artistIds?.some(Boolean) ? withVideoCredits(result, seed) : result),
+                        likeStatus: seed.likeStatus ?? result.likeStatus,
+                    };
                     if (rid.startsWith('RD')) {
                         // Радио (в т.ч. RDAMVM от startRadio): сид всегда первый, остальное -- следом.
                         // YouTube не гарантирует позицию сида в сыром ответе радио-микса.
-                        const seedItem = { ...tracks[currentIndex], likeStatus: this.currentTrack?.likeStatus ?? tracks[currentIndex].likeStatus };
                         const rest = tracks.filter((_, i) => i !== currentIndex);
                         this.queue = [seedItem, ...rest];
                         this.queueIndex = 0;
                         this.currentTrack = this.queue[0];
                     } else {
                         // Альбом/плейлист/MLCT: сохраняем естественный порядок, сид остаётся на своей позиции.
-                        const fullQueue = tracks.map((t, i) => i === currentIndex ? { ...t, likeStatus: this.currentTrack?.likeStatus ?? t.likeStatus } : t);
+                        const fullQueue = tracks.map((t, i) => i === currentIndex ? seedItem : t);
                         this.queue = fullQueue;
                         this.queueIndex = currentIndex;
                         this.currentTrack = this.queue[currentIndex];
