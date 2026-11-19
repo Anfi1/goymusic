@@ -24,15 +24,15 @@ interface ShelfProps<T> {
 // Общая полоса карточек: скелетон / пусто / грид -- одна реализация на все секции.
 function Shelf<T>({ title, items, emptyText, renderCard, icon: Icon }: ShelfProps<T>) {
   return (
-    <section className={styles.section}>
+    <section className={styles.section} aria-busy={items === null}>
       <div className={styles.sectionHeader}>
         <div className={styles.sectionTitleWrapper}>
           {Icon && <Icon size={20} className={styles.sectionIcon} />}
-          <span style={{ marginLeft: 12, fontWeight: 700, fontSize: 20 }}>{title}</span>
+          <h2 className={styles.sectionTitle}>{title}</h2>
         </div>
       </div>
       {items === null ? (
-        <div className={styles.horizontalScroll}>
+        <div className={`${styles.horizontalScroll} ${styles.pendingCards}`}>
           {Array.from({ length: 6 }).map((_, i) => <MediaCardSkeleton key={i} className={styles.card} />)}
         </div>
       ) : items.length === 0 ? (
@@ -54,7 +54,8 @@ export const YandexHomeView: React.FC<{
   onSelectPlaylist: (id: string, title: string) => void;
   onSelectArtist: (id: string) => void;
   onSelectGenre: (genreId: string, title: string) => void;
-}> = ({ onSelectAlbum, onSelectPlaylist, onSelectArtist, onSelectGenre }) => {
+  sourceToggle: React.ReactNode;
+}> = ({ onSelectAlbum, onSelectPlaylist, onSelectArtist, onSelectGenre, sourceToggle }) => {
   const [waveTracks, setWaveTracks] = useState<YTMTrack[] | null>(null);
   const [releases, setReleases] = useState<YandexAlbumResult[] | null>(null);
   const [playlists, setPlaylists] = useState<YandexPlaylistResult[] | null>(null);
@@ -102,7 +103,8 @@ export const YandexHomeView: React.FC<{
   }, []);
 
   return (
-    <div className={styles.container}>
+    <div className={`${styles.container} ${styles.knownShelves} deck-scroll`}>
+      {sourceToggle}
       <Shelf
         title="Моя волна"
         icon={AudioLines}

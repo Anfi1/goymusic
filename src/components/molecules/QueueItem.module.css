@@ -71,7 +71,6 @@
 }
 
 .playingOverlay {
-    backdrop-filter: blur(0.5px); 
     z-index: 1;
     opacity: 1;
 }
@@ -234,7 +233,7 @@
 }
 
 :root[data-layout="deck"] .item:is(:hover, :focus-within) {
-    background: var(--hover);
+    background: var(--cover-hover, var(--accent-soft));
     border-color: transparent;
 }
 

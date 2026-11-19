@@ -16,7 +16,7 @@ import {
 import { player } from '../../api/player';
 import { requestPrefetch, cancelPrefetchRequest } from '../../api/stream';
 import { getAlbumLink } from '../../api/trackLink';
-import { usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
+import { playlistQueryKey, usePlaylist, PlaylistType } from '../../hooks/usePlaylist';
 import { likedManager } from '../../api/likedManager';
 import { likedStore } from '../../api/likedStore';
 import { LOCAL_PLAYLIST_ID } from '../../api/localOverrides';
@@ -133,8 +133,6 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
     });
   }, [track?.id]);
 
-  if (context.showSkeletons) return <TrackRowSkeleton {...rest} ref={ref} index={props['data-index']} hideAlbum={context.playlistType === 'album'} />;
-  
   const index = props['data-index'];
   const isAvailable = track?.isAvailable !== false;
 
@@ -146,6 +144,8 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
     cancelPrefetchRequest();
   }, []);
 
+  if (context.showSkeletons) return <TrackRowSkeleton {...rest} ref={ref} index={props['data-index']} hideAlbum={context.playlistType === 'album'} />;
+  
   return (
     <tr
       {...rest}
@@ -154,19 +154,30 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
       onClick={isAvailable ? () => (isActive ? player.togglePlay() : context.onPlay(index)) : undefined}
       onContextMenu={(e) => { e.preventDefault(); context.onContextMenu(e, track); }}
       draggable={context.isEditable}
-      onDragStart={() => context.onDragStart(index)}
+      onDragStart={e => {
+        if (!context.isEditable || !track?.setVideoId) { e.preventDefault(); return; }
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', track.setVideoId);
+        context.onDragStart(index);
+      }}
       onDragOver={(e) => {
+        if (context.draggedIdx === null) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         context.onDragOverItem?.(index);
       }}
-      onDragLeave={() => context.onDragOverItem?.(null)}
+      onDragEnter={e => {
+        if (context.draggedIdx !== null) e.preventDefault();
+      }}
       onDragEnd={() => {
         context.onDragStart(null);
         context.onDragOverItem?.(null);
         context.stopAutoScroll();
       }}
-      onDrop={() => context.onDrop(index)}
+      onDrop={e => {
+        e.preventDefault();
+        context.onDrop(index);
+      }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{ ...rest.style, cursor: context.isEditable ? 'grab' : (isAvailable ? 'pointer' : 'default') }}
@@ -259,6 +270,7 @@ const LargeHeader = memo(({
 
   const description = isLikedSongs ? 'Your private collection of favorite tracks' : metadata?.description;
   const actionSize = isDeck ? 32 : 42;
+  const isDeckAlbum = isDeck && playlistType === 'album';
   const stats = (
     <div className={styles.statsUnderCover}>
       {showSkeletons ? (
@@ -303,11 +315,11 @@ const LargeHeader = memo(({
         {!isDeck && stats}
       </div>
 
-      <div className={styles.info} style={showSkeletons ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
+      <div className={styles.info} style={showSkeletons && !isDeckAlbum ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
         {showSkeletons ? (
           <>
             <div className={styles.label}><Skeleton width={80} height={12} borderRadius={4} /></div>
-            <Skeleton width="85%" height={52} borderRadius={8} style={{ marginTop: '4px' }} />
+            <Skeleton width="85%" height={isDeckAlbum ? 'var(--fs-collection-title)' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
             <div className={styles.headerMeta} style={{ animation: 'none' }}>
               <div className={styles.metaTextInfo}>
                 <Skeleton width={140} height={14} borderRadius={4} />
@@ -503,6 +515,7 @@ export const MainView = memo<MainViewProps>(({
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [movingTrack, setMovingTrack] = useState(false);
   const [yandexLikedTracks, setYandexLikedTracks] = useState<YTMTrack[]>([]);
   // Даты лайков YouTube-треков: в самом списке их нет, они лежат в likedStore.
   const [ytLikedAt, setYtLikedAt] = useState<Map<string, number>>(new Map());
@@ -590,9 +603,7 @@ export const MainView = memo<MainViewProps>(({
     });
   }, []);
 
-  const isEditable = useMemo(() => 
-    playlistMetadata?.owned && playlistType === 'playlist' && playlistId !== 'LM'
-  , [playlistMetadata?.owned, playlistType, playlistId]);
+  const isEditable = !!playlistMetadata?.owned && playlistType === 'playlist' && playlistId !== 'LM' && !movingTrack;
 
   // Observe the in-flow header, not the recycled rows. The sticky title follows
   // the real cover/title height even when fonts, metadata or panel widths change.
@@ -607,6 +618,24 @@ export const MainView = memo<MainViewProps>(({
     observer.observe(header);
     return () => observer.disconnect();
   }, [deckScroller, playlistType]);
+
+  // The outer wrapper is Virtuoso's custom scroll parent in Deck. Keep its
+  // header in flow for measurement; only the painted cover and copy move.
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!isDeckAlbum || !deckScroller || !header) return;
+    let lastTop = -1;
+    const update = () => {
+      const top = Math.min(260, Math.max(0, deckScroller.scrollTop));
+      if (top !== lastTop) {
+        lastTop = top;
+        header.style.setProperty('--album-scroll', String(top));
+      }
+    };
+    update();
+    deckScroller.addEventListener('scroll', update, { passive: true });
+    return () => deckScroller.removeEventListener('scroll', update);
+  }, [isDeckAlbum, deckScroller]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
@@ -724,9 +753,11 @@ export const MainView = memo<MainViewProps>(({
 
   const viewTitle = playlistMetadata?.title || 'Loading...';
   const viewLabel = playlistMetadata?.type || 'PLAYLIST';
-  const showSkeletons = isPlaylistLoading || isInitializing;
+  const showSkeletons = isPlaylistLoading || (isInitializing && !(isDeckAlbum && playlistMetadata));
   const mergedLikedTracks = useMemo(() => {
-    if (showSkeletons) return Array(20).fill({});
+    // Album length is unknown until the response. A fabricated 20-row list
+    // flashes a scrollbar and remeasures the viewport even on a fast load.
+    if (showSkeletons) return isDeckAlbum ? [] : Array(20).fill({});
     if (!isLikedSongsView || yandexLikedTracks.length === 0) return playlistTracks;
     // Оба списка уже отсортированы по дате лайка (свежие сверху), поэтому сливаем их
     // слиянием, а не склейкой -- иначе весь Яндекс оказывался в хвосте под YouTube.
@@ -741,7 +772,7 @@ export const MainView = memo<MainViewProps>(({
       else merged.push(yandexLikedTracks[j++]);
     }
     return [...merged, ...playlistTracks.slice(i), ...yandexLikedTracks.slice(j)];
-  }, [showSkeletons, playlistTracks, isLikedSongsView, yandexLikedTracks, ytLikedAt]);
+  }, [showSkeletons, isDeckAlbum, playlistTracks, isLikedSongsView, yandexLikedTracks, ytLikedAt]);
 
   // Доступные источники: выключенная интеграция не должна ни показывать свою кнопку,
   // ни оставлять свои треки в списке (в кэше лайков они остаются и после отключения).
@@ -813,31 +844,43 @@ export const MainView = memo<MainViewProps>(({
     const sourceIdx = draggedIdx;
     setDraggedIdx(null);
     setDragOverIdx(null);
-    const sourceTrack = playlistTracks[sourceIdx];
-    let successorTrack = sourceIdx > targetIdx ? playlistTracks[targetIdx] : playlistTracks[targetIdx + 1];
-    if (!sourceTrack.setVideoId) return;
-    queryClient.setQueryData(['playlist-infinite', playlistType, playlistId], (old: any) => {
-      if (!old || !old.pages) return old;
-      const allTracks = old.pages.flatMap((p: any) => p.tracks);
-      const [moved] = allTracks.splice(sourceIdx, 1);
-      allTracks.splice(targetIdx, 0, moved);
-      const updatedPages = [...old.pages];
-      updatedPages[0] = { ...updatedPages[0], tracks: allTracks };
-      for (let i = 1; i < updatedPages.length; i++) updatedPages[i] = { ...updatedPages[i], tracks: [] };
-      return { ...old, pages: updatedPages };
-    });
-    try {
-      const success = await editPlaylist(playlistId, { moveItem: [sourceTrack.setVideoId, successorTrack ? successorTrack.setVideoId! : null] as any });
-      if (success) showToast('Playlist reordered', 'success');
-      else {
-        showToast('Failed to move track', 'error');
-        queryClient.invalidateQueries({ queryKey: ['playlist-infinite', playlistType, playlistId] });
-      }
-    } catch (e) {
-      showToast('Error moving track', 'error');
-      queryClient.invalidateQueries({ queryKey: ['playlist-infinite', playlistType, playlistId] });
+    const source = playlistTracks[sourceIdx]?.setVideoId;
+    const target = playlistTracks[targetIdx];
+    if (!source || !target?.setVideoId) {
+      showToast('Playlist entry unavailable', 'error');
+      return;
     }
-  }, [draggedIdx, isEditable, playlistId, playlistTracks, queryClient, playlistType, showToast, stopAutoScroll]);
+    setMovingTrack(true);
+    try {
+      let successor = sourceIdx > targetIdx ? target : playlistTracks[targetIdx + 1];
+      if (!successor && hasNextPage) {
+        // The last loaded entry is not necessarily the end of the playlist.
+        const next = await fetchNextPage({ cancelRefetch: false });
+        const entries: YTMTrack[] = next.data?.pages.flatMap(page => page.tracks) ?? [];
+        const position = entries.findIndex(entry => entry.setVideoId === target.setVideoId);
+        if (position === -1 || !entries[position + 1]) {
+          showToast('Load more playlist tracks before moving here', 'error');
+          return;
+        }
+        successor = entries[position + 1];
+      }
+      if ((successor && !successor.setVideoId) || (!successor && totalReportedCount > playlistTracks.length)) {
+        showToast('Playlist entry unavailable', 'error');
+        return;
+      }
+      const success = await editPlaylist(playlistId, {
+        moveItem: successor?.setVideoId ? [source, successor.setVideoId] : source
+      });
+      if (!success) throw new Error('Playlist edit rejected');
+      // Keep the server's page boundaries and never publish a rejected move.
+      await queryClient.invalidateQueries({ queryKey: playlistQueryKey(playlistType, playlistId), exact: true });
+      showToast('Playlist reordered', 'success');
+    } catch {
+      showToast('Failed to move track', 'error');
+    } finally {
+      setMovingTrack(false);
+    }
+  }, [draggedIdx, isEditable, playlistId, playlistTracks, hasNextPage, fetchNextPage, totalReportedCount, queryClient, playlistType, showToast, stopAutoScroll]);
 
   const virtuosoComponents = useMemo(() => ({
     Scroller: isDeck ? undefined : VirtuosoScroller,
@@ -875,7 +918,9 @@ export const MainView = memo<MainViewProps>(({
     >
       <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div
-        className={styles.virtuosoWrapper}
+        className={isDeck ? `${styles.virtuosoWrapper} deck-scroll` : styles.virtuosoWrapper}
+        data-collection-scroll={isDeck ? playlistType : undefined}
+        aria-busy={isDeckAlbum ? !!showSkeletons : undefined}
         ref={isDeck ? attachDeckScroller : undefined}
         onDragOver={isDeck ? handleDragOverContainer : undefined}
       >
@@ -892,7 +937,7 @@ export const MainView = memo<MainViewProps>(({
           increaseViewportBy={500} 
           fixedItemHeight={isDeck ? 44 : 56}
           endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }} 
-          computeItemKey={(index, track) => track.id || index}
+          computeItemKey={(index, track) => track.setVideoId || track.id || index}
           itemContent={(index, track) => <RenderTrackRow index={index} track={track} hideAlbum={playlistType === 'album'} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />} 
         />}
       </div>

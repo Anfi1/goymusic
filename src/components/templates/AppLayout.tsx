@@ -1,4 +1,4 @@
-import React, { useEffect, useState, memo, useMemo } from 'react';
+import React, { useState, memo, useSyncExternalStore } from 'react';
 import { player } from '../../api/player';
 import { ChevronLeft } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
@@ -19,6 +19,9 @@ interface AppLayoutProps {
   canGoBack?: boolean;
 }
 
+const subscribeToTrack = (notify: () => void) => player.subscribe(notify);
+const currentCover = () => player.currentTrack?.thumbUrl || '';
+
 /**
  * Template: AppLayout
  * The main application layout with TitleBar, Sidebar, Main content, Queue, and PlayerBar.
@@ -36,32 +39,40 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
   onBack,
   canGoBack = false
 }) => {
-  const [thumb, setThumb] = useState(player.currentTrack?.thumbUrl || '');
+  const thumb = useSyncExternalStore(subscribeToTrack, currentCover);
+  const [tint, setTint] = useState<{ url: string; color: string }>();
 
-  useEffect(() => {
-    return player.subscribe((event) => {
-      if (event === 'tick') return;
-      setThumb(player.currentTrack?.thumbUrl || '');
-    });
-  }, []);
-
-  // Stabilize the layout parts that shouldn't re-render when children or queue visibility changes
-  const memoizedTitleBar = useMemo(() => titleBar, [titleBar]);
-  const memoizedSidebar = useMemo(() => sidebar, [sidebar]);
-  const memoizedPlayerBar = useMemo(() => playerBar, [playerBar]);
+  const sampleCover = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const image = event.currentTarget;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      ctx.drawImage(image, 0, 0, 1, 1);
+      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+      if (a) setTint({ url: thumb, color: `rgb(${r} ${g} ${b})` });
+    } catch {
+      // A cover can still paint normally if its origin disallows pixel sampling.
+    }
+  };
 
   return (
-    <div className={styles.appWindow}>
+    <div className={styles.appWindow} style={tint?.url === thumb ? { '--track-color': tint.color } as React.CSSProperties : undefined}>
       {/* Ambient background layer */}
       {thumb && (
-        <div
+        <img
+          key={thumb}
+          src={thumb}
+          alt=""
           className={styles.ambientBlur}
           aria-hidden="true"
-          style={{ backgroundImage: `url(${thumb})` }}
+          draggable={false}
+          onLoad={sampleCover}
         />
       )}
 
-      {memoizedTitleBar}
+      {titleBar}
       
       <ErrorBoundary 
         fallbackStyle={{ gridArea: '2 / 1 / 4 / 4' }}
@@ -71,7 +82,7 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
         }}
       >
         <div style={{ display: 'contents' }}>
-          {memoizedSidebar}
+          {sidebar}
           <main className={`${styles.main} ${hidePlayerBar ? styles.mainImmersive : ''}`}>
             {canGoBack && onBack && !hideBackButton && (
               <div className={styles.contextualBack}>
@@ -98,7 +109,7 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
             {rightPanel}
           </aside>
 
-          {!hidePlayerBar && memoizedPlayerBar}
+          {!hidePlayerBar && playerBar}
         </div>
       </ErrorBoundary>
     </div>

@@ -274,8 +274,7 @@
     transition: opacity 0.15s ease, max-width 0s 0.15s;
 }
 
-.row:hover .likeBtnGroup,
-tr:hover .likeBtnGroup,
+tr:is(:hover, :focus-within) .likeBtnGroup,
 .likeBtnGroup:has(.isLiked),
 .likeBtnGroup:has(.isDisliked),
 .likeBtnGroup:has(.isLiking) {
@@ -292,13 +291,13 @@ tr:hover .likeBtnGroup,
     display: none;
 }
 
-tr:hover .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
-tr:hover .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
+tr:is(:hover, :focus-within) .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
+tr:is(:hover, :focus-within) .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
     display: flex;
 }
 
 /* молния стоит на месте кнопок лайка и уступает им место при наведении */
-tr:hover .bestBadge {
+tr:is(:hover, :focus-within) .bestBadge {
     display: none;
 }
 
@@ -337,8 +336,9 @@ tr:hover .bestBadge {
 /* Match the row height requested by each fixed-size virtual table. */
 :root[data-layout="deck"] .row[data-index] { height: var(--virtual-track-height, 56px); }
 
-:root[data-layout="deck"] .row:is(:hover, .active) { background: transparent; }
-:root[data-layout="deck"] .row:is(:hover, .active) td { background: var(--bg-mantle); }
+:root[data-layout="deck"] .row:is(:hover, :focus-within, .active) { background: transparent; }
+:root[data-layout="deck"] .row.active td { background: var(--accent-soft); }
+:root[data-layout="deck"] .row:is(:hover, :focus-within) td { background: var(--cover-hover, var(--accent-soft)); }
 :root[data-layout="deck"] .row.active td:first-child::before { content: none; }
 :root[data-layout="deck"] .row td { padding: 4px 8px; border: 0; }
 :root[data-layout="deck"] .row td:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }

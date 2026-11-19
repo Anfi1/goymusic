@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, memo, useCallback, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Library, Zap, Radio, AudioLines, HardDrive } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
@@ -13,12 +13,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PlaylistContextMenu, PlaylistContextMenuRef } from './PlaylistContextMenu';
 import { InputDialog } from '../molecules/InputDialog';
 import sidebarStyles from './Sidebar.module.css';
-import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 
 interface SidebarProps {
-  collapsed?: boolean;
+  collapsed: boolean;
+  deck: boolean;
+  header?: React.ReactNode;
   immersive?: boolean;
-  onToggleCollapse?: () => void;
   playlists?: YTMPlaylist[];
   activePlaylistId?: string | null;
   onSelectView?: (view: ActiveView) => void;
@@ -30,25 +30,29 @@ interface SidebarProps {
   activeViewType?: string;
 }
 
-const deckCollapsedKey = 'goymusic-deck-sidebar-collapsed';
+const nyanClip = 'https://us-tuna-sounds-files.voicemod.net/d991f515-a251-4ab6-b4de-b75c566127f9-1659582305102.mp3';
 
 function useHomeLogoAction(onSelectView: SidebarProps['onSelectView'], activeViewType?: string) {
-  const [clickCount, setClickCount] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const clicks = useRef({ count: 0, last: 0 });
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stopTimeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => {
+    window.clearTimeout(stopTimeoutRef.current);
+    if (audioRef.current) {
+      audioRef.current.onloadedmetadata = null;
+      audioRef.current.pause();
+    }
+  }, []);
 
   return useCallback(() => {
-    console.log(`[easter-egg] Click on logo. View: ${activeViewType}, Count: ${clickCount + 1}`);
-
     if (activeViewType === 'home') {
-      const nextCount = clickCount + 1;
-      
-      if (nextCount >= 4) {
-        console.log('[easter-egg] 🚀 ACTIVATED!');
-        
+      const now = performance.now();
+      const count = now - clicks.current.last < 1000 ? clicks.current.count + 1 : 1;
+      clicks.current = { count: count % 4, last: now };
+      if (count === 4) {
         if (!audioRef.current) {
-          audioRef.current = new Audio('https://us-tuna-sounds-files.voicemod.net/d991f515-a251-4ab6-b4de-b75c566127f9-1659582305102.mp3');
+          audioRef.current = new Audio(nyanClip);
         }
         
         const audio = audioRef.current;
@@ -60,8 +64,8 @@ function useHomeLogoAction(onSelectView: SidebarProps['onSelectView'], activeVie
           audio.currentTime = startTime;
           audio.play().catch(e => console.error('[easter-egg] Playback failed:', e));
 
-          if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
-          stopTimeoutRef.current = setTimeout(() => {
+          window.clearTimeout(stopTimeoutRef.current);
+          stopTimeoutRef.current = window.setTimeout(() => {
             audio.pause();
           }, 3500);
         };
@@ -69,34 +73,30 @@ function useHomeLogoAction(onSelectView: SidebarProps['onSelectView'], activeVie
         if (audio.readyState >= 1) {
           startPlayback();
         } else {
-          audio.load();
           audio.onloadedmetadata = startPlayback;
+          audio.load();
         }
-
-        setClickCount(0);
-      } else {
-        setClickCount(nextCount);
       }
-
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setClickCount(0), 1000);
     }
 
     onSelectView?.({ type: 'home' });
-  }, [onSelectView, activeViewType, clickCount]);
+  }, [onSelectView, activeViewType]);
 }
 
-const SidebarHeader = memo(({
+export const SidebarHeader = memo(({
   collapsed,
   showLogo,
   onToggleCollapse,
-  onLogoClick
+  onSelectView,
+  activeViewType,
 }: {
   collapsed: boolean;
   showLogo: boolean;
   onToggleCollapse?: () => void;
-  onLogoClick: () => void;
+  onSelectView: SidebarProps['onSelectView'];
+  activeViewType: string;
 }) => {
+  const onLogoClick = useHomeLogoAction(onSelectView, activeViewType);
   return (
     <div className={sidebarStyles.header}>
       <button
@@ -276,9 +276,10 @@ const PlaylistList = memo(({
 });
 
 export const Sidebar: React.FC<SidebarProps> = memo(({
-  collapsed: classicCollapsed = false,
+  collapsed,
+  deck,
+  header,
   immersive = false,
-  onToggleCollapse,
   playlists = [],
   activePlaylistId,
   onSelectView,
@@ -289,15 +290,6 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
   className,
   activeViewType
 }) => {
-  const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
-  const [deckCollapsed, setDeckCollapsed] = useState(() => localStorage.getItem(deckCollapsedKey) === 'true');
-  const collapsed = deck ? deckCollapsed : classicCollapsed;
-  const toggleDeck = useCallback(() => {
-    const next = !deckCollapsed;
-    localStorage.setItem(deckCollapsedKey, String(next));
-    setDeckCollapsed(next);
-  }, [deckCollapsed]);
-  const handleLogoClick = useHomeLogoAction(onSelectView, activeViewType);
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const playlistMenuRef = useRef<PlaylistContextMenuRef>(null);
@@ -362,12 +354,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
 
   return (
     <aside className={`${sidebarStyles.sidebar} ${collapsed ? sidebarStyles.collapsed : ''} ${immersive ? sidebarStyles.immersive : ''} ${className || ''}`}>
-      <SidebarHeader 
-        collapsed={collapsed} 
-        onToggleCollapse={deck ? toggleDeck : onToggleCollapse}
-        showLogo={!deck && !collapsed}
-        onLogoClick={handleLogoClick}
-      />
+      {header}
 
       {!deck && account}
 
@@ -376,7 +363,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
           icon={Home}
           label={collapsed ? '' : 'Home'}
           active={activeViewType === 'home'}
-          onClick={deck ? handleLogoClick : handleNavigateHome}
+          onClick={handleNavigateHome}
           tooltip={collapsed ? 'Home' : undefined}
         />
         <NavLink

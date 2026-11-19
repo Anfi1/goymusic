@@ -106,7 +106,7 @@ export const Carousel = memo(({
         onMouseDown={onMouseDown}
       >
         {items.map((item, idx) => (
-          <div key={idx} className={itemClassName} onClickCapture={hasMoved ? (e) => e.stopPropagation() : undefined}>
+          <div key={idx} className={itemClassName} onClickCapture={hasMoved ? (e) => { if (e.detail > 0) e.stopPropagation(); } : undefined}>
             {renderItem(item, idx)}
           </div>
         ))}

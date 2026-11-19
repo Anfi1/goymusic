@@ -143,6 +143,8 @@
 :root[data-layout="deck"] {
     color-scheme: dark;
     --font-main: "Segoe UI", system-ui, sans-serif;
+    --title-height: 32px;
+    --collection-gutter: clamp(18px, 3vw, 44px);
     --bg-crust: #131516;
     --bg-base: #17191a;
     --bg-mantle: #212425;
@@ -151,8 +153,8 @@
     --solid-mantle: var(--bg-mantle);
     --panel-bg: var(--bg-mantle);
     --text-main: #e9ebea;
-    --text-sub: #b2bab7;
-    --text-dim: #a6aeab;
+    --text-sub: #c9cfcc;
+    --text-dim: #b3bbb8;
     --accent: #a6d5c6;
     --accent-hover: #bee4d8;
     --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -160,9 +162,9 @@
     --border-color: #323536;
     --border-subtle: var(--border-color);
     --hover: var(--bg-raised);
-    --glass-surface: rgba(19, 21, 22, 0.55);
-    --glass-surface-player: rgba(23, 25, 26, 0.55);
-    --glass-surface-main: rgba(10, 12, 13, 0.5);
+    --glass-surface: rgb(7 10 11 / 40%);
+    --glass-surface-player: rgb(7 10 11 / 48%);
+    --glass-surface-main: rgb(7 10 11 / 36%);
     --bg-main-glass: var(--glass-surface-main);
     --glass-popover-bg: var(--bg-raised);
     --glass-popover-blur: 0px;
@@ -172,6 +174,29 @@
     --radius-md: 5px;
     --radius-lg: 7px;
     --radius-xl: 9px;
+}
+
+:root[data-layout="deck"] .deck-scroll {
+    scrollbar-gutter: stable;
+}
+
+:root[data-layout="deck"] .deck-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+:root[data-layout="deck"] .deck-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+:root[data-layout="deck"] .deck-scroll::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 26%);
+    border: none;
+    border-radius: var(--radius-full);
+}
+
+:root[data-layout="deck"] .deck-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 45%);
 }
 
 /* Base Styles */

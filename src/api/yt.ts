@@ -524,11 +524,11 @@ export async function editPlaylist(playlistId: string, options: {
     title?: string, 
     description?: string, 
     privacyStatus?: 'PUBLIC' | 'PRIVATE' | 'UNLISTED',
-    moveItem?: [string, string], // [setVideoId, beforeSetVideoId]
+    moveItem?: string | [string, string], // setVideoId (append), or [setVideoId, successorSetVideoId]
     addToTop?: boolean
 }): Promise<boolean> {
     const res = await pyCall('edit_playlist', { playlistId, ...options });
-    return res.status === 'ok';
+    return res.status === 'ok' && (!options.moveItem || res.result === 'STATUS_SUCCEEDED');
 }
 
 export async function addPlaylistItems(playlistId: string, videoIds: string[], duplicates: boolean = false): Promise<boolean> {

@@ -51,6 +51,18 @@
   overflow: hidden;
 }
 
+.skeleton {
+  pointer-events: none;
+}
+
+.skeleton.row .info {
+  flex: 1;
+}
+
+.skeleton :is(.title, .subtitle) > div {
+  margin-block: calc((1lh - .65em) / 2);
+}
+
 /* Unified shading layer */
 .thumbWrapper::after {
   content: '';
@@ -127,14 +139,26 @@
 }
 
 .playOverlay {
+  cursor: pointer;
+  border: 0;
+  color: inherit;
   background: none;
   opacity: 0;
   z-index: 3;
 }
 
-/* Show play button only on thumbnail hover */
-.thumbWrapper:hover .playOverlay {
+.thumbWrapper:hover .playOverlay,
+.playOverlay:focus-visible {
   opacity: 1;
+}
+
+.thumbWrapper:focus-within::after {
+  opacity: 1;
+}
+
+.card button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
 }
 
 .activeOverlay {
@@ -197,8 +221,16 @@
   transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+button.title {
+  background: none;
+  border: 0;
+  text-align: start;
+  cursor: pointer;
+}
+
 .subtitle {
   font-size: var(--fs-base);
+  min-block-size: var(--card-caption-height, 0px);
   color: var(--text-sub);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -212,6 +244,10 @@
 }
 
 .artistLink {
+  display: inline;
+  border: 0;
+  background: none;
+  font: inherit;
   color: inherit;
   text-decoration: none;
   cursor: pointer;
@@ -258,7 +294,8 @@
   border-radius: var(--radius-md);
 }
 
-:root[data-layout="deck"] .card:is(:hover, .active) { background: var(--bg-mantle); }
+:root[data-layout="deck"] .card.active { background: var(--accent-soft); }
+:root[data-layout="deck"] .card:is(:hover, :focus-within) { background: var(--cover-hover, var(--accent-soft)); }
 
 :root[data-layout="deck"] .thumbWrapper {
   box-shadow: none;

@@ -11,10 +11,6 @@
     z-index: 9999;
 }
 
-.brand {
-    display: none;
-}
-
 .leftControls {
     display: flex;
     align-items: center;
@@ -241,26 +237,10 @@
     margin: 0 0.5rem;
 }
 
-.loadingTitle {
-    font-size: var(--fs-lg);
-    font-weight: 800;
-    color: var(--accent);
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    opacity: 0.8;
-}
-
 :root[data-layout="deck"] .titleBar {
     grid-template-columns: minmax(0, 1fr) min(36vw, 360px) minmax(0, 1fr);
     background: var(--glass-surface);
     border-color: var(--border-color);
-}
-
-:root[data-layout="deck"] .brand {
-    display: block;
-    color: var(--text-main);
-    margin-inline-end: 8px;
-    font-size: var(--fs-lg);
 }
 
 :root[data-layout="deck"] .leftControls {
@@ -272,11 +252,11 @@
 }
 
 :root[data-layout="deck"] .inputIconWrapper {
-    background: var(--bg-mantle);
+    background: var(--glass-surface);
 }
 
 :root[data-layout="deck"] .searchInput {
-    height: 28px;
+    height: 22px;
 }
 
 :root[data-layout="deck"] .suggestionsDropdown {
@@ -284,8 +264,10 @@
     backdrop-filter: none;
 }
 
-:root[data-layout="deck"] .loadingTitle {
-    display: none;
+:root[data-layout="deck"] .controlBtn {
+    min-width: clamp(32px, 3.8vw, 46px);
+    min-height: 100%;
+    border-radius: 0;
 }
 
 :root[data-layout="deck"] .titleBar button:focus-visible {
@@ -296,5 +278,18 @@
 @media (max-width: 899px) {
     .titleBar {
         grid-template-columns: minmax(0, 1fr) min(36vw, 360px) minmax(0, 1fr);
+    }
+
+    :root[data-layout="deck"] .titleBar {
+        grid-template-columns: minmax(0, 1fr) min(32vw, 280px) minmax(0, 1fr);
+    }
+
+    :root[data-layout="deck"] .leftControls {
+        gap: 2px;
+        padding-inline-start: 4px;
+    }
+
+    :root[data-layout="deck"] :is(.themeToggle, .divider) {
+        margin-inline: 0;
     }
 }

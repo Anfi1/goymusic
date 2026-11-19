@@ -126,6 +126,10 @@
     box-shadow: none;
 }
 
+:root[data-layout="deck"] .card:is(:hover, :focus-visible) .thumbnailWrapper {
+    box-shadow: 0 0 0 3px var(--cover-hover, var(--accent-soft));
+}
+
 :root[data-layout="deck"] .card:is(:hover, :focus-visible) .name {
     color: var(--accent);
 }

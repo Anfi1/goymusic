@@ -296,7 +296,7 @@
 
 :root[data-layout="deck"] .sidebar {
     min-height: 0;
-    padding: 0 8px;
+    padding: 6px 8px 0;
     backdrop-filter: none;
     overflow: visible;
 }
@@ -306,15 +306,30 @@
 }
 
 :root[data-layout="deck"] .header {
-    flex: 0 0 40px;
-    min-height: 40px;
+    min-height: 0;
+    gap: 4px;
     padding: 0;
-    margin: 4px 0;
+    margin: 0;
+}
+
+:root[data-layout="deck"] .logo {
+    font-size: var(--fs-lg);
+    letter-spacing: normal;
+}
+
+:root[data-layout="deck"] .logoButton {
+    height: 28px;
 }
 
 :root[data-layout="deck"] .toggleBtn {
+    width: 30px;
+    height: 28px;
     opacity: 1;
     color: var(--accent);
+}
+
+:root[data-layout="deck"] .toggleBtn:hover {
+    background: var(--hover);
 }
 
 :root[data-layout="deck"] .userProfile {

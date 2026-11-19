@@ -217,7 +217,6 @@
 
 :root[data-layout="deck"] .header h4 {
     font-size: var(--fs-lg);
-    font-weight: 550;
 }
 
 :root[data-layout="deck"] :is(.queueItemWrapper, .section) {

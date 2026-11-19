@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, memo, Fragment } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
 import { 
@@ -85,7 +85,7 @@ interface ArtistViewProps {
   onSelectArtist: (id: string) => void;
   onSelectAlbum: (id: string) => void;
   onSelectPlaylist: (id: string, title: string) => void;
-  onViewModeChange?: (mode: ViewMode) => void;
+  onSheetBackChange: (back: (() => void) | null) => void;
 }
 
 type ViewMode = 'main' | 'all-songs' | 'discography';
@@ -95,7 +95,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   onSelectArtist,
   onSelectAlbum,
   onSelectPlaylist,
-  onViewModeChange
+  onSheetBackChange
 }) => {
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<ViewMode>('main');
@@ -106,6 +106,9 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const [likesOnly, setLikesOnly] = useState(false);
   const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
   const trackMenuRef = useRef<TrackContextMenuHandle>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetBackRef = useRef<HTMLButtonElement>(null);
+  const sheetOpener = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -140,28 +143,40 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const isSoundCloudArtist = isSoundCloudId(artistId);
   const isYandexArtist = isYandexArtistId(artistId);
 
-  // Wrapped setViewMode that also notifies parent about view mode changes
-  const setViewModeWithNotification = useCallback((mode: ViewMode) => {
+  const isModalOpen = viewMode !== 'main';
+  const openSheet = (mode: Exclude<ViewMode, 'main'>, opener: HTMLButtonElement) => {
+    sheetOpener.current = opener;
     setViewMode(mode);
-    onViewModeChange?.(mode);
-  }, [onViewModeChange]);
-
-  // Close modal with exit animation
+  };
   const closeModal = useCallback(() => {
+    trackMenuRef.current?.close();
     setIsClosing(true);
-    setTimeout(() => {
-      setViewModeWithNotification('main');
-      setIsClosing(false);
-    }, 200);
-  }, [setViewModeWithNotification]);
-
-  // Notify parent on mount that we're in main mode (restores global back button)
-  useEffect(() => {
-    onViewModeChange?.('main');
   }, []);
 
-  const isModalOpen = viewMode === 'all-songs' || viewMode === 'discography';
+  useLayoutEffect(() => {
+    if (!isModalOpen) {
+      sheetOpener.current?.focus({ preventScroll: true });
+      sheetOpener.current = null;
+      return;
+    }
+    sheetBackRef.current?.focus({ preventScroll: true });
+    onSheetBackChange(closeModal);
+    return () => onSheetBackChange(null);
+  }, [isModalOpen, onSheetBackChange, closeModal]);
 
+  useLayoutEffect(() => {
+    if (!isClosing) return;
+    let active = true;
+    // Wait for the actual transform, including a reversal midway through entry.
+    // With reduced motion there is no transition to await.
+    const transitions = sheetRef.current?.getAnimations() ?? [];
+    Promise.allSettled(transitions.map(transition => transition.finished)).then(() => {
+      if (!active) return;
+      setViewMode('main');
+      setIsClosing(false);
+    });
+    return () => { active = false; };
+  }, [isClosing]);
 
 
   // 1. Fetch Basic Artist Details (Fast). Для SC-артиста — минимальный detail (имя, аватар, треки).
@@ -302,11 +317,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     return (detail.yandexAlbums || []).filter((a: any) => a.type === 'compilation');
   }, [detail]);
 
-  // Handlers
-  const handleSeeAllSongs = useCallback(() => {
-    setViewModeWithNotification('all-songs');
-  }, []);
-
   const handleToggleSubscribe = useCallback(async () => {
     if (!detail || !detail.channelId) return;
     try {
@@ -393,11 +403,6 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     return () => el.removeEventListener('scroll', handleScroll);
   }, [isModalOpen]);
 
-  useEffect(() => {
-    setViewModeWithNotification('main');
-    setIsBioExpanded(false);
-  }, [artistId]);
-
   if (isLoading) {
     return (
       <div className={styles.container}>
@@ -418,7 +423,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   if (!detail) return <div className={styles.container}>Artist not found.</div>;
 
   const overview = (
-    <div className={styles.container} data-artist-view>
+    <div className={styles.container} data-artist-view inert={isModalOpen}>
       <header className={styles.header}>
         <div className={styles.bannerWrapper} style={{ '--shadow-color': shadowColor } as React.CSSProperties}>
           <LazyImage src={detail.thumbUrl} alt={detail.name} className={styles.bannerImage} />
@@ -469,10 +474,9 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Top Songs</h2>
-            {(detail.isSoundCloud || detail.isYandex) && detail.allTracks?.length > detail.topSongs?.length && (
-              <button className={styles.seeAllBtn} onClick={() => setViewModeWithNotification('all-songs')}>See all <ChevronRight size={16} /></button>
+            {(detail.seeAllSongsId || ((detail.isSoundCloud || detail.isYandex) && detail.allTracks?.length > detail.topSongs?.length)) && (
+              <button className={styles.seeAllBtn} onClick={e => openSheet('all-songs', e.currentTarget)}>See all <ChevronRight size={16} /></button>
             )}
-            {detail.seeAllSongsId && <button className={styles.seeAllBtn} onClick={handleSeeAllSongs}>See all <ChevronRight size={16} /></button>}
           </div>
           <table className={styles.trackList}>
             <TrackColumnGroup />
@@ -620,7 +624,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Discography</h2>
-            <button className={styles.seeAllBtn} onClick={() => { setViewModeWithNotification('discography'); setDiscoCategory('Album'); }}>See All <ChevronRight size={16} /></button>
+            <button className={styles.seeAllBtn} onClick={e => { openSheet('discography', e.currentTarget); setDiscoCategory('Album'); }}>See All <ChevronRight size={16} /></button>
           </div>
           <Carousel 
             items={discography}
@@ -723,14 +727,12 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   return (
     <div className={styles.viewport}>
       {overview}
-      <TrackContextMenu ref={trackMenuRef} />
+      <TrackContextMenu ref={trackMenuRef} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} />
 
       {/* All Songs Modal */}
       {viewMode === 'all-songs' && (
-        <div 
-          className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}
-        >
-          <button className={styles.allSongsBackBtn} onClick={closeModal}>
+        <div ref={sheetRef} data-artist-sheet={viewMode} data-closing={isClosing || undefined} className={styles.allSongsView} role="region" aria-label="All Songs">
+          <button ref={sheetBackRef} className={styles.allSongsBackBtn} onClick={closeModal} aria-label="Back to artist">
             <ArrowLeft size={22} />
           </button>
           <header className={styles.allSongsHeader}>
@@ -840,10 +842,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         const items = discography.filter(item => item.category === discoCategory);
         const isLoading = fullAlbums.length === 0 && fullSingles.length === 0 && (!!detail?.albumsId || !!detail?.singlesId);
         return (
-          <div 
-            className={`${styles.allSongsView} ${isClosing ? styles.closing : ''}`}
-          >
-            <button className={styles.allSongsBackBtn} onClick={closeModal}>
+          <div ref={sheetRef} data-artist-sheet={viewMode} data-closing={isClosing || undefined} className={styles.allSongsView} role="region" aria-label="Discography">
+            <button ref={sheetBackRef} className={styles.allSongsBackBtn} onClick={closeModal} aria-label="Back to artist">
               <ArrowLeft size={22} />
             </button>
             <header className={styles.discoHeader}>

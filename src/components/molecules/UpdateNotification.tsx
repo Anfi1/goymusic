@@ -70,7 +70,7 @@ export const UpdateNotification: React.FC = () => {
         {state === 'downloading' && (
           <>
             Загрузка... {progress}%
-            <div className={styles.progressWrap}>
+            <div className={styles.progressWrap} role="progressbar" aria-label="Загрузка обновления" aria-valuenow={progress}>
               <div className={styles.progressBar} style={{ width: `${progress}%` }} />
             </div>
           </>
@@ -79,10 +79,10 @@ export const UpdateNotification: React.FC = () => {
           <>Обновление загружено — перезапустите</>
         )}
       </div>
-      <div className={styles.actions}>
+      {state !== 'downloading' && <div className={styles.actions}>
         {state === 'available' && (
           <>
-            <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={handleDownload}>
+            <button className={`${styles.btn} ${styles.btnPrimary}`} aria-label="Скачать обновление" onClick={handleDownload}>
               <Download size={14} />
             </button>
             <button className={`${styles.btn} ${styles.btnSecondary}`} onClick={handleDismiss}>
@@ -90,15 +90,12 @@ export const UpdateNotification: React.FC = () => {
             </button>
           </>
         )}
-        {state === 'downloading' && (
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{progress}%</span>
-        )}
         {state === 'downloaded' && (
-          <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={handleInstall}>
+          <button className={`${styles.btn} ${styles.btnPrimary}`} aria-label="Установить обновление" onClick={handleInstall}>
             <RefreshCw size={14} />
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 };

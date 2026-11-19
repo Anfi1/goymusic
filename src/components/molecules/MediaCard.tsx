@@ -115,7 +115,8 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
       if (artistId && onArtistClick) {
         return (
           <React.Fragment key={index}>
-            <span 
+            <button
+              type="button"
               className={styles.artistLink}
               onClick={(e) => {
                 e.stopPropagation();
@@ -123,7 +124,7 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
               }}
             >
               {name}
-            </span>
+            </button>
             {!isLast && ", "}
           </React.Fragment>
         );
@@ -196,7 +197,7 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
         )}
 
         {!isArtist && onPlayClick && (
-          <div 
+          <button type="button" aria-label={`Play ${title}`}
             className={`${styles.playOverlay} ${isLoading ? styles.isLoading : ''}`} 
             onClick={handlePlayAction}
           >
@@ -205,11 +206,11 @@ export const MediaCard: React.FC<MediaCardProps> = React.memo(({
             ) : (
               <Play size={variant === 'row' ? 18 : 24} fill="currentColor" />
             )}
-          </div>
+          </button>
         )}
       </div>
       <div className={styles.info}>
-        <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>
+        <button type="button" className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</button>
         <div className={styles.subtitle} data-tooltip={artists && artists.length > 0 ? artists.join(', ') : undefined}>
           {renderSubtitle()}
         </div>

@@ -354,11 +354,11 @@
     background: transparent;
 }
 
-:root[data-layout="deck"] :is(.topResultCard, .albumCard, .albumCardGrid):hover {
-    background: var(--bg-mantle);
+:root[data-layout="deck"] :is(.topResultCard, .albumCard, .albumCardGrid):is(:hover, :focus-within) {
+    background: var(--cover-hover, var(--accent-soft));
 }
 
-:root[data-layout="deck"] .topResultCard.artistResult:is(:hover, :focus-visible) {
+:root[data-layout="deck"] .topResultCard.artistResult:is(:hover, :focus-within) {
     background: transparent;
     color: var(--accent);
 }

@@ -7,6 +7,7 @@ import { getSearchHistory, addToSearchHistory, removeFromSearchHistory } from '.
 import styles from './TitleBar.module.css';
 
 interface TitleBarProps {
+  navigationHeader?: React.ReactNode;
   theme: 'dark' | 'glass';
   onToggleTheme: () => void;
   onBack?: () => void;
@@ -41,6 +42,7 @@ const WindowMaximizeButton = memo(() => {
 });
 
 export const TitleBar: React.FC<TitleBarProps> = memo(({ 
+  navigationHeader,
   theme, 
   onToggleTheme,
   onBack,
@@ -164,7 +166,7 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
     <header className={styles.titleBar}>
       {/* Left: Navigation Controls */}
       <div className={styles.leftControls} style={NO_DRAG_STYLE}>
-        <strong className={styles.brand}>GoyMusic</strong>
+        {navigationHeader}
         {!isInitializing && onBack && (
           <IconButton 
             icon={ChevronLeft} 
@@ -186,9 +188,9 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
         )}
       </div>
 
-      {/* Center: Search Area / Loading Title */}
+      {/* Center: Search Area */}
       <div className={styles.searchRegion} style={NO_DRAG_STYLE}>
-        {!isInitializing ? (
+        {!isInitializing && (
           <div ref={searchContainerRef} className={styles.searchWrapper}>
             <form onSubmit={handleSearchSubmit} className={styles.searchForm}>
               <div className={styles.inputIconWrapper}>
@@ -246,8 +248,6 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
               </div>
             )}
           </div>
-        ) : (
-          <div className={styles.loadingTitle}>GoyMusic</div>
         )}
       </div>
 

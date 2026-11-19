@@ -6,6 +6,7 @@ import { QueueItem } from '../molecules/QueueItem';
 import { QueueItemSkeleton } from '../molecules/QueueItemSkeleton';
 import { RotateCw } from 'lucide-react';
 import styles from './QueuePanel.module.css';
+import headings from '../../styles/DeckHeadings.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { YTMTrack } from '../../api/yt';
 import { TrackSource } from '../../api/source';
@@ -319,7 +320,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
   return (
     <aside aria-label="Queue" className={`${styles.panel} ${waveMode ? styles.waveMode : ''}`}>
       <header className={styles.header}>
-        <h4>Queue</h4>
+        <h4 className={headings.featureHeading}>Queue</h4>
         <RadioModeSwitcher />
       </header>
       <div className={styles.list}>

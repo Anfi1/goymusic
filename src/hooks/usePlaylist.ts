@@ -13,6 +13,7 @@ import { LOCAL_PLAYLIST_ID, getAllOverrides, onOverrideChanged } from '../api/lo
 
 export type PlaylistType = 'liked' | 'playlist' | 'album';
 export type SortMode = 'date' | 'album';
+export const playlistQueryKey = (type: PlaylistType, id?: string) => ['playlist-infinite', type, id] as const;
 
 export interface PlaylistMetadata {
   id?: string;
@@ -67,7 +68,7 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
     });
   }, []);
   
-  const queryKey = ['playlist-infinite', type, id];
+  const queryKey = playlistQueryKey(type, id);
   const isLiked = type === 'liked' || id === 'LM';
 
   useEffect(() => {
@@ -204,7 +205,8 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
           };
           return { tracks: sc?.tracks || [], continuation: null, totalCount: sc?.trackCount || sc?.tracks.length || 0, metadata };
         }
-        const res = await getPlaylistTracks(id, 200, signal);
+        // Read one shelf and its matching continuation, not a prefetched range with the first shelf's cursor.
+        const res = await getPlaylistTracks(id, /^(VL)?RD/.test(id) ? 200 : null, signal);
         const metadata: PlaylistMetadata = {
           id,
           title: (res as any).title || 'Playlist',
@@ -297,13 +299,17 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
       ? likedPlaylistTracks(useLocalLikes ? localTracks : null, data?.pages, scEntries)
       : data?.pages.flatMap(page => page.tracks) || [];
 
+    // Playlist entries have their own setVideoIds. The same recording can occur
+    // more than once, or have a different entry ID in another playlist.
+    if (!isLiked && type === 'playlist' && data?.pages[0]?.metadata?.owned) return tracks.filter(track => track.id);
+
     const seen = new Set();
     return tracks.filter(track => {
       if (!track.id || seen.has(track.id)) return false;
       seen.add(track.id);
       return true;
     }).map(getStableTrack);
-  }, [data, localTracks, scEntries, useLocalLikes, isLiked, getStableTrack]);
+  }, [data, localTracks, scEntries, useLocalLikes, isLiked, type, getStableTrack]);
 
   const albumSortedTracks = useMemo(() => {
     if (!isLiked || localTracks.length === 0) return baseTracks;

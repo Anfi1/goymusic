@@ -3,7 +3,6 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getHomeSections, getAlbum, getPlaylistTracks, sendFeedback } from '../../api/yt';
 import { player } from '../../api/player';
 import { MediaCard } from '../molecules/MediaCard';
-import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
 import { Carousel } from '../molecules/Carousel';
 import { Skeleton } from '../atoms/Skeleton';
 import {
@@ -20,6 +19,7 @@ import { getHomeSource, setHomeSource, HomeSource } from '../../api/homeSource';
 import { HomeSourceToggle } from '../atoms/HomeSourceToggle';
 import { YandexHomeView } from './YandexHomeView';
 import styles from './HomeView.module.css';
+import headings from '../../styles/DeckHeadings.module.css';
 
 const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
   if (isFirst) return Zap;
@@ -65,21 +65,23 @@ function getSectionNavTarget(title?: string): SectionNavTarget | null {
   return null;
 }
 
-// Ключевые слова для приоритетных секций (выводятся первыми на Главной)
 const LISTEN_AGAIN_KEYWORDS = [
   'listen again',
   'послушайте ещё раз',
   'послушать ещё раз',
   'послушайте еще раз',
   'послушать еще раз',
+];
+
+const PRIORITY_KEYWORDS = [
+  ...LISTEN_AGAIN_KEYWORDS,
   'быстрый выбор',
   'quick picks',
 ];
 
-function isListenAgainSection(title?: string): boolean {
-  if (!title) return false;
-  const lower = title.toLowerCase();
-  return LISTEN_AGAIN_KEYWORDS.some(k => lower.includes(k));
+function matchesTitle(title: string | undefined, keywords: string[]): boolean {
+  const lower = title?.toLowerCase();
+  return !!lower && keywords.some(k => lower.includes(k));
 }
 
 function filterSection(section: YTMHomeSection): boolean {
@@ -97,20 +99,16 @@ function normalizePins(section: YTMHomeSection, isFirst: boolean): YTMHomeSectio
   return { ...section, contents };
 }
 
-const SectionSkeleton: React.FC<{ variant?: 'card' | 'row' }> = ({ variant = 'card' }) => (
-  <div className={styles.section}>
+// The service chooses between card shelves and three-row grids. Until the
+// response arrives, only the heading has a known position and line height.
+const SectionSkeleton = () => (
+  <section className={`${styles.section} ${styles.pendingShelf}`} aria-hidden="true">
     <div className={styles.sectionHeader}>
-      <div className={styles.sectionTitleWrapper}>
-        <Skeleton width={20} height={20} borderRadius="50%" />
-        <div style={{ marginLeft: 12 }}><Skeleton width={180} height={24} borderRadius={4} /></div>
+      <div className={`${styles.sectionTitle} ${styles.pendingTitle}`}>
+        <Skeleton width="7em" height=".65em" />
       </div>
     </div>
-    <div className={variant === 'row' ? styles.songGrid : styles.horizontalScroll}>
-      {Array.from({ length: 8 }).map((_, j) => (
-        <MediaCardSkeleton key={j} variant={variant} className={variant === 'row' ? styles.songCard : styles.card} />
-      ))}
-    </div>
-  </div>
+  </section>
 );
 
 export const HomeView: React.FC<{
@@ -150,26 +148,20 @@ export const HomeView: React.FC<{
     staleTime: 60 * 60 * 1000,
   });
 
-  // Flatten + filter + priority-reorder all loaded pages
+  // Prioritize within each page; prefetch must never insert a later shelf
+  // above the one the listener is already looking at.
   const sections = useMemo(() => {
     if (!data) return [];
-    const all = data.pages
-      .flatMap(p => p.sections)
-      .filter(filterSection);
-
-    const prioritySections: YTMHomeSection[] = [];
-    const otherSections: YTMHomeSection[] = [];
-
-    for (const sec of all) {
-      if (isListenAgainSection(sec.title)) {
-        prioritySections.push(sec);
-      } else {
-        otherSections.push(sec);
+    const ordered = data.pages.flatMap(page => {
+      const priority: YTMHomeSection[] = [];
+      const other: YTMHomeSection[] = [];
+      for (const section of page.sections) {
+        if (!filterSection(section)) continue;
+        (matchesTitle(section.title, PRIORITY_KEYWORDS) ? priority : other).push(section);
       }
-    }
-
-    const reordered = [...prioritySections, ...otherSections];
-    return reordered.map((s, i) => normalizePins(s, i === 0));
+      return priority.concat(other);
+    });
+    return ordered.map((s, i) => normalizePins(s, i === 0));
   }, [data]);
 
   const pagesLoaded = data?.pages?.length ?? 0;
@@ -280,40 +272,15 @@ export const HomeView: React.FC<{
 
   if (yandexMode) {
     return (
-      <div style={{ position: 'relative' }}>
-        {yandexToggle}
-        <YandexHomeView onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSelectArtist={onSelectArtist} onSelectGenre={onSelectGenre} />
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div style={{ position: 'relative' }}>
-        {yandexToggle}
-        <div className={styles.container}>
-          <SectionSkeleton variant="card" />
-          <SectionSkeleton variant="row" />
-          <SectionSkeleton variant="card" />
-        </div>
-      </div>
-    );
-  }
-
-  if (isError && sections.length === 0) {
-    return (
-      <div style={{ position: 'relative' }}>
-        {yandexToggle}
-        <div className={styles.container} style={{ color: 'var(--danger)', padding: 24 }}>
-          Failed to load home feed.
-        </div>
-      </div>
+      <YandexHomeView sourceToggle={yandexToggle} onSelectAlbum={onSelectAlbum} onSelectPlaylist={onSelectPlaylist} onSelectArtist={onSelectArtist} onSelectGenre={onSelectGenre} />
     );
   }
 
   return (
-    <div ref={containerRef} className={styles.container} style={{ position: 'relative' }}>
+    <div ref={containerRef} className={`${styles.container} deck-scroll`} aria-busy={isLoading}>
       {yandexToggle}
+      {isLoading && <SectionSkeleton />}
+      {isError && sections.length === 0 && <p className={styles.feedError}>Failed to load home feed.</p>}
       {sections.map((section: any, idx: number) => {
         const Icon = getSectionIcon(section.category, idx === 0);
         const isSongGrid = section.category === 'song';
@@ -331,7 +298,7 @@ export const HomeView: React.FC<{
                 title={navTarget?.tooltip}
               >
                 <Icon size={20} className={styles.sectionIcon} />
-                <h2 className={styles.sectionTitle}>
+                <h2 className={`${styles.sectionTitle} ${matchesTitle(section.title, LISTEN_AGAIN_KEYWORDS) ? headings.featureHeading : ''}`}>
                   {section.title}
                   {navTarget && <ChevronRight size={20} className={styles.titleChevron} />}
                 </h2>
@@ -367,12 +334,7 @@ export const HomeView: React.FC<{
       {/* Sentinel — triggers prefetch 600px before reaching it */}
       {hasNextPage && <div ref={sentinelRef} style={{ height: 1 }} />}
 
-      {isFetchingNextPage && (
-        <>
-          <SectionSkeleton variant="card" />
-          <SectionSkeleton variant="row" />
-        </>
-      )}
+      {isFetchingNextPage && <SectionSkeleton />}
 
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={menuItems} onClose={() => setContextMenu(null)} />}
     </div>

@@ -7,37 +7,14 @@ interface MediaCardSkeletonProps {
   className?: string;
 }
 
-export const MediaCardSkeleton: React.FC<MediaCardSkeletonProps> = ({ 
-  variant = 'card', 
-  className = '' 
-}) => {
-  if (variant === 'row') {
-    return (
-      <div className={`${styles.card} ${styles.row} ${className}`} style={{ cursor: 'default' }}>
-        <div className={styles.thumbWrapper}>
-          <Skeleton width="100%" height="100%" borderRadius={8} />
-        </div>
-        <div className={styles.info} style={{ flex: 1 }}>
-          <Skeleton width="70%" height={14} borderRadius={4} />
-          <div style={{ marginTop: 6 }}>
-            <Skeleton width="40%" height={12} borderRadius={4} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={`${styles.card} ${className}`} style={{ cursor: 'default' }}>
-      <div className={styles.thumbWrapper}>
-        <Skeleton width="100%" height="100%" style={{ aspectRatio: '1 / 1' }} borderRadius={8} />
-      </div>
-      <div className={styles.info}>
-        <Skeleton width="90%" height={16} borderRadius={4} />
-        <div style={{ marginTop: 8 }}>
-          <Skeleton width="60%" height={14} borderRadius={4} />
-        </div>
-      </div>
+export const MediaCardSkeleton: React.FC<MediaCardSkeletonProps> = ({ variant = 'card', className = '' }) => (
+  <div aria-hidden="true" className={`${styles.card} ${variant === 'row' ? styles.row : ''} ${styles.skeleton} ${className}`}>
+    <div className={styles.thumbWrapper}>
+      <Skeleton width="100%" height="100%" borderRadius="inherit" />
     </div>
-  );
-};
+    <div className={styles.info}>
+      <div className={styles.title}><Skeleton width="76%" height=".65em" /></div>
+      <div className={styles.subtitle}><Skeleton width="50%" height=".65em" /></div>
+    </div>
+  </div>
+);

@@ -793,20 +793,8 @@
     background: rgba(255, 255, 255, 0.05) !important;
 }
 
-.dropTarget {
-    position: relative;
-}
-
-.dropTarget::before {
-    content: '';
-    position: absolute;
-    top: -1px;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--accent);
-    box-shadow: 0 0 10px var(--accent);
-    z-index: 10;
+.dropTarget > td {
+    box-shadow: inset 0 2px var(--accent);
 }
 
 @keyframes spin {
@@ -853,7 +841,6 @@
 }
 
 :root[data-layout="deck"] .container {
-    --collection-gutter: clamp(18px, 3vw, 44px);
     --virtual-track-height: 44px;
     --sticky-title-height: 52px;
 }
@@ -861,11 +848,15 @@
 :root[data-layout="deck"] .virtuosoWrapper {
     overflow-y: auto;
     padding: var(--collection-gutter);
-    scrollbar-width: thin;
     scroll-padding-block-start: var(--sticky-title-height);
 }
 
+:root[data-layout="deck"] .deckAlbum .virtuosoWrapper[aria-busy="true"] {
+    overflow-y: hidden;
+}
+
 :root[data-layout="deck"] .header {
+    --fs-collection-title: clamp(30px, 4.1vw, 62px);
     --cover-size: clamp(108px, 13vw, 188px);
     height: auto;
     align-items: flex-end;
@@ -880,16 +871,14 @@
 
 /* Keep the measured header in flow; only its artwork and contents recede. */
 :root[data-layout="deck"] .deckAlbum .header {
+    align-items: flex-start;
     margin: calc(-1 * var(--collection-gutter)) calc(-1 * var(--collection-gutter)) 0;
     padding: var(--collection-gutter) var(--collection-gutter) 26px;
     overflow: clip;
     isolation: isolate;
-    view-timeline-name: --album-header;
-    view-timeline-inset: 0;
 }
 
-.deckAlbum .header::before,
-.deckAlbum .stickyHeaderContainer::before {
+.deckAlbum .header::before {
     content: "";
     position: absolute;
     inset: -18px;
@@ -898,30 +887,28 @@
     background: var(--album-art, none) center / cover no-repeat;
     filter: blur(18px);
     opacity: 0.22;
-}
-
-.deckAlbum .header::before {
     mask-image: linear-gradient(to bottom, black 48%, transparent 95%);
 }
 
-.deckAlbum .stickyHeaderContainer {
-    overflow: clip;
-    isolation: isolate;
+/* A cache hit or a quick fetch should reveal only the actual album. During
+   a longer wait the placeholder occupies the same top-left artwork slot. */
+.deckAlbum [aria-busy="true"] .header {
+    visibility: hidden;
+    animation: revealAlbumPlaceholder 0s 180ms forwards;
 }
+
+@keyframes revealAlbumPlaceholder {
+    to { visibility: visible; }
+}
+
+.deckAlbum .headerMeta { animation: none; }
+.deckAlbum .label { min-height: 16px; line-height: 16px; }
 
 @media (prefers-reduced-motion: no-preference) {
-    .deckAlbum .header::before,
     .deckAlbum .header > :is(.coverWrapper, .info):not(:has(:focus-visible)) {
-        animation: albumHeaderRecede auto linear both;
-        animation-timeline: --album-header;
-        animation-range: exit 0% exit 85%;
-    }
-}
-
-@keyframes albumHeaderRecede {
-    to {
-        transform: translateY(30%);
-        opacity: 0;
+        transform: translate3d(0, calc(var(--album-scroll, 0) * 0.5px), 0);
+        opacity: calc(1 - var(--album-scroll, 0) / 260);
+        filter: blur(calc(var(--album-scroll, 0) * 0.025px));
     }
 }
 
@@ -936,7 +923,7 @@
 :root[data-layout="deck"] .zoomable:hover { transform: none; }
 
 :root[data-layout="deck"] .title {
-    font-size: clamp(30px, 4.1vw, 62px);
+    font-size: var(--fs-collection-title);
     line-height: 1.03;
     font-weight: 590;
     letter-spacing: -0.065em;
