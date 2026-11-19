@@ -159,14 +159,23 @@
     --accent-hover: #bee4d8;
     --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
     --on-accent: #151a18;
-    --border-color: #323536;
-    --border-subtle: var(--border-color);
-    --hover: var(--bg-raised);
-    --glass-surface: rgb(7 10 11 / 40%);
-    --glass-surface-player: rgb(7 10 11 / 48%);
-    --glass-surface-main: rgb(7 10 11 / 36%);
+    /* One bounded wash under the entire shell; opaque overlays use the same
+       hue as the art but don't expose the text and artwork underneath. */
+    --deck-ink: var(--track-color, var(--accent));
+    --deck-floor: color-mix(in srgb, var(--bg-raised) 90%, var(--accent));
+    --deck-highlight: color-mix(in srgb, var(--deck-ink) 42%, var(--accent));
+    --cover-hover: color-mix(in srgb, var(--deck-highlight) 19%, transparent);
+    --deck-selected: color-mix(in srgb, var(--deck-highlight) 21%, transparent);
+    --deck-sheet: color-mix(in srgb, var(--bg-mantle) 84%, var(--deck-ink));
+    --deck-popover: color-mix(in srgb, var(--deck-sheet) 97%, transparent);
+    --border-color: rgb(255 255 255 / 12%);
+    --border-subtle: rgb(255 255 255 / 7%);
+    --hover: var(--cover-hover);
+    --glass-surface: color-mix(in srgb, var(--bg-base) 20%, transparent);
+    --glass-surface-player: var(--glass-surface);
+    --glass-surface-main: var(--glass-surface);
     --bg-main-glass: var(--glass-surface-main);
-    --glass-popover-bg: var(--bg-raised);
+    --glass-popover-bg: var(--deck-popover);
     --glass-popover-blur: 0px;
     --glass-blur: 0px;
     --radius-xs: 2px;

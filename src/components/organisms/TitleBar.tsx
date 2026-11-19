@@ -7,7 +7,6 @@ import { getSearchHistory, addToSearchHistory, removeFromSearchHistory } from '.
 import styles from './TitleBar.module.css';
 
 interface TitleBarProps {
-  navigationHeader?: React.ReactNode;
   theme: 'dark' | 'glass';
   onToggleTheme: () => void;
   onBack?: () => void;
@@ -42,7 +41,6 @@ const WindowMaximizeButton = memo(() => {
 });
 
 export const TitleBar: React.FC<TitleBarProps> = memo(({ 
-  navigationHeader,
   theme, 
   onToggleTheme,
   onBack,
@@ -166,7 +164,6 @@ export const TitleBar: React.FC<TitleBarProps> = memo(({
     <header className={styles.titleBar}>
       {/* Left: Navigation Controls */}
       <div className={styles.leftControls} style={NO_DRAG_STYLE}>
-        {navigationHeader}
         {!isInitializing && onBack && (
           <IconButton 
             icon={ChevronLeft} 

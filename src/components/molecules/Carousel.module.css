@@ -29,7 +29,7 @@
     top: 82px; 
     transform: translateY(-50%);
     z-index: 100;
-    background: color-mix(in srgb, var(--solid-mantle) 85%, transparent);
+    background: var(--deck-popover, color-mix(in srgb, var(--solid-mantle) 85%, transparent));
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: var(--text-main);
     width: 36px;

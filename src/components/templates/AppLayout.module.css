@@ -105,19 +105,18 @@
 :root[data-layout="deck"] .appWindow {
     --sidebar-width: clamp(176px, 17vw, 212px);
     --right-panel-width: clamp(248px, 22vw, 320px);
-    --cover-hover: color-mix(in srgb, color-mix(in srgb, var(--track-color, var(--accent)) 65%, white) 24%, transparent);
-    --hover: var(--cover-hover);
     --player-height: 80px;
-    border-color: var(--border-color);
+    background: var(--deck-floor);
+    border: 0;
 }
 
 :root[data-layout="deck"] .ambientBlur {
-    top: -12%;
-    left: -12%;
-    width: 124%;
-    height: 124%;
-    opacity: 0.86;
-    filter: blur(64px) saturate(1.4) brightness(0.68);
+    top: -15%;
+    left: -15%;
+    width: 130%;
+    height: 130%;
+    opacity: 0.48;
+    filter: blur(80px) saturate(1.45) brightness(0.5);
 }
 
 :root[data-layout="deck"] .contextualBack {
@@ -130,10 +129,6 @@
 
 :root[data-layout="deck"] .rightSidebar {
     background: var(--glass-surface);
-}
-
-:root[data-layout="deck"] .rightSidebar.visible {
-    border-inline-start: 1px solid var(--border-color);
 }
 
 /* At high interface zoom, keep navigation and the player reachable without
@@ -157,7 +152,6 @@
     }
 
     :root[data-layout="deck"] .rightSidebar.visible {
-        background: var(--glass-surface-player);
-        backdrop-filter: blur(32px);
+        background: var(--deck-sheet);
     }
 }

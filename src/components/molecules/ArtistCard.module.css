@@ -124,10 +124,13 @@
     width: 112px;
     height: 112px;
     box-shadow: none;
+    background-color: var(--deck-selected);
 }
 
+:root[data-layout="deck"] .thumbnailPlaceholder { background: transparent; }
+
 :root[data-layout="deck"] .card:is(:hover, :focus-visible) .thumbnailWrapper {
-    box-shadow: 0 0 0 3px var(--cover-hover, var(--accent-soft));
+    box-shadow: 0 0 0 3px var(--cover-hover);
 }
 
 :root[data-layout="deck"] .card:is(:hover, :focus-visible) .name {

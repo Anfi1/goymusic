@@ -337,8 +337,8 @@ tr:is(:hover, :focus-within) .bestBadge {
 :root[data-layout="deck"] .row[data-index] { height: var(--virtual-track-height, 56px); }
 
 :root[data-layout="deck"] .row:is(:hover, :focus-within, .active) { background: transparent; }
-:root[data-layout="deck"] .row.active td { background: var(--accent-soft); }
-:root[data-layout="deck"] .row:is(:hover, :focus-within) td { background: var(--cover-hover, var(--accent-soft)); }
+:root[data-layout="deck"] .row:is(.active, [aria-current="true"]) td { background: var(--deck-selected); }
+:root[data-layout="deck"] .row:is(:hover, :focus-within) td { background: var(--cover-hover); }
 :root[data-layout="deck"] .row.active td:first-child::before { content: none; }
 :root[data-layout="deck"] .row td { padding: 4px 8px; border: 0; }
 :root[data-layout="deck"] .row td:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }

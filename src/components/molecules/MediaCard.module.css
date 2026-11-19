@@ -294,13 +294,15 @@ button.title {
   border-radius: var(--radius-md);
 }
 
-:root[data-layout="deck"] .card.active { background: var(--accent-soft); }
-:root[data-layout="deck"] .card:is(:hover, :focus-within) { background: var(--cover-hover, var(--accent-soft)); }
+:root[data-layout="deck"] .card.active { background: var(--deck-selected); }
+:root[data-layout="deck"] .card:is(:hover, :focus-within) { background: var(--cover-hover); }
 
 :root[data-layout="deck"] .thumbWrapper {
   box-shadow: none;
-  background: var(--bg-mantle);
+  background: var(--deck-selected);
 }
+
+:root[data-layout="deck"] .thumbPlaceholder { background: transparent; }
 
 :root[data-layout="deck"] .thumbWrapper:not(.round) { border-radius: var(--radius-md); }
 :root[data-layout="deck"] .info { gap: 2px; }
@@ -315,7 +317,7 @@ button.title {
 :root[data-layout="deck"] .row .thumbWrapper { width: 36px; height: 36px; }
 
 :root[data-layout="deck"] .pinnedBadge {
-  background: var(--bg-raised);
+  background: var(--deck-popover);
   color: var(--accent);
   border-color: var(--border-color);
   box-shadow: none;

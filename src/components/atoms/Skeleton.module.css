@@ -17,6 +17,12 @@
             rgba(0, 0, 0, 0) 100%);
 }
 
+:root[data-layout="deck"] .skeleton {
+    background-color: color-mix(in srgb, var(--deck-sheet) 85%, var(--text-main));
+    background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text-main) 7%, transparent), transparent);
+    background-size: 200% 100%;
+}
+
 @keyframes shimmer {
     0% {
         background-position: -200% 0;

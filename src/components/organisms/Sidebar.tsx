@@ -17,7 +17,7 @@ import sidebarStyles from './Sidebar.module.css';
 interface SidebarProps {
   collapsed: boolean;
   deck: boolean;
-  header?: React.ReactNode;
+  onToggleCollapse: () => void;
   immersive?: boolean;
   playlists?: YTMPlaylist[];
   activePlaylistId?: string | null;
@@ -83,18 +83,18 @@ function useHomeLogoAction(onSelectView: SidebarProps['onSelectView'], activeVie
   }, [onSelectView, activeViewType]);
 }
 
-export const SidebarHeader = memo(({
+const SidebarHeader = memo(({
   collapsed,
-  showLogo,
+  deck,
   onToggleCollapse,
   onSelectView,
   activeViewType,
 }: {
   collapsed: boolean;
-  showLogo: boolean;
-  onToggleCollapse?: () => void;
+  deck: boolean;
+  onToggleCollapse: () => void;
   onSelectView: SidebarProps['onSelectView'];
-  activeViewType: string;
+  activeViewType?: string;
 }) => {
   const onLogoClick = useHomeLogoAction(onSelectView, activeViewType);
   return (
@@ -109,9 +109,16 @@ export const SidebarHeader = memo(({
       >
         {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
       </button>
-      {showLogo && (
+      {(!collapsed || deck) && (
         <h2 className={sidebarStyles.logo}>
-          <button type="button" className={sidebarStyles.logoButton} onClick={onLogoClick}>GoyMusic</button>
+          <button
+            type="button"
+            className={sidebarStyles.logoButton}
+            onClick={onLogoClick}
+            aria-label="GoyMusic"
+          >
+            {collapsed ? 'G' : 'GoyMusic'}
+          </button>
         </h2>
       )}
     </div>
@@ -278,7 +285,7 @@ const PlaylistList = memo(({
 export const Sidebar: React.FC<SidebarProps> = memo(({
   collapsed,
   deck,
-  header,
+  onToggleCollapse,
   immersive = false,
   playlists = [],
   activePlaylistId,
@@ -354,7 +361,13 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
 
   return (
     <aside className={`${sidebarStyles.sidebar} ${collapsed ? sidebarStyles.collapsed : ''} ${immersive ? sidebarStyles.immersive : ''} ${className || ''}`}>
-      {header}
+      <SidebarHeader
+        collapsed={collapsed}
+        deck={deck}
+        onToggleCollapse={onToggleCollapse}
+        onSelectView={onSelectView}
+        activeViewType={activeViewType}
+      />
 
       {!deck && account}
 

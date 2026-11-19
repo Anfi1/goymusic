@@ -15,7 +15,7 @@ import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
-import { isDeckLayout, setDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
+import { isDeckLayout, isDeckNyanEnabled, setDeckLayout, setDeckNyanEnabled, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import { interfaceScales, isInterfaceScale, readInterfaceScale, setInterfaceScale } from '../../utils/interfaceScale';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
@@ -25,6 +25,7 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const deckEnabled = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
+    const nyanEnabled = useSyncExternalStore(subscribeDesktopLayout, isDeckNyanEnabled);
     const [scale, setScale] = useState(readInterfaceScale);
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
@@ -358,6 +359,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 <p id="layout-description" className={styles.subtitle}>
                     Use the Deck player layout. Switch off to return to the classic player.
                 </p>
+                {deckEnabled && (
+                    <button type="button" className={styles.nyanToggle} aria-pressed={nyanEnabled}
+                        onClick={() => setDeckNyanEnabled(!nyanEnabled)}>
+                        Nyan Cat on the progress bar
+                        <span aria-hidden="true">{nyanEnabled ? 'On' : 'Off'}</span>
+                    </button>
+                )}
             </section>
 
             <section className={styles.section} aria-labelledby="accessibility-title">

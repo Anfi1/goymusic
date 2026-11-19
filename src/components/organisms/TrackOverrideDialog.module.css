@@ -10,7 +10,7 @@
 }
 
 .dialog {
-    background: var(--bg-raised);
+    background: var(--deck-sheet, var(--bg-raised));
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-lg);
     width: 100%;
@@ -86,7 +86,7 @@
 }
 
 .closeBtn:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--cover-hover, rgba(255, 255, 255, 0.05));
     color: var(--text-main);
 }
 
@@ -126,7 +126,7 @@
 }
 
 .tabActive {
-    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    background: var(--deck-selected, color-mix(in srgb, var(--accent) 15%, transparent));
     color: var(--accent);
 }
 

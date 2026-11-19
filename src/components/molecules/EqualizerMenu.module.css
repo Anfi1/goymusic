@@ -101,7 +101,7 @@
 }
 
 .presetBtn:hover {
-    background: rgba(255, 255, 255, 0.07);
+    background: var(--cover-hover, rgba(255, 255, 255, 0.07));
     border-color: rgba(255, 255, 255, 0.12);
 }
 
@@ -134,7 +134,7 @@
 }
 
 .presetItem:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--cover-hover, rgba(255, 255, 255, 0.04));
 }
 
 .presetActions {
@@ -234,11 +234,11 @@
 }
 
 .typeBtn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--cover-hover, rgba(255, 255, 255, 0.06));
 }
 
 .typeActive {
-    background: var(--accent-soft);
+    background: var(--deck-selected, var(--accent-soft));
     color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 25%, transparent);
 }

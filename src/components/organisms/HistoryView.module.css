@@ -111,7 +111,7 @@
   position: absolute;
   top: calc(100% + 10px);
   right: 0;
-  background: color-mix(in srgb, var(--bg-raised) 98%, transparent);
+  background: var(--deck-popover, color-mix(in srgb, var(--bg-raised) 98%, transparent));
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -154,7 +154,7 @@
 }
 
 .calendarHeader h4:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cover-hover, rgba(255, 255, 255, 0.05));
 }
 
 .navBtn {
@@ -171,7 +171,7 @@
 }
 
 .navBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--cover-hover, rgba(255, 255, 255, 0.1));
 }
 
 .calendarGrid {
@@ -199,7 +199,7 @@
 }
 
 .selectionItem:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--cover-hover, rgba(255, 255, 255, 0.08));
   color: var(--text-main);
 }
 
@@ -231,7 +231,7 @@
 }
 
 .dayCell:hover:not(.disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--cover-hover, rgba(255, 255, 255, 0.1));
   color: var(--text-main);
 }
 
@@ -408,7 +408,6 @@
   border-color: var(--danger);
 }
 
-.loading,
 .empty {
   display: flex;
   flex-direction: column;
@@ -426,143 +425,57 @@
   font-weight: 700;
 }
 
-/* Skeleton loading */
-.skeletonWrapper {
+.skeletonDate,
+.skeletonTitle {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 1rem;
-  width: 100%;
-}
-.skeletonHeader {
-  display: flex;
-  gap: 0.75rem;
   align-items: center;
-}
-.skelIcon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.02)
-  );
-  animation: pulse 1.2s infinite;
-}
-.skelLines {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.skelLineShort {
-  width: 30%;
-  height: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: var(--radius-sm);
-  animation: pulse 1.2s infinite;
-}
-.skelLineLong {
-  width: 60%;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: var(--radius-sm);
-  animation: pulse 1.2s infinite;
-}
-.skeletonList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.skelRow {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 0;
-}
-.skelIdx {
-  width: 32px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: var(--radius-xs);
-}
-.skelTitle {
-  flex: 1;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: var(--radius-xs);
-}
-.skelAlbum {
-  width: 180px;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: var(--radius-xs);
-}
-.skelPlayed {
-  width: 80px;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: var(--radius-xs);
-}
-.skelTime {
-  width: 60px;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: var(--radius-xs);
-}
-@keyframes pulse {
-  0% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.6;
-  }
+  gap: 0.65rem;
 }
 
-/* Loading spinner overlay */
-.loadingOverlay {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 1rem;
-}
-
-.loadingSpinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid color-mix(in srgb, var(--accent) 15%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.loadingText {
+.skeletonDate {
   color: var(--text-sub);
-  font-size: var(--fs-base);
-  font-weight: 600;
-  opacity: 0.6;
-  animation: fadePulse 1.5s ease-in-out infinite;
 }
 
-@keyframes fadePulse {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
+.skeletonTrack td {
+  padding: 6px 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.skeletonTrack td:last-child > div {
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.skeletonCover {
+  flex: 0 0 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-raised) 92%, var(--accent));
+  color: color-mix(in srgb, var(--text-sub) 48%, transparent);
+}
+
+.skeletonLines {
+  display: grid;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.historySkeleton {
+  animation: historyReveal 180ms ease-out 120ms backwards;
+}
+
+@keyframes historyReveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .historySkeleton,
+  .historySkeleton * {
+    animation: none !important;
   }
 }
 

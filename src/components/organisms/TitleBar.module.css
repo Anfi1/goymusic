@@ -240,11 +240,12 @@
 :root[data-layout="deck"] .titleBar {
     grid-template-columns: minmax(0, 1fr) min(36vw, 360px) minmax(0, 1fr);
     background: var(--glass-surface);
-    border-color: var(--border-color);
+    border: 0;
 }
 
 :root[data-layout="deck"] .leftControls {
-    padding-inline-start: 14px;
+    padding-inline-start: 4px;
+    gap: 2px;
 }
 
 :root[data-layout="deck"] .searchRegion {
@@ -260,8 +261,16 @@
 }
 
 :root[data-layout="deck"] .suggestionsDropdown {
-    background: var(--bg-raised);
+    background: var(--deck-popover);
     backdrop-filter: none;
+}
+
+:root[data-layout="deck"] .suggestionItem:hover {
+    background: var(--cover-hover);
+}
+
+:root[data-layout="deck"] .suggestionSelected {
+    background: var(--deck-selected);
 }
 
 :root[data-layout="deck"] .controlBtn {
@@ -282,11 +291,6 @@
 
     :root[data-layout="deck"] .titleBar {
         grid-template-columns: minmax(0, 1fr) min(32vw, 280px) minmax(0, 1fr);
-    }
-
-    :root[data-layout="deck"] .leftControls {
-        gap: 2px;
-        padding-inline-start: 4px;
     }
 
     :root[data-layout="deck"] :is(.themeToggle, .divider) {

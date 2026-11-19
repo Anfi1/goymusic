@@ -220,6 +220,14 @@ input:disabled:checked + .slider:before {
 }
 .layoutButton span { font-weight: 700; }
 
+.nyanToggle {
+    composes: layoutButton;
+    margin-top: 0.75rem;
+}
+
+:root[data-layout="deck"] .layoutButton { background: var(--glass-surface); }
+:root[data-layout="deck"] .layoutButton[aria-pressed="true"] { background: var(--deck-selected); }
+
 :root[data-layout="deck"] .container {
     max-width: 48rem;
     padding: clamp(1rem, 3vw, 3rem);

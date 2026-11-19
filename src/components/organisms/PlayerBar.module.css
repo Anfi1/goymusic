@@ -204,6 +204,7 @@
     background: var(--accent);
     border-radius: var(--radius-xs);
     cursor: ew-resize;
+    touch-action: none;
     pointer-events: auto;
     box-shadow: 0 0 0 2px var(--bg-crust);
 }
@@ -291,10 +292,12 @@
 }
 
 :root[data-layout="deck"] .container {
-    grid-template-columns: minmax(218px, 1.45fr) auto minmax(0, 2fr) auto;
-    grid-template-areas: "track buttons seek tools";
-    gap: clamp(10px, 1.4vw, 28px);
-    padding-inline: clamp(14px, 2vw, 28px);
+    position: relative;
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+    grid-template-areas: "track transport tools";
+    column-gap: var(--space-sm);
+    padding: var(--space-sm) clamp(12px, 2vw, 28px) 0;
+    border-top: none;
 }
 
 :root[data-layout="deck"] .nowPlaying {
@@ -332,11 +335,11 @@
 }
 
 :root[data-layout="deck"] .controls {
-    display: contents;
+    grid-area: transport;
+    gap: 2px;
 }
 
 :root[data-layout="deck"] .buttons {
-    grid-area: buttons;
     gap: clamp(2px, 0.4vw, 8px);
 }
 
@@ -356,13 +359,41 @@
 }
 
 :root[data-layout="deck"] .progress {
-    grid-area: seek;
-    max-width: none;
-    gap: 8px;
+    order: 1;
+    justify-content: center;
+    gap: 4px;
+}
+
+:root[data-layout="deck"] .progress::before {
+    content: "/";
+    order: 1;
+    color: var(--text-dim);
+    font-size: var(--fs-xs);
 }
 
 :root[data-layout="deck"] .time {
-    min-width: 30px;
+    min-width: 0;
+}
+
+:root[data-layout="deck"] .time:last-child {
+    order: 2;
+}
+
+/* Anchor the real slider (and its A–B overlay) to the footer, not the
+   transport column. Its transparent hit area straddles the visible line. */
+:root[data-layout="deck"] .progressBar {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    transform: translateY(-50%);
+    --slider-rail-radius: 0px;
+}
+
+:root[data-layout="deck"] .loopRange {
+    top: 50%;
+    bottom: auto;
+    height: 8px;
+    transform: translateY(-50%);
 }
 
 :root[data-layout="deck"] .extra {
@@ -374,16 +405,31 @@
 }
 
 :root[data-layout="deck"] .volume {
-    width: clamp(82px, 9vw, 126px);
-    gap: 4px;
+    width: clamp(172px, 20vw, 288px);
+    gap: var(--space-sm);
+    --slider-rail-height: 6px;
+}
+
+:root[data-layout="deck"] .volumeInputPopover {
+    left: auto;
+    right: 0;
+    width: min(100%, 156px);
+    transform: none;
 }
 
 @media (max-width: 899px) {
-    :root[data-layout="deck"] .container {
-        grid-template-columns: minmax(0, 1fr) auto auto;
-        grid-template-rows: 1fr 25px;
-        grid-template-areas: "track buttons tools" "seek seek seek";
-        gap: 0 8px;
-        padding: 4px 12px;
+    :root[data-layout="deck"] .extra {
+        display: grid;
+        grid-template-columns: auto auto;
+        justify-items: end;
+    }
+
+    :root[data-layout="deck"] .volumeSlot {
+        grid-column: span 2;
+        margin: 0;
+    }
+
+    :root[data-layout="deck"] .volume {
+        width: clamp(156px, 23vw, 200px);
     }
 }

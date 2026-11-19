@@ -476,23 +476,31 @@
     border-radius: var(--radius-md);
 }
 
-:root[data-layout="deck"] .tabBtn:hover,
-:root[data-layout="deck"] .dropdownOption:hover { background: var(--bg-mantle); }
+:root[data-layout="deck"] :is(.tabBtn, .dropdownOption):is(:hover, :focus-visible) {
+    background: var(--cover-hover);
+}
 
 :root[data-layout="deck"] .activeTab {
-    background: var(--bg-mantle) !important;
+    background: var(--deck-selected) !important;
     box-shadow: none;
 }
 
 :root[data-layout="deck"] :is(.shuffleBtn, .dropdownTrigger, .dropdownMenu, .modalContainer) {
     border-radius: var(--radius-md);
-    background: var(--bg-raised);
     backdrop-filter: none;
     box-shadow: none;
 }
 
-:root[data-layout="deck"] :is(.shuffleBtn, .dropdownTrigger):hover {
-    background: var(--bg-mantle);
+:root[data-layout="deck"] :is(.shuffleBtn, .dropdownTrigger) { background: var(--glass-surface); }
+:root[data-layout="deck"] .dropdownMenu { background: var(--deck-popover); }
+
+:root[data-layout="deck"] .modalContainer { background: var(--deck-sheet); }
+:root[data-layout="deck"] :is(.dropdownTrigger.dropdownTriggerActive, .dropdownOption.dropdownOptionActive) {
+    background: var(--deck-selected);
+}
+
+:root[data-layout="deck"] :is(.shuffleBtn, .dropdownTrigger):is(:hover, :focus-visible) {
+    background: var(--cover-hover);
     border-color: var(--accent);
 }
 

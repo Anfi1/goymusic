@@ -10,10 +10,12 @@ import { TableVirtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { player } from '../../api/player';
 import { historyStore, HistoryEntry, HydratedHistoryEntry } from '../../api/history';
 import { likedStore } from '../../api/likedStore';
+import { Skeleton } from '../atoms/Skeleton';
 import { TrackRow } from '../molecules/TrackRow';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import {
   Clock,
+  Disc3,
   Trash2,
   Calendar as CalendarIcon,
   Search,
@@ -419,6 +421,52 @@ const HistoryRowContent = memo(
   }
 );
 
+const HistoryColumnHeadings = () => (
+  <tr className={styles.tableHeader}>
+    <th style={{ width: 50 }}>#</th>
+    <th style={{ width: '40%' }}>Title</th>
+    <th style={{ width: '25%' }}>Album</th>
+    <th style={{ width: 100 }}>Played</th>
+    <th style={{ textAlign: 'right', width: 80, paddingRight: 24 }}>Time</th>
+  </tr>
+);
+
+const HistorySkeleton = () => (
+  <div role="status" aria-label="Loading listening history" data-testid="history-skeleton">
+    <table className={`${styles.table} ${styles.historySkeleton}`} aria-hidden="true">
+      <thead><HistoryColumnHeadings /></thead>
+      {[[72, 54, 82], [63, 76]].map((widths, group) => (
+        <tbody key={group}>
+          <tr className={styles.dateRow}>
+            <td className={styles.dateCell} colSpan={5}>
+              <div className={styles.skeletonDate}>
+                <CalendarIcon size={13} /><Skeleton width={group ? 90 : 72} height={10} />
+              </div>
+            </td>
+          </tr>
+          {widths.map((width) => (
+            <tr key={width} className={styles.skeletonTrack}>
+              <td><Skeleton width={10} height={8} /></td>
+              <td>
+                <div className={styles.skeletonTitle}>
+                  <div className={styles.skeletonCover}><Disc3 size={19} /></div>
+                  <div className={styles.skeletonLines}>
+                    <Skeleton width={`${width}%`} height={12} />
+                    <Skeleton width={`${width - 29}%`} height={8} />
+                  </div>
+                </div>
+              </td>
+              <td><Skeleton width={`${width - 8}%`} height={9} /></td>
+              <td><Skeleton width="65%" height={9} /></td>
+              <td><Skeleton width={28} height={9} /></td>
+            </tr>
+          ))}
+        </tbody>
+      ))}
+    </table>
+  </div>
+);
+
 interface HistoryViewProps {
   onSelectArtist?: (id: string) => void;
   onSelectAlbum?: (id: string) => void;
@@ -428,6 +476,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
   ({ onSelectArtist, onSelectAlbum }) => {
     const [rawHistory, setHistory] = useState<HydratedHistoryEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [showCharts, setShowCharts] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [showOnlyLiked, setShowOnlyLiked] = useState(false);
@@ -442,6 +491,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
 
     const fetchHistory = useCallback(async () => {
       setIsLoading(true);
+      setLoadFailed(false);
       try {
         const data = await historyStore.getHistory();
         const hydratedData = await historyStore.hydrateTracks(data);
@@ -474,6 +524,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
         setHistory(withLikeStatus || []);
       } catch (e) {
         console.error(e);
+        setLoadFailed(true);
       } finally {
         setIsLoading(false);
       }
@@ -632,9 +683,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
             </div>
             <div>
               <h1>History</h1>
-              <p>
-                {isLoading ? 'Loading...' : `${filteredHistory.length} tracks found`}
-              </p>
+              <p>{isLoading || loadFailed ? 'Listening journal' : `${filteredHistory.length} tracks found`}</p>
             </div>
           </div>
           <button
@@ -643,7 +692,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
               confirm('Clear history?') &&
               historyStore.clearAll().then(() => setHistory([]))
             }
-            disabled={isLoading}
+            disabled={isLoading || loadFailed}
           >
             <Trash2 size={16} />
             <span>Clear All</span>
@@ -664,6 +713,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
             <button
               className={`${styles.filterBtn} ${styles.filterBtnSecondary}`}
               onClick={() => setShowCharts(true)}
+              disabled={isLoading || loadFailed}
               title="Open charts"
             >
               <PieChart size={14} />
@@ -691,11 +741,13 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
           </div>
         </div>
 
-        <div className={styles.listContainer}>
+        <div className={styles.listContainer} aria-busy={isLoading}>
           {isLoading ? (
-            <div className={styles.loadingOverlay}>
-              <div className={styles.loadingSpinner} />
-              <span className={styles.loadingText}>Loading history</span>
+            <HistorySkeleton />
+          ) : loadFailed ? (
+            <div className={styles.empty} role="alert">
+              <h3>Couldn’t load listening history</h3>
+              <button className={styles.filterBtn} onClick={fetchHistory}>Try again</button>
             </div>
           ) : flatList.length === 0 ? (
             <div className={styles.empty}>
@@ -708,23 +760,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
               style={{ height: '100%' }}
               data={flatList}
               context={virtuosoContext}
-              fixedHeaderContent={() => (
-                <tr className={styles.tableHeader}>
-                  <th style={{ width: 50 }}>#</th>
-                  <th style={{ width: '40%' }}>Title</th>
-                  <th style={{ width: '25%' }}>Album</th>
-                  <th style={{ width: 100 }}>Played</th>
-                  <th
-                    style={{
-                      textAlign: 'right',
-                      width: 80,
-                      paddingRight: '24px',
-                    }}
-                  >
-                    Time
-                  </th>
-                </tr>
-              )}
+              fixedHeaderContent={HistoryColumnHeadings}
               itemContent={(idx, item, ctx) => (
                 <HistoryRowContent
                   item={item}

@@ -11,7 +11,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 - Playlist management, liked songs, history
 - Lyrics view
 - Search with suggestions
-- Deck desktop layout: centered search, collapsible navigation, cover-tinted panels, and a larger queue. Toggle **Settings → Appearance → new Experement Layout** without restarting. Right-click the current track in the player for track actions.
+- Deck desktop layout: centered playback controls, full-width seek bar, and optional Nyan Cat on the progress bar. Switch in **Settings → Appearance → new Experement Layout** without restarting. Right-click the current track for track actions.
 - **Settings → Accessibility → Interface scale** changes text, artwork and controls together (100%, 110%, 125% or 150%). The setting is saved for both layouts and works in full screen.
 
 ## Tech Stack

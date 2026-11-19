@@ -8,6 +8,7 @@ interface SliderBarProps {
   buffered?: { start: number; end: number }[];
   className?: string;
   showThumb?: boolean;
+  largeTarget?: boolean;
   interactive?: boolean;
   nyanMode?: boolean;
   isPlaying?: boolean;
@@ -25,6 +26,7 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
   buffered = [],
   className = '',
   showThumb = false,
+  largeTarget = false,
   interactive = true,
   nyanMode = false,
   isPlaying = true
@@ -56,52 +58,35 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
     get container() { return containerRef.current; }
   }), [setProgressInternal]);
 
-  const calculateProgress = useCallback((e: React.MouseEvent | MouseEvent | React.TouchEvent | TouchEvent) => {
+  const calculateProgress = (clientX: number) => {
     if (!containerRef.current) return 0;
     const rect = containerRef.current.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
     const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    return (x / rect.width) * 100;
-  }, []);
+    return rect.width > 0 ? (x / rect.width) * 100 : 0;
+  };
 
   // Sync initial or changed progress prop
   useEffect(() => {
     setProgressInternal(progress);
   }, [progress, setProgressInternal]);
 
-  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!interactive || !onSeek) return;
-    
-    if ('button' in e && e.button !== 0) return;
-
-    setIsDragging(true);
-    const pct = calculateProgress(e);
-    onSeek(pct);
-
-    const handleMouseMove = (moveEvent: MouseEvent | TouchEvent) => {
-      const movePct = calculateProgress(moveEvent);
-      setProgressInternal(movePct);
-      onSeek(movePct);
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleMouseMove);
-      document.removeEventListener('touchend', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchmove', handleMouseMove, { passive: false });
-    document.addEventListener('touchend', handleMouseUp);
+  const seekToPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    const pct = calculateProgress(e.clientX);
+    setProgressInternal(pct);
+    onSeek?.(pct);
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!interactive || !containerRef.current) return;
-    const pct = calculateProgress(e);
-    containerRef.current.style.setProperty('--hover-progress', `${pct}%`);
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canSeek || !e.isPrimary || e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+    seekToPointer(e);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canSeek || !e.isPrimary) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) seekToPointer(e);
+    else e.currentTarget.style.setProperty('--hover-progress', `${calculateProgress(e.clientX)}%`);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -130,10 +115,10 @@ export const ProgressBar = memo(forwardRef<ProgressBarRef, SliderBarProps>(({
       aria-valuenow={canSeek ? Math.round(progress) : undefined}
       tabIndex={canSeek ? 0 : undefined}
       onKeyDown={canSeek ? handleKeyDown : undefined}
-      className={`${styles.container} ${interactive ? styles.interactive : ''} ${isDragging ? styles.dragging : ''} ${className}`}
-      onMouseDown={handleMouseDown}
-      onTouchStart={handleMouseDown}
-      onMouseMove={handleMouseMove}
+      className={`${styles.container} ${interactive ? styles.interactive : ''} ${isDragging ? styles.dragging : ''} ${largeTarget ? styles.largeTarget : ''} ${className}`}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onLostPointerCapture={() => setIsDragging(false)}
     >
       <div className={styles.progressWrapper}>
         {buffered.map((range, i) => (

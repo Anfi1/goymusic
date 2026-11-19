@@ -1,4 +1,4 @@
-import React, { useState, memo, useSyncExternalStore } from 'react';
+import React, { useLayoutEffect, useState, memo, useSyncExternalStore } from 'react';
 import { player } from '../../api/player';
 import { ChevronLeft } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
@@ -22,6 +22,42 @@ interface AppLayoutProps {
 const subscribeToTrack = (notify: () => void) => player.subscribe(notify);
 const currentCover = () => player.currentTrack?.thumbUrl || '';
 
+function sampleCover(event: React.SyntheticEvent<HTMLImageElement>) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  try {
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(event.currentTarget, 0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    if (a) document.documentElement.style.setProperty('--track-color', `rgb(${r} ${g} ${b})`);
+  } catch {
+    // Restricted artwork can still paint the wash, using the default tint.
+  }
+}
+
+function AmbientCover({ src }: { src: string }) {
+  const [allowSampling, setAllowSampling] = useState(true);
+  // The root is shared by the shell and menus rendered through body portals.
+  useLayoutEffect(() => () => {
+    document.documentElement.style.removeProperty('--track-color');
+  }, []);
+
+  return (
+    <img
+      crossOrigin={allowSampling ? 'anonymous' : undefined}
+      src={src}
+      alt=""
+      className={styles.ambientBlur}
+      aria-hidden="true"
+      draggable={false}
+      onLoad={allowSampling ? sampleCover : undefined}
+      onError={allowSampling ? () => setAllowSampling(false) : undefined}
+    />
+  );
+}
+
 /**
  * Template: AppLayout
  * The main application layout with TitleBar, Sidebar, Main content, Queue, and PlayerBar.
@@ -40,37 +76,10 @@ export const AppLayout: React.FC<AppLayoutProps> = memo(({
   canGoBack = false
 }) => {
   const thumb = useSyncExternalStore(subscribeToTrack, currentCover);
-  const [tint, setTint] = useState<{ url: string; color: string }>();
-
-  const sampleCover = (event: React.SyntheticEvent<HTMLImageElement>) => {
-    const image = event.currentTarget;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 1;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    try {
-      ctx.drawImage(image, 0, 0, 1, 1);
-      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-      if (a) setTint({ url: thumb, color: `rgb(${r} ${g} ${b})` });
-    } catch {
-      // A cover can still paint normally if its origin disallows pixel sampling.
-    }
-  };
 
   return (
-    <div className={styles.appWindow} style={tint?.url === thumb ? { '--track-color': tint.color } as React.CSSProperties : undefined}>
-      {/* Ambient background layer */}
-      {thumb && (
-        <img
-          key={thumb}
-          src={thumb}
-          alt=""
-          className={styles.ambientBlur}
-          aria-hidden="true"
-          draggable={false}
-          onLoad={sampleCover}
-        />
-      )}
+    <div className={styles.appWindow}>
+      {thumb && <AmbientCover key={thumb} src={thumb} />}
 
       {titleBar}
       

@@ -53,10 +53,11 @@
     color: var(--text-sub);
 }
 
-:root[data-layout="deck"] .container:is(:hover, .active) {
-    background: var(--bg-mantle);
+:root[data-layout="deck"] .container:hover {
+    background: var(--cover-hover);
 }
 
 :root[data-layout="deck"] .container.active {
-    color: var(--accent);
+    background: var(--deck-selected);
+    color: var(--text-main);
 }

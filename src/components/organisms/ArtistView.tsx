@@ -68,6 +68,7 @@ const AllSongsTableRow = React.forwardRef<HTMLTableRowElement, any>((props, ref)
       {...rest} 
       ref={ref} 
       className={trackStyles.row} 
+      aria-current={item?.id && item.id === context?.activeTrackId ? 'true' : undefined}
       onClick={() => context?.onPlay?.(index)}
       onContextMenu={(e) => { e.preventDefault(); context?.onContextMenu?.(e, item); }}
       style={{ ...rest.style, cursor: 'pointer' }}
@@ -375,16 +376,17 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     return allSongs.filter((song: YTMTrack) => song.likeStatus === 'LIKE' || (song.id && likedIds.has(song.id)));
   }, [allSongs, likesOnly, likedIds]);
 
-  const virtuosoContext = useMemo(() => ({
-    onPlay: (index: number) => player.playTrackList(displayedSongs, index, artistId, 'artist'),
-    onContextMenu: (e: React.MouseEvent, song: YTMTrack) => handleContextMenu(e, song)
-  }), [displayedSongs, artistId, handleContextMenu]);
-
   // UI State
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
   const [isPlaying, setIsPlaying] = useState<boolean>(player.isPlaying);
   const [isTableScrolled, setIsTableScrolled] = useState(false);
   const modalContentRef = useRef<HTMLDivElement>(null);
+
+  const virtuosoContext = useMemo(() => ({
+    activeTrackId,
+    onPlay: (index: number) => player.playTrackList(displayedSongs, index, artistId, 'artist'),
+    onContextMenu: (e: React.MouseEvent, song: YTMTrack) => handleContextMenu(e, song)
+  }), [activeTrackId, displayedSongs, artistId, handleContextMenu]);
 
   useEffect(() => {
     return player.subscribe((event) => {
@@ -848,8 +850,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
             </button>
             <header className={styles.discoHeader}>
               <div className={styles.viewSwitcher}>
-                <button className={`${styles.viewTab} ${discoCategory === 'Album' ? styles.active : ''}`} onClick={() => setDiscoCategory('Album')}>Albums</button>
-                <button className={`${styles.viewTab} ${discoCategory === 'Single' ? styles.active : ''}`} onClick={() => setDiscoCategory('Single')}>Singles & EPs</button>
+                <button className={styles.viewTab} aria-pressed={discoCategory === 'Album'} onClick={() => setDiscoCategory('Album')}>Albums</button>
+                <button className={styles.viewTab} aria-pressed={discoCategory === 'Single'} onClick={() => setDiscoCategory('Single')}>Singles & EPs</button>
               </div>
             </header>
             <div className={styles.allSongsContent}>

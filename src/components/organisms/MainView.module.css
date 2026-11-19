@@ -847,11 +847,16 @@
 
 :root[data-layout="deck"] .virtuosoWrapper {
     overflow-y: auto;
+    overflow-x: hidden;
     padding: var(--collection-gutter);
     scroll-padding-block-start: var(--sticky-title-height);
 }
 
 :root[data-layout="deck"] .deckAlbum .virtuosoWrapper[aria-busy="true"] {
+    /* Opaque fills stay legible over the tinted, translucent Deck surface. */
+    --bg-raised: color-mix(in srgb, var(--bg-mantle) 73%, var(--text-main));
+    display: flex;
+    flex-direction: column;
     overflow-y: hidden;
 }
 
@@ -869,43 +874,68 @@
 
 :root[data-layout="deck"] .coverWrapper { width: var(--cover-size); }
 
-/* Keep the measured header in flow; only its artwork and contents recede. */
+/* Measure the stationary header. The scrollport, not the hero box, clips
+   the moving art and title. The real Virtuoso root paints above both. */
 :root[data-layout="deck"] .deckAlbum .header {
     align-items: flex-start;
     margin: calc(-1 * var(--collection-gutter)) calc(-1 * var(--collection-gutter)) 0;
     padding: var(--collection-gutter) var(--collection-gutter) 26px;
-    overflow: clip;
-    isolation: isolate;
+    z-index: 0;
+}
+
+.albumTrackSurface {
+    z-index: 1;
+    background: color-mix(in srgb, var(--glass-surface-main) 35%, transparent);
 }
 
 .deckAlbum .header::before {
+    --album-wallpaper-blur: 18px;
     content: "";
     position: absolute;
-    inset: -18px;
+    inset: calc(-1 * var(--album-wallpaper-blur));
     z-index: -1;
     pointer-events: none;
     background: var(--album-art, none) center / cover no-repeat;
-    filter: blur(18px);
+    filter: blur(var(--album-wallpaper-blur));
+    clip-path: inset(var(--album-wallpaper-blur));
     opacity: 0.22;
     mask-image: linear-gradient(to bottom, black 48%, transparent 95%);
 }
 
-/* A cache hit or a quick fetch should reveal only the actual album. During
-   a longer wait the placeholder occupies the same top-left artwork slot. */
-.deckAlbum [aria-busy="true"] .header {
-    visibility: hidden;
-    animation: revealAlbumPlaceholder 0s 180ms forwards;
+.albumLoadingTracks {
+    min-height: 0;
+    overflow: clip;
+    pointer-events: none;
+}
+
+/* Fill the real artwork slot even though its height comes from aspect-ratio. */
+.albumLoadingCover { position: absolute; inset: 0; }
+.albumLoadingCover::after {
+    content: "";
+    position: absolute;
+    inset: 20%;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--bg-mantle) 0 4%, transparent 4.5% 24%,
+        var(--border-color) 25% 26%, transparent 27%);
+    border: 1px solid var(--border-color);
+}
+
+/* Delay only the preview paint, never the response. With animations disabled
+   the default is visible, not an indefinitely empty scrollport. */
+.deckAlbum [aria-busy="true"] > :is(.header, .albumLoadingTracks) {
+    animation: revealAlbumPlaceholder 100ms ease-out 120ms backwards;
 }
 
 @keyframes revealAlbumPlaceholder {
-    to { visibility: visible; }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .deckAlbum .headerMeta { animation: none; }
 .deckAlbum .label { min-height: 16px; line-height: 16px; }
 
 @media (prefers-reduced-motion: no-preference) {
-    .deckAlbum .header > :is(.coverWrapper, .info):not(:has(:focus-visible)) {
+    .deckAlbum [aria-busy="false"] .header > :is(.coverWrapper, .info):not(:has(:focus-visible)) {
         transform: translate3d(0, calc(var(--album-scroll, 0) * 0.5px), 0);
         opacity: calc(1 - var(--album-scroll, 0) / 260);
         filter: blur(calc(var(--album-scroll, 0) * 0.025px));

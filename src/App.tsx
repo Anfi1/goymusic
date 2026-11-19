@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore, memo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from './components/templates/AppLayout';
-import { Sidebar, SidebarHeader } from './components/organisms/Sidebar';
+import { Sidebar } from './components/organisms/Sidebar';
 import { isDeckLayout, subscribeDesktopLayout } from './utils/desktopLayout';
 import { PlayerBar } from './components/organisms/PlayerBar';
 import { UpdateNotification } from './components/molecules/UpdateNotification';
@@ -25,7 +25,7 @@ import { isLoggedIn, loadAuth, clearTokens } from './api/yt';
 import { player } from './api/player';
 import { parseDeepLink } from './api/trackLink';
 import { resolveScTrack } from './api/soundcloud';
-import { ActiveView } from './types';
+import { RouteViewport, useRouteStack } from './components/templates/RouteViewport';
 import './styles/theme.css';
 import './styles/base.css';
 import './styles/badges.css';
@@ -34,7 +34,9 @@ import { useLibrary } from './hooks/useLibrary';
 // Separate component to isolate Main content
 const MainContentWrapper = memo(
   ({
-    activeView,
+    entry,
+    direction,
+    pageRef,
     refreshKey,
     handleLogout,
     handleSelectArtist,
@@ -50,12 +52,9 @@ const MainContentWrapper = memo(
     isInitializing,
     navigate,
   }: any) => {
-    const viewKey = `${activeView.type}-${activeView.playlistId || ''}-${activeView.artistId || ''}-${activeView.albumId || ''}-${activeView.searchQuery || ''}-${refreshKey}`;
-    const detailRoute = activeView.type === 'album' ? `album-${activeView.albumId}`
-      : activeView.type === 'artist' ? `artist-${activeView.artistId}` : undefined;
-
-    const content = (
-      <div key={detailRoute} data-detail-route={detailRoute} style={{ height: '100%' }}>
+    const activeView = entry.view;
+    return (
+      <RouteViewport entry={entry} direction={direction} pageRef={pageRef} canGoBack={historyLength > 0}>
         {activeView.type === 'settings' ? (
           <SettingsView key="settings" onLogout={handleLogout} />
         ) : activeView.type === 'history' ? (
@@ -114,7 +113,7 @@ const MainContentWrapper = memo(
           />
         ) : (
           <MainView
-            key={viewKey}
+            key={refreshKey}
             activeView={activeView}
             isAuthenticated={isAuthenticated}
             isInitializing={isInitializing}
@@ -129,9 +128,8 @@ const MainContentWrapper = memo(
             canGoBack={historyLength > 0}
           />
         )}
-      </div>
+      </RouteViewport>
     );
-    return detailRoute ? <div data-detail-viewport>{content}</div> : content;
   }
 );
 
@@ -155,18 +153,8 @@ function App() {
   >('queue');
   const savedRightPanelRef = useRef<'queue' | 'lyrics' | 'none'>('queue');
 
-  const [history, setHistory] = useState<ActiveView[]>([]);
-  const [activeView, setActiveView] = useState<ActiveView>(() => {
-    const saved = localStorage.getItem('goymusic-active-view');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.type === 'auth') return { type: 'home' };
-        return parsed;
-      } catch (e) {}
-    }
-    return { type: 'home' };
-  });
+  const { entry, history, direction, refreshKey, pageRef, navigate, back, refresh, reset } = useRouteStack();
+  const activeView = entry.view;
   const isMyWave = activeView.type === 'my-wave';
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -175,7 +163,6 @@ function App() {
   const [initError, setInitError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const [refreshKey, setRefreshKey] = useState(0);
   const [artistSheetBack, setArtistSheetBack] = useState<(() => void) | null>(null);
   const onSheetBackChange = useCallback((back: (() => void) | null) => {
     setArtistSheetBack(() => back);
@@ -187,22 +174,6 @@ function App() {
     isLoading: isLibraryLoading,
   } = useLibrary(isAuthenticated);
 
-  const navigate = useCallback((view: ActiveView) => {
-    setActiveView((prev) => {
-      // Безопасное сравнение без JSON.stringify (может падать на circular refs)
-      const same = prev.type === view.type &&
-        prev.playlistId === view.playlistId &&
-        prev.artistId === view.artistId &&
-        prev.albumId === view.albumId &&
-        prev.searchQuery === view.searchQuery;
-      if (same) {
-        setRefreshKey((k) => k + 1);
-        return prev;
-      }
-      setHistory((h) => [...h, prev].slice(-50));
-      return view;
-    });
-  }, []);
 
   useEffect(() => {
     localStorage.setItem('goymusic-active-view', JSON.stringify(activeView));
@@ -467,23 +438,16 @@ function App() {
       artistSheetBack();
       return;
     }
-    setHistory((prev) => {
-      const newHistory = [...prev];
-      const previousView = newHistory.pop();
-      if (previousView) {
-        setActiveView(previousView);
-      }
-      return newHistory;
-    });
-  }, [artistSheetBack]);
+    back();
+  }, [artistSheetBack, back]);
 
   const queryClient = useQueryClient();
 
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries();
-    setRefreshKey((k) => k + 1);
+    refresh();
     if (isAuthenticated) refetchLibrary();
-  }, [isAuthenticated, refetchLibrary, queryClient]);
+  }, [isAuthenticated, refetchLibrary, queryClient, refresh]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -515,10 +479,9 @@ function App() {
     player.reset();
     await clearTokens();
     setIsAuthenticated(false);
-    setHistory([]);
-    setActiveView({ type: 'home' });
+    reset();
     queryClient.clear();
-  }, [queryClient]);
+  }, [queryClient, reset]);
 
   const toggleTheme = useCallback(
     () => setTheme((prev) => (prev === 'dark' ? 'glass' : 'dark')),
@@ -588,16 +551,6 @@ function App() {
     [activeView.type, activeView.playlistId]
   );
 
-  const sidebarHeader = useMemo(() => isAuthenticated && !isInitializing ? (
-    <SidebarHeader
-      collapsed={isSidebarCollapsed}
-      showLogo={deck || !isSidebarCollapsed}
-      onToggleCollapse={toggleSidebar}
-      onSelectView={navigate}
-      activeViewType={activeView.type}
-    />
-  ) : null, [isAuthenticated, isInitializing, isSidebarCollapsed, deck, toggleSidebar, navigate, activeView.type]);
-
   const sidebarComp = useMemo(() => {
     if (!isAuthenticated || isInitializing) return undefined;
     return (
@@ -605,7 +558,7 @@ function App() {
         collapsed={isSidebarCollapsed}
         immersive={isMyWave}
         deck={deck}
-        header={deck ? null : sidebarHeader}
+        onToggleCollapse={toggleSidebar}
         playlists={playlists}
         activePlaylistId={activePlaylistId}
         onSelectView={navigate}
@@ -621,7 +574,7 @@ function App() {
     isInitializing,
     isSidebarCollapsed,
     deck,
-    sidebarHeader,
+    toggleSidebar,
     playlists,
     activePlaylistId,
     navigate,
@@ -700,7 +653,9 @@ function App() {
   const mainContent = useMemo(
     () => (
       <MainContentWrapper
-        activeView={activeView}
+        entry={entry}
+        direction={direction}
+        pageRef={pageRef}
         refreshKey={refreshKey}
         handleLogout={handleLogout}
         handleSelectArtist={handleSelectArtist}
@@ -718,7 +673,9 @@ function App() {
       />
     ),
     [
-      activeView,
+      entry,
+      direction,
+      pageRef,
       refreshKey,
       handleLogout,
       handleSelectArtist,
@@ -745,7 +702,6 @@ function App() {
   const titleBarComp = useMemo(
     () => (
       <MemoizedTitleBar
-        navigationHeader={deck ? sidebarHeader : null}
         theme={theme}
         onToggleTheme={toggleTheme}
         onBack={handleBack}
@@ -757,8 +713,6 @@ function App() {
       />
     ),
     [
-      deck,
-      sidebarHeader,
       theme,
       toggleTheme,
       handleBack,

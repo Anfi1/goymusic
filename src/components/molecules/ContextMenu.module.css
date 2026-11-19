@@ -11,7 +11,7 @@
     position: fixed;
     min-width: 200px;
     max-width: 320px;
-    background: color-mix(in srgb, var(--bg-raised) 95%, transparent);
+    background: var(--deck-popover, color-mix(in srgb, var(--bg-raised) 95%, transparent));
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -79,8 +79,12 @@
 }
 
 .item:is(:hover, :focus-visible, [aria-expanded="true"]) {
-    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    background: var(--cover-hover, color-mix(in srgb, var(--accent) 15%, transparent));
     color: var(--accent);
+}
+
+:root[data-layout="deck"] .item[aria-expanded="true"] {
+    background: var(--deck-selected);
 }
 
 .icon {
@@ -112,7 +116,7 @@
     min-width: 200px;
     max-width: 280px;
     max-height: 210px; 
-    background: color-mix(in srgb, var(--bg-raised) 98%, transparent);
+    background: var(--deck-popover, color-mix(in srgb, var(--bg-raised) 98%, transparent));
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.1);

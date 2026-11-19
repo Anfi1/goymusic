@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getHomeSections, getAlbum, getPlaylistTracks, sendFeedback } from '../../api/yt';
 import { player } from '../../api/player';
 import { MediaCard } from '../molecules/MediaCard';
+import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
 import { Carousel } from '../molecules/Carousel';
 import { Skeleton } from '../atoms/Skeleton';
 import {
@@ -19,7 +20,6 @@ import { getHomeSource, setHomeSource, HomeSource } from '../../api/homeSource';
 import { HomeSourceToggle } from '../atoms/HomeSourceToggle';
 import { YandexHomeView } from './YandexHomeView';
 import styles from './HomeView.module.css';
-import headings from '../../styles/DeckHeadings.module.css';
 
 const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
   if (isFirst) return Zap;
@@ -99,16 +99,27 @@ function normalizePins(section: YTMHomeSection, isFirst: boolean): YTMHomeSectio
   return { ...section, contents };
 }
 
-// The service chooses between card shelves and three-row grids. Until the
-// response arrives, only the heading has a known position and line height.
-const SectionSkeleton = () => (
-  <section className={`${styles.section} ${styles.pendingShelf}`} aria-hidden="true">
-    <div className={styles.sectionHeader}>
-      <div className={`${styles.sectionTitle} ${styles.pendingTitle}`}>
-        <Skeleton width="7em" height=".65em" />
-      </div>
-    </div>
-  </section>
+// An initial preview, not a prediction of the personalized feed or its length.
+const HomeSkeleton = () => (
+  <>
+    {(['card', 'row'] as const).map(variant => {
+      const rows = variant === 'row';
+      return (
+        <section key={variant} className={`${styles.section} ${styles.pendingShelf}`} data-home-placeholder={variant} aria-hidden="true" inert>
+          <div className={styles.sectionHeader}>
+            <h2 className={`${styles.sectionTitle} ${styles.pendingTitle}`}>
+              <Skeleton width={rows ? '5em' : '7em'} height=".65em" />
+            </h2>
+          </div>
+          <div className={`${rows ? styles.songGrid : styles.horizontalScroll} ${styles.pendingItems}`}>
+            {Array.from({ length: rows ? 12 : 6 }, (_, i) => (
+              <MediaCardSkeleton key={i} variant={variant} className={rows ? styles.songCard : styles.card} />
+            ))}
+          </div>
+        </section>
+      );
+    })}
+  </>
 );
 
 export const HomeView: React.FC<{
@@ -279,7 +290,7 @@ export const HomeView: React.FC<{
   return (
     <div ref={containerRef} className={`${styles.container} deck-scroll`} aria-busy={isLoading}>
       {yandexToggle}
-      {isLoading && <SectionSkeleton />}
+      {isLoading && <HomeSkeleton />}
       {isError && sections.length === 0 && <p className={styles.feedError}>Failed to load home feed.</p>}
       {sections.map((section: any, idx: number) => {
         const Icon = getSectionIcon(section.category, idx === 0);
@@ -298,7 +309,7 @@ export const HomeView: React.FC<{
                 title={navTarget?.tooltip}
               >
                 <Icon size={20} className={styles.sectionIcon} />
-                <h2 className={`${styles.sectionTitle} ${matchesTitle(section.title, LISTEN_AGAIN_KEYWORDS) ? headings.featureHeading : ''}`}>
+                <h2 className={styles.sectionTitle}>
                   {section.title}
                   {navTarget && <ChevronRight size={20} className={styles.titleChevron} />}
                 </h2>
@@ -333,8 +344,6 @@ export const HomeView: React.FC<{
 
       {/* Sentinel — triggers prefetch 600px before reaching it */}
       {hasNextPage && <div ref={sentinelRef} style={{ height: 1 }} />}
-
-      {isFetchingNextPage && <SectionSkeleton />}
 
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={menuItems} onClose={() => setContextMenu(null)} />}
     </div>

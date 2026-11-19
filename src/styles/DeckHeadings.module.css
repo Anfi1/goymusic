@@ -1,6 +1,10 @@
 :root[data-layout="deck"] :is(h2, h4).featureHeading {
-    font-family: "Aptos Display", "Trebuchet MS", "DejaVu Sans", sans-serif;
+    font-family: "Aptos Display", "Segoe UI", "DejaVu Sans", system-ui, sans-serif;
     font-weight: 600;
     line-height: 1.25;
     letter-spacing: -0.012em;
+}
+
+:root[data-layout="deck"] h2.featureHeading {
+    font-weight: 700;
 }

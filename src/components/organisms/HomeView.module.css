@@ -67,6 +67,7 @@
 }
 
 .sectionTitle {
+    composes: featureHeading from "../../styles/DeckHeadings.module.css";
     font-size: var(--fs-3xl);
     font-weight: 800;
     color: var(--text-main);
@@ -206,7 +207,8 @@
 }
 
 /* Reserve both metadata lines on the fixed card shelves as covers resolve. */
-.knownShelves .card {
+.knownShelves .card,
+:root[data-layout="deck"] .container .card {
     --card-caption-height: 2lh;
 }
 
@@ -220,6 +222,15 @@
 .pendingCards {
     visibility: hidden;
     animation: showPlaceholder 0s 180ms forwards;
+}
+
+.container .pendingItems {
+    overflow: clip;
+}
+
+/* Classic retains its compact initial heading indicator. */
+:root:not([data-layout="deck"]) :is(.pendingItems, .pendingShelf + .pendingShelf) {
+    display: none;
 }
 
 @keyframes showPlaceholder {
@@ -263,11 +274,10 @@
 :root[data-layout="deck"] .sourceToggle + .section .sectionHeader { margin-right: 76px; }
 :root[data-layout="deck"] .sectionIcon { display: none; }
 
-:root[data-layout="deck"] .sectionTitle {
-    font-size: var(--fs-xl);
-    font-weight: 550;
-    line-height: 1.25;
-    letter-spacing: -0.025em;
+:root[data-layout="deck"] .container[aria-busy="true"] { overflow-y: hidden; }
+
+:root[data-layout="deck"] .section:first-of-type .sectionTitle {
+    font-size: var(--fs-4xl);
 }
 
 :root[data-layout="deck"] .updatingBadge {

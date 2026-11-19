@@ -26,6 +26,7 @@
 
 .container.interactive {
     cursor: pointer;
+    touch-action: none;
 }
 
 .container.interactive:hover,
@@ -137,12 +138,16 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
-:root:not([data-layout="deck"]) .nyanFill {
+:root:is(:not([data-layout]), [data-nyan="on"]) {
+    --nyan-width: 34px;
+}
+
+:root:is(:not([data-layout]), [data-nyan="on"]) .nyanFill {
     background: linear-gradient(to bottom, #FF0000 0%, #FF0000 16.5%, #FF9900 16.5%, #FF9900 33%, #FFFF00 33%, #FFFF00 50%, #33FF00 50%, #33FF00 66%, #0099FF 66%, #0099FF 83.5%, #6633ff 83.5%, #6633ff 100%) !important;
 }
 
-:root:not([data-layout="deck"]) .nyanThumb {
-    width: 34px !important;
+:root:is(:not([data-layout]), [data-nyan="on"]) .nyanThumb {
+    width: var(--nyan-width) !important;
     height: 21px !important;
     background: url("data:image/gif;base64,R0lGODlhIgAVAKIHAL3/9/+Zmf8zmf/MmZmZmf+Z/wAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh/wtYTVAgRGF0YVhNUDw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iIHhtbG5zOnN0UmVmPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VSZWYjIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD0ieG1wLmRpZDpDMkJBNjY5RTU1NEJFMzExOUM4QUM2MDAwNDQzRERBQyIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDpCREIzOEIzMzRCN0IxMUUzODhEQjgwOTYzMTgyNTE0QiIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDpCREIzOEIzMjRCN0IxMUUzODhEQjgwOTYzMTgyNTE0QiIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ1M2IChXaW5kb3dzKSI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOkM1QkE2NjlFNTU0QkUzMTE5QzhBQzYwMDA0NDNEREFDIiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOkMyQkE2NjlFNTU0QkUzMTE5QzhBQzYwMDA0NDNEREFDIi8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+Af/+/fz7+vn49/b19PPy8fDv7u3s6+rp6Ofm5eTj4uHg397d3Nva2djX1tXU09LR0M/OzczLysnIx8bFxMPCwcC/vr28u7q5uLe2tbSzsrGwr66trKuqqainpqWko6KhoJ+enZybmpmYl5aVlJOSkZCPjo2Mi4qJiIeGhYSDgoGAf359fHt6eXh3dnV0c3JxcG9ubWxramloZ2ZlZGNiYWBfXl1cW1pZWFdWVVRTUlFQT05NTEtKSUhHRkVEQ0JBQD8+PTw7Ojk4NzY1NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQAAIfkECQcABwAsAAAAACIAFQAAA6J4umv+MDpG6zEj682zsRaWFWRpltoHMuJZCCRseis7xG5eDGp93bqCA7f7TFaYoIFAMMwczB5EkTzJllEUttmIGoG5bfPBjDawD7CsJC67uWcv2CRov929C/q2ZpcBbYBmLGk6W1BRY4MUDnMvJEsBAXdlknk2fCeRk2iJliAijpBlEmigjR0plKSgpKWvEUheF4tUZqZID1RHjEe8PsDBBwkAIfkECQcABwAsAAAAACIAFQAAA6B4umv+MDpG6zEj682zsRaWFWRpltoHMuJZCCRseis7xG5eDGp93TqS40XiKSYgTLBgIBAMqE/zmQSaZEzns+jQ9pC/5dQJ0VIv5KMVWxqb36opxHrNvu9ptPfGbmsBbgSAeRdydCdjXWRPchQPh1hNAQF4TpM9NnwukpRyi5chGjqJEoSOIh0plaYsZBKvsCuNjY5ptElgDyFIuj6+vwcJACH5BAkHAAcALAAAAAAiABUAAAOfeLrc/vCZSaudUY7Nu99GxhhcYZ7oyYXiQQ5pIZgzCrYuLMd8MbAiUu802flYGIhwaCAQDKpQ86nUoWqF6dP00wIby572SXE6vyMrlmhuu9GKifWaddvNQAtszXYCxgR/Zy5jYTFeXmSDiIZGdQEBd06QSBQ5e4cEkE9nnZQaG2J4F4MSLx8rkqUSZBeurhlTUqsLsi60DpZxSWBJugcJACH5BAkHAAcALAAAAAAiABUAAAOgeLrc/vCZSaudUY7Nu99GxhhcYZ7oyYXiQQ5pIZgzCrYuLMd8MbAiUu802flYGIhwaCAQDKpQ86nUoWqF6dP00wIby572SXE6vyMrlmhuu9GuifWaddvNwMkZtmY7AWMEgGcKY2ExXl5khFMVc0Z1AQF3TpJShDl8iASST2efloV5JTyJFpgOch8dgW9KZxexshGNLqgLtbW0SXFwvaJfCQAh+QQJBwAHACwAAAAAIgAVAAADoXi63P7wmUmrnVGOzbvfRsYYXGGe6MmF4kEOaSGYMwq2LizHfDGwIlLPNKGZfi6gZmggEAy2iVPZEKZqzakq+1xUFFYe90lxTsHmim6HGpvf3eR7skYJ3PC5tyystc0AboFnVXQ9XFJTZIQOYUYFTQEBeWaSVF4bbCeRk1meBJYSL3WbaReMIxQfHXh6jaYXsbEQni6oaF21ERR7l0ksvA0JACH5BAkHAAcALAAAAAAiABUAAAOeeLrc/vCZSaudUY7Nu99GxhhcYZ7oyYXiQQ5pIZgzCrYuLMfFlA4hTITEMxkIBMOuADwmhzqeM6mashTCXKw2TVKQyKuTRSx2wegnNkyJ1ozpOFiMLqcEU8BZHx6NYW8nVlZefQ1tZgQBAXJIi1eHUTRwi0lhl48QL0sogxaGDhMlUo2gh14fHhcVmnOrrxNqrU9joX21Q0IUElm7DQkAOw==") !important;
     border-radius: 0 !important;
@@ -171,4 +176,40 @@
     opacity: 1;
     box-shadow: none;
     filter: none;
+}
+
+/* A footer slider's bounds are its hit target. Only its inner rail paints. */
+:root[data-layout="deck"] .container.largeTarget {
+    --slider-rail-color: color-mix(in srgb, var(--text-sub) 44%, transparent);
+    height: 28px;
+    background: none;
+    border-radius: var(--slider-rail-radius, var(--radius-full));
+}
+
+:root[data-layout="deck"] .largeTarget::after {
+    content: none;
+}
+
+:root[data-layout="deck"] .largeTarget .progressWrapper {
+    top: 50%;
+    bottom: auto;
+    height: var(--slider-rail-height, 4px);
+    transform: translateY(-50%);
+    background: var(--slider-rail-color);
+}
+
+:root[data-layout="deck"] .largeTarget :is(.fill, .buffered, .hoverFill) {
+    border-radius: inherit;
+}
+
+:root[data-layout="deck"][data-nyan="on"] .largeTarget .thumbWrapper:has(.nyanThumb) {
+    left: calc(var(--nyan-width) / 2);
+    width: calc(100% - var(--nyan-width));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root[data-layout="deck"][data-nyan="on"] .nyanThumb {
+        /* The first frame of the bundled GIF, without animation. */
+        background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACIAAAAVCAYAAAAjODzXAAABL0lEQVR42s2WwXHEIAxF+Ywv6SMdZDtIHznyaxI1JTUpl+DFWGJFvJmJLmYMiMdHQiDFTNN1w687G4R+ynWKG6frYQniq6wTvNUQTA479CBqtduL8HkJwlqoFLu9CJOXZC5zhyASiLlC9+A/JMCWnmQgkojsbRX1wLWNI6ktZvJAqEup6uxYRI7KDH2WbeMAkg0MV47KgvEgDiAkk4gkEelhbBVKLBNmC3vBik6NuYMRotZDfKzYzxwds2YO42WAoc5r+dj9RPuyddOSPA8u8Vv1HS+nf82f1eelL0KFzoiVctfcjZf2bWMZuNBwqhf98TxQqFfUa/9J0RsD1lvQuCrwCGQ/mugzADeGs6eHmIFodHfPeihtQfI2US1ZJ7UkPA/Bp6GVSaFjNeYi/Wf7BmItkJ1iuDCnAAAAAElFTkSuQmCC") !important;
+    }
 }

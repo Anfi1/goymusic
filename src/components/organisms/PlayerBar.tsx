@@ -316,27 +316,23 @@ const TimeProgress = memo(() => {
     player.setLoop({ a: Math.max(0, b - 10), b });
   };
 
-  const dragMarker = (which: 'a' | 'b') => (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
+  const moveMarker = (e: React.PointerEvent<HTMLDivElement>, which: 'a' | 'b') => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
     const rect = progressBarRef.current?.container?.getBoundingClientRect();
-    if (!rect) return;
-    const move = (ev: MouseEvent) => {
-      const cur = player.loop;
-      if (!cur) return;
-      const t = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width)) * player.duration;
-      const next = which === 'a'
-        ? { a: Math.min(t, cur.b - 0.5), b: cur.b }
-        : { a: cur.a, b: Math.min(maxB(), Math.max(t, cur.a + 0.5)) };
-      player.setLoop(next);
-      setLoop(next);
-    };
-    const up = () => {
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
-    };
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
+    const cur = player.loop;
+    if (!cur || !rect?.width) return;
+    const t = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * player.duration;
+    const next = which === 'a'
+      ? { a: Math.min(t, cur.b - 0.5), b: cur.b }
+      : { a: cur.a, b: Math.min(maxB(), Math.max(t, cur.a + 0.5)) };
+    player.setLoop(next);
+    setLoop(next);
+  };
+
+  const captureMarker = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary || e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const pct = (t: number) => `${player.duration ? (t / player.duration) * 100 : 0}%`;
@@ -350,14 +346,15 @@ const TimeProgress = memo(() => {
           buffered={player.buffered}
           label="Playback position"
           onSeek={handleSeek}
+          largeTarget
           nyanMode={true}
           isPlaying={player.isPlaying}
         />
         {loop && (
           <div className={styles.loop}>
             <div className={styles.loopRange} style={{ left: pct(loop.a), width: pct(loop.b - loop.a) }} />
-            <div className={styles.loopMarker} style={{ left: pct(loop.a) }} onMouseDown={dragMarker('a')} data-tooltip={formatTime(loop.a)} />
-            <div className={styles.loopMarker} style={{ left: pct(loop.b) }} onMouseDown={dragMarker('b')} data-tooltip={formatTime(loop.b)} />
+            <div className={styles.loopMarker} style={{ left: pct(loop.a) }} onPointerDown={captureMarker} onPointerMove={e => moveMarker(e, 'a')} data-tooltip={formatTime(loop.a)} />
+            <div className={styles.loopMarker} style={{ left: pct(loop.b) }} onPointerDown={captureMarker} onPointerMove={e => moveMarker(e, 'b')} data-tooltip={formatTime(loop.b)} />
           </div>
         )}
       </div>
@@ -445,6 +442,7 @@ const VolumeControl = memo(() => {
         label="Volume"
         onSeek={handleVolumeSeek} 
         showThumb={true} 
+        largeTarget
         className={styles.volumeBar} 
       />
 

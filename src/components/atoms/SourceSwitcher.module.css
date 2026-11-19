@@ -27,7 +27,7 @@
 }
 
 .segmentActive {
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--deck-selected, rgba(255, 255, 255, 0.14));
     opacity: 1;
     filter: none;
 }

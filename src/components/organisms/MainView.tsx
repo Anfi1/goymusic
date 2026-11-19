@@ -63,6 +63,16 @@ const STICKY_THRESHOLD = 160;
 const AUTO_SCROLL_THRESHOLD = 100;
 const MAX_SCROLL_SPEED = 12;
 
+// This preview describes the visible list, not the length of an unknown album.
+const albumLoadingTracks = (
+  <div className={styles.albumLoadingTracks} role="status" aria-label="Loading album">
+    <table className={styles.trackList} aria-hidden="true" data-testid="album-skeleton-tracks">
+      <TrackColumnGroup hideAlbum />
+      <tbody>{Array.from({ length: 6 }, (_, i) => <TrackRowSkeleton key={i} index={i} hideAlbum albumPreview />)}</tbody>
+    </table>
+  </div>
+);
+
 const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, context, ...props }, ref) => (
   <div 
     {...props} 
@@ -288,14 +298,15 @@ const LargeHeader = memo(({
   );
 
   return (
-    <div ref={headerRef} className={styles.header}>
+    <div ref={headerRef} className={styles.header} aria-hidden={showSkeletons || undefined}>
       <div className={styles.coverWrapper}>
         <div 
           className={`${styles.coverContainer} ${!showSkeletons ? styles.zoomable : ''}`}
+          data-testid={isDeckAlbum && showSkeletons ? 'album-skeleton-cover' : undefined}
           onClick={!showSkeletons ? handleZoomCover : undefined}
         >
           {showSkeletons ? (
-            <Skeleton width="100%" height="100%" />
+            <Skeleton width="100%" height="100%" className={isDeckAlbum ? styles.albumLoadingCover : undefined} />
           ) : (
             <>
               <LazyImage 
@@ -315,11 +326,11 @@ const LargeHeader = memo(({
         {!isDeck && stats}
       </div>
 
-      <div className={styles.info} style={showSkeletons && !isDeckAlbum ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
+      <div className={styles.info} data-testid={isDeckAlbum && showSkeletons ? 'album-skeleton-metadata' : undefined} style={showSkeletons && !isDeckAlbum ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
         {showSkeletons ? (
           <>
             <div className={styles.label}><Skeleton width={80} height={12} borderRadius={4} /></div>
-            <Skeleton width="85%" height={isDeckAlbum ? 'var(--fs-collection-title)' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
+            <Skeleton width={isDeckAlbum ? 'min(80%, 23rem)' : '85%'} height={isDeckAlbum ? 'clamp(24px, 2.8vw, 42px)' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
             <div className={styles.headerMeta} style={{ animation: 'none' }}>
               <div className={styles.metaTextInfo}>
                 <Skeleton width={140} height={14} borderRadius={4} />
@@ -753,11 +764,11 @@ export const MainView = memo<MainViewProps>(({
 
   const viewTitle = playlistMetadata?.title || 'Loading...';
   const viewLabel = playlistMetadata?.type || 'PLAYLIST';
-  const showSkeletons = isPlaylistLoading || (isInitializing && !(isDeckAlbum && playlistMetadata));
+  // Query loading is initial-fetch only; keep cached albums visible during refresh or app initialization.
+  const showSkeletons = isDeckAlbum ? isPlaylistLoading : isPlaylistLoading || isInitializing;
+  const isAlbumLoading = isDeckAlbum && showSkeletons;
   const mergedLikedTracks = useMemo(() => {
-    // Album length is unknown until the response. A fabricated 20-row list
-    // flashes a scrollbar and remeasures the viewport even on a fast load.
-    if (showSkeletons) return isDeckAlbum ? [] : Array(20).fill({});
+    if (showSkeletons && !isDeckAlbum) return Array(20).fill({});
     if (!isLikedSongsView || yandexLikedTracks.length === 0) return playlistTracks;
     // Оба списка уже отсортированы по дате лайка (свежие сверху), поэтому сливаем их
     // слиянием, а не склейкой -- иначе весь Яндекс оказывался в хвосте под YouTube.
@@ -920,15 +931,17 @@ export const MainView = memo<MainViewProps>(({
       <div
         className={isDeck ? `${styles.virtuosoWrapper} deck-scroll` : styles.virtuosoWrapper}
         data-collection-scroll={isDeck ? playlistType : undefined}
+        data-testid={isAlbumLoading ? 'album-skeleton' : undefined}
         aria-busy={isDeckAlbum ? !!showSkeletons : undefined}
         ref={isDeck ? attachDeckScroller : undefined}
         onDragOver={isDeck ? handleDragOverContainer : undefined}
       >
         {isDeck && <LargeHeader {...virtuosoContext} />}
-        {(!isDeck || deckScroller) && <TableVirtuoso
+        {isAlbumLoading ? albumLoadingTracks : (!isDeck || deckScroller) && <TableVirtuoso
           key={sortMode}
           ref={virtuosoRef} 
           customScrollParent={isDeck ? deckScroller ?? undefined : undefined}
+          className={isDeckAlbum ? styles.albumTrackSurface : undefined}
           style={isDeck ? undefined : { height: '100%' }}
           data={displayTracks} 
           context={virtuosoContext} 
