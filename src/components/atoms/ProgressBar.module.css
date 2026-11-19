@@ -201,7 +201,7 @@
     border-radius: inherit;
 }
 
-/* Clip the entering sprite's paint, never the focusable pointer target. */
+/* Clip artwork only; keep the full pointer and keyboard hit target. */
 :root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanViewport {
     position: absolute;
     inset: 0;
@@ -210,12 +210,11 @@
     pointer-events: none;
 }
 
-/* Both transform percentages resolve against the full rail. Move the nose
-   half a sprite ahead of the playhead in the interior; taper that offset
-   over one sprite width at either end so it enters and finishes in motion. */
+/* Both translations use rail coordinates. Center on the playhead except
+   in the final half-sprite at each edge, where the whole cat stays visible. */
 :root[data-layout="deck"][data-nyan="on"] .largeTarget :is(.nyanViewport .thumbWrapper, .nyanFill) {
-    --nose-offset: min(calc(var(--nyan-width) / 2), calc(var(--progress) / 2), calc((100% - var(--progress)) / 2));
-    transform: translateX(calc(-100% + var(--progress) + var(--nose-offset)));
+    --nose: clamp(var(--nyan-width), calc(var(--progress) + var(--nyan-width) / 2), 100%);
+    transform: translateX(calc(-100% + var(--nose)));
 }
 
 :root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanThumb {

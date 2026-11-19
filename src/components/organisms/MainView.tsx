@@ -240,7 +240,7 @@ function useFitTitle(ref: React.RefObject<HTMLElement | null>, text?: string) {
 
 const LargeHeader = memo(({
   metadata, tracks, totalReportedCount, showSkeletons,
-  isSyncing: isFetchingNextPage, isSticky, likedCountLabel, handleHeaderAction, isHeaderActionLoading, isDeck,
+  isSyncing: isFetchingNextPage, isSticky, likedCountLabel, handleHeaderAction, isHeaderActionLoading, isDeck, collectionHero,
   headerRef, playlistType, sortMode, setSortMode, isSorting,
   isLikedSongsView, likedSources, activeLikedSources, onToggleLikedSource
 }: any) => {
@@ -282,19 +282,19 @@ const LargeHeader = memo(({
   const [previewHeight, setPreviewHeight] = useState<number>();
   useLayoutEffect(() => {
     const header = headerRef.current;
-    if (!isDeckAlbum || !showSkeletons || !header) return;
+    if (!collectionHero || !showSkeletons || !header) return;
     // Preserve the outgoing border box, including resizes while the query is pending.
     setPreviewHeight(header.getBoundingClientRect().height);
     const observer = new ResizeObserver(([entry]) => setPreviewHeight(entry.borderBoxSize[0].blockSize));
     observer.observe(header, { box: 'border-box' });
     return () => observer.disconnect();
-  }, [isDeckAlbum, showSkeletons, headerRef]);
+  }, [collectionHero, showSkeletons, headerRef]);
   const stats = (
     <div className={styles.statsUnderCover}>
       {showSkeletons ? (
         <>
-          <Skeleton width={40} height={isDeckAlbum ? 14 : 12} borderRadius={4} />
-          <Skeleton width={60} height={isDeckAlbum ? 14 : 12} borderRadius={4} />
+          <Skeleton width={40} height={collectionHero ? 14 : 12} borderRadius={4} />
+          <Skeleton width={60} height={collectionHero ? 14 : 12} borderRadius={4} />
         </>
       ) : (
         <>
@@ -307,8 +307,8 @@ const LargeHeader = memo(({
 
   return (
     <div ref={headerRef}
-      className={isDeckAlbum && previewHeight !== undefined ? `${styles.header} ${styles.measuredAlbumHeader}` : styles.header}
-      style={isDeckAlbum && previewHeight !== undefined ? { '--album-preview-height': `${previewHeight}px` } as React.CSSProperties : undefined}
+      className={collectionHero && previewHeight !== undefined ? `${styles.header} ${styles.measuredAlbumHeader}` : styles.header}
+      style={collectionHero && previewHeight !== undefined ? { '--album-preview-height': `${previewHeight}px` } as React.CSSProperties : undefined}
       aria-hidden={showSkeletons || undefined}>
       <div className={styles.coverWrapper}>
         <div 
@@ -337,15 +337,15 @@ const LargeHeader = memo(({
         {!isDeck && stats}
       </div>
 
-      <div className={styles.info} data-testid={isDeckAlbum && showSkeletons ? 'album-skeleton-metadata' : undefined} style={showSkeletons && !isDeckAlbum ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
+      <div className={styles.info} data-testid={isDeckAlbum && showSkeletons ? 'album-skeleton-metadata' : undefined} style={showSkeletons && !collectionHero ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
         {showSkeletons ? (
           <>
-            <div className={styles.label}><Skeleton width={80} height={isDeckAlbum ? 14 : 12} borderRadius={4} /></div>
-            <Skeleton width={isDeckAlbum ? 'min(85%, 26rem)' : '85%'} height={isDeckAlbum ? 'calc(var(--fs-collection-title) * var(--album-title-leading))' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
+            <div className={styles.label}><Skeleton width={80} height={collectionHero ? 14 : 12} borderRadius={4} /></div>
+            <Skeleton width={collectionHero ? 'min(85%, 26rem)' : '85%'} height={collectionHero ? 'calc(var(--fs-collection-title) * var(--album-title-leading))' : 52} borderRadius={8} style={collectionHero ? undefined : { marginTop: '4px' }} />
             <div className={styles.headerMeta} style={{ animation: 'none' }}>
               <div className={styles.metaTextInfo}>
-                <Skeleton width={isDeckAlbum ? 'min(72%, 9rem)' : 140} height={isDeckAlbum ? 16 : 14} borderRadius={4} />
-                {!isDeckAlbum && <Skeleton width={50} height={14} borderRadius={4} />}
+                <Skeleton width={collectionHero ? 'min(72%, 9rem)' : 140} height={collectionHero ? 16 : 14} borderRadius={4} />
+                {!collectionHero && <Skeleton width={50} height={14} borderRadius={4} />}
                 {isDeck && stats}
               </div>
               <div className={styles.headerActions}>
@@ -488,14 +488,13 @@ const LargeHeader = memo(({
 });
 
 const StickyTitlePanel = memo(({ 
-  isVisible, isDeckAlbum, metadata, playlistTracks, totalReportedCount, likedCountLabel, isFetchingNextPage, viewLabel, viewTitle
+  isVisible, collectionHero, metadata, playlistTracks, totalReportedCount, likedCountLabel, isFetchingNextPage, viewLabel, viewTitle
 }: any) => {
   const coverUrl = metadata?.thumbUrl || (playlistTracks[0]?.thumbUrl || '');
-  const albumArtist = isDeckAlbum && (metadata?.artists?.join(', ') || metadata?.author?.name);
-  const albumSongCount = Math.max(playlistTracks.length, totalReportedCount);
-  const albumFacts = [
-    metadata?.type, metadata?.year, `${albumSongCount} ${albumSongCount === 1 ? 'song' : 'songs'}`, metadata?.duration,
-  ];
+  const artist = collectionHero && !likedCountLabel && (metadata?.artists?.join(', ') || metadata?.author?.name);
+  const songCount = Math.max(playlistTracks.length, totalReportedCount);
+  const facts = [likedCountLabel ? 'Private' : viewLabel, metadata?.year,
+    likedCountLabel ?? `${songCount} ${songCount === 1 ? 'song' : 'songs'}`, metadata?.duration];
   
   return (
     <div aria-hidden={!isVisible} className={`${styles.stickyHeaderContainer} ${isVisible ? styles.isSticky : ''}`}>
@@ -510,14 +509,14 @@ const StickyTitlePanel = memo(({
             )}
           </div>
           <div className={styles.stickyTextInfo}>
-            {!isDeckAlbum && <div className={styles.stickyLabel}>{viewLabel}</div>}
+            {!collectionHero && <div className={styles.stickyLabel}>{viewLabel}</div>}
             <div className={styles.stickyMainTitle} data-tooltip={viewTitle} data-tooltip-overflow="">
               {viewTitle}
-              {!isDeckAlbum && isVisible && <span className={styles.stickyTrackCount}> • {likedCountLabel ?? `${playlistTracks.length} of ${totalReportedCount}`}</span>}
+              {!collectionHero && isVisible && <span className={styles.stickyTrackCount}> • {likedCountLabel ?? `${playlistTracks.length} of ${totalReportedCount}`}</span>}
             </div>
-            {isDeckAlbum && <div className={styles.stickyAlbumMeta}>
-              {albumArtist && <span className={styles.stickyAlbumArtist} data-tooltip={albumArtist} data-tooltip-overflow="">{albumArtist}</span>}
-              {albumFacts.map((fact, index) => fact && <span key={index}>{fact}</span>)}
+            {collectionHero && <div className={styles.stickyAlbumMeta}>
+              {artist && <span className={styles.stickyAlbumArtist} data-tooltip={artist} data-tooltip-overflow="">{artist}</span>}
+              {facts.map((fact, index) => fact && <span key={index}>{fact}</span>)}
             </div>}
           </div>
         </div>
@@ -599,6 +598,7 @@ export const MainView = memo<MainViewProps>(({
   } = usePlaylist(playlistType, playlistId);
 
   const isLikedSongsView = playlistType === 'liked' || playlistId === 'LM';
+  const collectionHero = isDeck && (isDeckAlbum || isLikedSongsView || playlistId === LOCAL_PLAYLIST_ID);
   const isSyncing = isMirroring || isFetchingNextPage;
   const mirrorLabel = likedProgress && likedSyncLabel(likedProgress);
 
@@ -926,7 +926,7 @@ export const MainView = memo<MainViewProps>(({
   }), [isDeck]);
 
   const virtuosoContext = useMemo(() => ({
-    isDeck, isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
+    isDeck, collectionHero, isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
     onScroll: handleScroll, onPlay: handlePlayTrack, onContextMenu: handleContextMenu,
     metadata: playlistMetadata, handleHeaderAction, isHeaderActionLoading,
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
@@ -934,7 +934,7 @@ export const MainView = memo<MainViewProps>(({
     onDrop: handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
     isLikedSongsView, likedSources, activeLikedSources: effectiveLikedSources, onToggleLikedSource: handleToggleLikedSource
   }), [
-    isDeck, isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
+    isDeck, collectionHero, isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
     handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
     dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
@@ -946,18 +946,18 @@ export const MainView = memo<MainViewProps>(({
 
   return (
     <div
-      className={isDeckAlbum ? `${styles.container} ${styles.deckAlbum}` : styles.container}
+      className={`${styles.container}${collectionHero ? ` ${styles.collectionHero}` : ''}${isDeckAlbum ? ` ${styles.deckAlbum}` : ''}`}
       style={isDeck ? {
         '--virtual-track-height': `${DECK_COLLECTION_TRACK_HEIGHT}px`,
         '--album-art': isDeckAlbum && playlistMetadata?.thumbUrl ? `url(${JSON.stringify(playlistMetadata.thumbUrl)})` : undefined,
       } as React.CSSProperties : undefined}
     >
-      <StickyTitlePanel isVisible={isSticky} isDeckAlbum={isDeckAlbum} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} likedCountLabel={likedCountLabel} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
+      <StickyTitlePanel isVisible={isSticky} collectionHero={collectionHero} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} likedCountLabel={likedCountLabel} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div
         className={isDeck ? `${styles.virtuosoWrapper} deck-scroll` : styles.virtuosoWrapper}
         data-collection-scroll={isDeck ? playlistType : undefined}
         data-testid={isAlbumLoading ? 'album-skeleton' : undefined}
-        aria-busy={isDeckAlbum ? !!showSkeletons : undefined}
+        aria-busy={collectionHero ? !!showSkeletons : undefined}
         role={isAlbumLoading ? 'status' : undefined}
         aria-label={isAlbumLoading ? 'Loading album' : undefined}
         ref={isDeck ? attachDeckScroller : undefined}

@@ -5,6 +5,7 @@ const nyanKey = 'goymusic-deck-nyan';
 export const deckSpeeds = { ultra: 'Ultra fast', fast: 'Fast', medium: 'Medium', slow: 'Slow' } as const;
 export const deckDimming = { light: 'Light', dim: 'Darker', original: 'Like Classic' } as const;
 export const deckTimes = { right: 'Right side', tooltip: 'At cursor' } as const;
+export const deckNavFonts = { compact: 'Standard', queue: 'Match queue heading' } as const;
 
 function deckChoice<T extends string>(attribute: string, choices: Record<T, string>, fallback: T) {
     const key = `goymusic-${attribute}`;
@@ -30,7 +31,7 @@ function deckChoice<T extends string>(attribute: string, choices: Record<T, stri
 export const deckSpeed = deckChoice('deck-speed', deckSpeeds, 'medium');
 export const deckDim = deckChoice('deck-dim', deckDimming, 'light');
 export const deckTime = deckChoice('deck-time', deckTimes, 'right');
-export const deckNavSize = deckChoice<'compact' | 'queue'>('deck-nav-size', { compact: 'Compact', queue: 'Match queue' }, 'compact');
+export const deckNavSize = deckChoice('deck-nav-size', deckNavFonts, 'compact');
 
 export function isDeckNyanEnabled(): boolean {
     return document.documentElement.dataset.nyan === 'on';

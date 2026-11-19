@@ -302,11 +302,20 @@ tr:is(:hover, :focus-within) .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):
 tr:is(:hover, :focus-within) .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
     display: flex;
 }
-}
 
 /* молния стоит на месте кнопок лайка и уступает им место при наведении */
 tr:is(:hover, :focus-within) .bestBadge {
     display: none;
+}
+}
+
+/* Молния отдает свое место второй кнопке с той же скоростью.
+   Уже выбранная оценка при этом остается на месте. */
+:root[data-layout="deck"] .bestBadge {
+    --badge-visible: calc(1 - var(--track-actions-open, 0));
+    width: calc(var(--track-action-width) * var(--badge-visible));
+    opacity: var(--badge-visible);
+    transition: width var(--track-action-reveal), opacity 120ms ease-out;
 }
 
 .likeBtn {

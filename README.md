@@ -13,7 +13,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 - Search with suggestions
 - Deck desktop layout: centered playback controls, full-width seek bar, and optional Nyan Cat on the progress bar. Switch in **Settings → Appearance → new Experement Layout** without restarting. Right-click the current track for track actions.
 - In Deck, **Settings → Appearance → Playback time** offers **Right side** (always visible) or **At cursor** (only while using the seek bar). Both preview the pointed time without seeking until you press or drag. **Transition speed** includes Ultra fast (120 ms); reduced motion takes precedence. **Dimming** changes surfaces and text together.
-- In the Deck sidebar, open the profile menu and enable **Match queue size** for larger navigation labels and rows. The queue itself does not change.
+- **Settings → Appearance → Sidebar font size** changes the text of the expanded Deck sidebar. **Match queue heading** uses the larger font without changing button height or the queue.
 - **Settings → Accessibility → Interface scale** changes text, artwork and controls together (100%, 110%, 125% or 150%). The setting is saved for both layouts and works in full screen.
 
 ## Tech Stack

@@ -379,7 +379,6 @@
 
 :root[data-layout="deck"][data-deck-nav-size="queue"] .sidebar:not(.collapsed) {
     --fs-nav-label: var(--fs-lg);
-    --nav-item-height: var(--deck-list-row-height);
 }
 
 :root[data-layout="deck"] .sectionHeader {

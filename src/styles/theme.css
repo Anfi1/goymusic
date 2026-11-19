@@ -148,6 +148,8 @@
     --deck-page-top: 1rem;
     --deck-list-artwork: 40px;
     --deck-list-row-height: calc(var(--deck-list-artwork) + 14px);
+    --track-action-width: 22px;
+    --track-action-reveal: 150ms ease-out;
     --bg-crust: #131516;
     --bg-base: #17191a;
     --bg-mantle: #212425;
