@@ -154,7 +154,7 @@ def smoke(bundle):
         cwd = Path(scratch)
         env = dict(os.environ)
         # No globally installed Python, ffmpeg, Node, or repo resources on PATH.
-        windows = Path(env["SystemRoot"])
+        windows = Path(os.environ["SYSTEMROOT"])
         env.update(PATH=os.pathsep.join(map(str, [windows / "System32", windows])), GOYMUSIC_USER_DATA=scratch)
         env.pop("PYTHONPATH", None)
         env.pop("PYTHONHOME", None)
