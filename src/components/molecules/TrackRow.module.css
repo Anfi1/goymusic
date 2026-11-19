@@ -264,6 +264,7 @@
 }
 
 .likeBtnGroup {
+    composes: group from './TrackActions.module.css';
     display: flex;
     align-items: center;
     gap: 2px;
@@ -274,6 +275,12 @@
     transition: opacity 0.15s ease, max-width 0s 0.15s;
 }
 
+:root[data-layout="deck"] tr:is(:hover, :focus-within) {
+    --track-actions-open: 1;
+    --track-actions-pointer: auto;
+}
+
+@scope (:root:not([data-layout="deck"])) {
 tr:is(:hover, :focus-within) .likeBtnGroup,
 .likeBtnGroup:has(.isLiked),
 .likeBtnGroup:has(.isDisliked),
@@ -294,6 +301,7 @@ tr:is(:hover, :focus-within) .likeBtnGroup,
 tr:is(:hover, :focus-within) .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
 tr:is(:hover, :focus-within) .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
     display: flex;
+}
 }
 
 /* молния стоит на месте кнопок лайка и уступает им место при наведении */
@@ -331,7 +339,7 @@ tr:is(:hover, :focus-within) .bestBadge {
     pointer-events: none;
 }
 
-:root[data-layout="deck"] .row { height: var(--search-track-height, 44px); box-shadow: none; }
+:root[data-layout="deck"] .row { height: var(--search-track-height, 50px); box-shadow: none; }
 
 /* Match the row height requested by each fixed-size virtual table. */
 :root[data-layout="deck"] .row[data-index] { height: var(--virtual-track-height, 56px); }
@@ -347,12 +355,16 @@ tr:is(:hover, :focus-within) .bestBadge {
 :root[data-layout="deck"] .durationWrapper { gap: 4px; }
 :root[data-layout="deck"] .titleCell { gap: 10px; }
 :root[data-layout="deck"] .titleWrapper { gap: 0; }
-:root[data-layout="deck"] .title { font-size: var(--fs-base); line-height: 1.25; }
+.skeletonTitle { height: 16px; }
+.skeletonArtist { height: 14px; }
+:root[data-layout="deck"] .skeletonTitle { height: 13px; }
+:root[data-layout="deck"] .skeletonArtist { height: 9px; margin-top: 5px; }
+:root[data-layout="deck"] .title { font-size: var(--fs-track-title, var(--fs-base)); line-height: 1.25; }
 :root[data-layout="deck"] .indexWrapper { height: 32px; margin-inline-start: var(--track-inline-gutter, auto); }
 
 :root[data-layout="deck"] :is(.thumb, .thumbPlaceholder) {
-    width: var(--search-track-artwork, 32px);
-    height: var(--search-track-artwork, 32px);
+    width: var(--search-track-artwork, 36px);
+    height: var(--search-track-artwork, 36px);
     border-radius: var(--radius-sm);
 }
 

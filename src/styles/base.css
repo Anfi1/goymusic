@@ -9,6 +9,10 @@
     --deck-slide-motion: var(--deck-motion-duration) cubic-bezier(0.45, 0, 0.55, 1);
 }
 
+:root[data-layout="deck"][data-deck-speed="ultra"] {
+    --deck-motion-duration: 120ms;
+}
+
 :root[data-layout="deck"][data-deck-speed="fast"] {
     --deck-motion-duration: 260ms;
 }

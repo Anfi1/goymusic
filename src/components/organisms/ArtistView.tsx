@@ -100,7 +100,8 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   onSheetBackChange
 }) => {
   const queryClient = useQueryClient();
-  const SheetBackIcon = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout) ? ChevronDown : ArrowLeft;
+  const isDeck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
+  const SheetBackIcon = isDeck ? ChevronDown : ArrowLeft;
   const [viewMode, setViewMode] = useState<ViewMode>('main');
   const [discoCategory, setDiscoCategory] = useState<'Album' | 'Single'>('Album');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
@@ -417,6 +418,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
             <button className={styles.seeAllBtn} disabled>See all</button>
           </div>
           <table className={styles.trackList}>
+            {isDeck && <TrackColumnGroup />}
             <tbody>{Array.from({ length: 5 }).map((_, i) => <TrackRowSkeleton key={i} index={i} />)}</tbody>
           </table>
         </section>
@@ -454,7 +456,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
               </div>
               {!detail.isSoundCloud && !detail.isYandex && (
                 <div className={styles.headerActions}>
-                  <button className={`${styles.subscribeBtn} ${detail.subscribed ? styles.subscribed : ''}`} onClick={handleToggleSubscribe}>
+                  <button className={`${styles.subscribeBtn} ${detail.subscribed ? styles.subscribed : ''}`} aria-pressed={!!detail.subscribed} onClick={handleToggleSubscribe}>
                     {detail.subscribed ? <><Check size={18} /> Subscribed</> : <><Plus size={18} /> Subscribe</>}
                   </button>
                 </div>
@@ -806,7 +808,7 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                   context={virtuosoContext}
                   overscan={400}
                   increaseViewportBy={500}
-                  fixedItemHeight={56}
+                  fixedItemHeight={isDeck ? 54 : 56}
                   endReached={() => { if (!likesOnly && hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
                   computeItemKey={(index, track) => track.id || index}
                   fixedHeaderContent={() => (

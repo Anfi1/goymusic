@@ -167,6 +167,9 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
       <button
         className={`${styles.likeBtn} ${isLiked ? styles.isLiked : ''} ${loadingAction === 'like' ? styles.isLiking : ''}`}
         onClick={handleLike}
+        aria-label={isLiked ? 'Unlike' : 'Like'}
+        aria-pressed={isLiked}
+        aria-busy={loadingAction === 'like'}
         disabled={!!loadingAction}
       >
         {loadingAction === 'like' ? (
@@ -178,6 +181,9 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
       {!hideDislike && <button
         className={`${styles.likeBtn} ${isDisliked ? styles.isDisliked : ''} ${loadingAction === 'dislike' ? styles.isLiking : ''}`}
         onClick={handleDislike}
+        aria-label={isDisliked ? 'Remove dislike' : 'Dislike'}
+        aria-pressed={isDisliked}
+        aria-busy={loadingAction === 'dislike'}
         disabled={!!loadingAction}
       >
         {loadingAction === 'dislike' ? (

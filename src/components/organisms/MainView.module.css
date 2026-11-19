@@ -841,14 +841,18 @@
 }
 
 :root[data-layout="deck"] .container {
-    --virtual-track-height: 44px;
+    --track-inline-gutter: var(--collection-gutter);
     --sticky-title-height: 52px;
+}
+
+:root[data-layout="deck"] .container.deckAlbum {
+    --sticky-title-height: 64px;
 }
 
 :root[data-layout="deck"] .virtuosoWrapper {
     overflow-y: auto;
     overflow-x: hidden;
-    padding: var(--collection-gutter);
+    padding-block: var(--collection-gutter);
     scroll-padding-block-start: var(--sticky-title-height);
 }
 
@@ -856,10 +860,14 @@
     padding-block-start: var(--deck-page-top);
 }
 
+:root[data-layout="deck"] .container:not(.deckAlbum) .header {
+    margin-inline: var(--collection-gutter);
+}
+
 :root[data-layout="deck"] .deckAlbum .virtuosoWrapper {
     /* Paint even the first (initially offscreen) frame of the route slide. */
     content-visibility: visible;
-    padding-inline: 0;
+    container-type: inline-size;
 }
 
 :root[data-layout="deck"] .deckAlbum .virtuosoWrapper[aria-busy="true"] {
@@ -887,6 +895,9 @@
 /* Measure the stationary header. The scrollport, not the hero box, clips
    the moving art and title. The real Virtuoso root paints above both. */
 :root[data-layout="deck"] .deckAlbum .header {
+    --fs-collection-title: clamp(34px, 4.7vw, 70px);
+    --album-title-leading: 1.18;
+    --cover-size: min(clamp(124px, 15vw, 216px), 31cqw);
     align-items: flex-start;
     margin: calc(-1 * var(--collection-gutter)) 0 0;
     padding: var(--collection-gutter) var(--collection-gutter) 26px;
@@ -894,26 +905,20 @@
 }
 
 .albumTrackSurface {
-    --track-inline-gutter: var(--collection-gutter);
+    /* Match the real and preview artwork. */
     --search-track-artwork: 36px;
     z-index: 1;
 }
 
-/* Paint the group on its actual cells so the background, hover target and
-   selected row share the full width, but the index and actions stay inset. */
+/* Keep the full-bleed album group quiet against the fading hero. Hover and
+   selection still paint the real cells with their shared Deck colours. */
 .albumTrackSurface :where(tr[data-index] > td) {
-    background: color-mix(in srgb, var(--glass-surface-main) 35%, transparent);
+    background: color-mix(in srgb, var(--glass-surface-main) 16%, transparent);
 }
 
-.albumTrackSurface tr[data-index="0"] { --album-row-top: var(--radius-md); }
-.albumTrackSurface tr[data-album-last] { --album-row-bottom: var(--radius-md); }
-
-:root[data-layout="deck"] .albumTrackSurface .trackList td:first-child {
-    border-radius: var(--album-row-top, 0px) 0 0 var(--album-row-bottom, 0px);
-}
-
-:root[data-layout="deck"] .albumTrackSurface .trackList td:last-child {
-    border-radius: 0 var(--album-row-top, 0px) var(--album-row-bottom, 0px) 0;
+:root[data-layout="deck"] .trackList tr[data-index],
+:root[data-layout="deck"] .trackList tr[data-index] > td {
+    border-radius: 0;
 }
 
 .deckAlbum .header::before {
@@ -943,7 +948,11 @@
 }
 
 .deckAlbum .headerMeta { animation: none; }
-.deckAlbum .label { min-height: 16px; line-height: 16px; }
+.deckAlbum .label {
+    font-size: var(--fs-base);
+    line-height: 1.3;
+    min-height: 1.3em;
+}
 
 @media (prefers-reduced-motion: no-preference) {
     /* A long title or wrapped credits can exceed the preview. Grow to the real
@@ -982,6 +991,19 @@
     letter-spacing: -0.065em;
 }
 
+:root[data-layout="deck"] .deckAlbum .title {
+    line-height: var(--album-title-leading);
+    letter-spacing: -0.05em;
+    overflow-wrap: anywhere;
+}
+
+@container (max-width: 360px) {
+    :root[data-layout="deck"] .deckAlbum .header {
+        --fs-collection-title: clamp(28px, 9cqw, 34px);
+        gap: 14px;
+    }
+}
+
 :root[data-layout="deck"] :is(.label, .stickyLabel, .sortToggle) {
     color: var(--text-sub);
     font-weight: 500;
@@ -1012,6 +1034,11 @@
     opacity: 1;
 }
 
+:root[data-layout="deck"] .deckAlbum :is(.artistLinks, .yearUnder, .trackCountUnder, .durationTag, .descriptionText) {
+    font-size: var(--fs-lg);
+    line-height: 1.4;
+}
+
 :root[data-layout="deck"] .artistLinks { overflow-wrap: anywhere; }
 :root[data-layout="deck"] .headerLink:not(:hover) { color: var(--text-sub); }
 :root[data-layout="deck"] .durationTag { background: none; padding: 0; }
@@ -1036,3 +1063,48 @@
 :root[data-layout="deck"] .stickyThumbWrapper { width: 32px; height: 32px; box-shadow: none; }
 :root[data-layout="deck"] .stickyMainTitle { display: block; font-size: var(--fs-base); font-weight: 550; }
 :root[data-layout="deck"] .stickyTrackCount { color: var(--text-sub); opacity: 1; font-weight: 400; }
+
+/* Keep the glass in place while its content reveals: fading the entire
+   strip would briefly let track titles show through the compact title. */
+:root[data-layout="deck"] .deckAlbum .stickyHeaderContainer {
+    overflow: hidden;
+    border: 0;
+    background: color-mix(in srgb, var(--deck-sheet) 58%, transparent);
+    backdrop-filter: blur(26px) saturate(115%);
+    transition: none;
+}
+
+:root[data-layout="deck"] .deckAlbum .stickyTitleRow {
+    interpolate-size: allow-keywords;
+    transition: height var(--deck-slide-motion);
+    opacity: 1;
+}
+
+:root[data-layout="deck"] .deckAlbum .stickyTitleRow.visible,
+:root[data-layout="deck"] .deckAlbum .stickyTitleContent {
+    height: auto;
+}
+
+:root[data-layout="deck"] .deckAlbum .stickyTitleContent {
+    min-height: var(--sticky-title-height);
+    gap: 12px;
+    padding-block: 8px;
+}
+
+:root[data-layout="deck"] .deckAlbum .stickyThumbWrapper { width: 42px; height: 42px; }
+:root[data-layout="deck"] .deckAlbum .stickyMainTitle { font-size: var(--fs-2xl); line-height: 1.25; }
+
+.stickyAlbumMeta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.75em;
+    font-size: var(--fs-base);
+    line-height: 1.35;
+    color: var(--text-sub);
+}
+
+.stickyAlbumArtist {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}

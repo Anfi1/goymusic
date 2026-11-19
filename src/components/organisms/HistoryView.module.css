@@ -313,6 +313,19 @@
   table-layout: fixed;
 }
 
+:root[data-layout="deck"] .table {
+  --virtual-track-height: var(--deck-list-row-height);
+  --search-track-artwork: var(--deck-list-artwork);
+  --fs-track-title: var(--fs-lg);
+}
+
+:root[data-layout="deck"] .skeletonTrack { height: var(--virtual-track-height); }
+:root[data-layout="deck"] .skeletonTrack td { padding: 4px 8px; border: 0; }
+:root[data-layout="deck"] .skeletonCover {
+  flex-basis: var(--search-track-artwork);
+  height: var(--search-track-artwork);
+}
+
 .tableHeader {
   position: sticky;
   top: 0;

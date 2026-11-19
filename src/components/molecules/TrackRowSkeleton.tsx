@@ -28,8 +28,8 @@ export const TrackRowSkeleton = forwardRef<HTMLTableRowElement, TrackRowSkeleton
                 <div className={styles.titleCell}>
                     <Skeleton borderRadius={4} className={styles.thumb} />
                     <div className={styles.titleWrapper}>
-                        <Skeleton width={albumPreview ? albumTitleWidths[index % albumTitleWidths.length] : '60%'} height={albumPreview ? 11 : 16} borderRadius={4} />
-                        <Skeleton width={albumPreview ? 'min(42%, 6.5rem)' : '40%'} height={albumPreview ? 8 : 14} borderRadius={4} style={albumPreview ? { marginTop: 5 } : undefined} />
+                        <Skeleton width={albumPreview ? albumTitleWidths[index % albumTitleWidths.length] : '60%'} height={albumPreview ? 11 : undefined} className={styles.skeletonTitle} borderRadius={4} />
+                        <Skeleton width={albumPreview ? 'min(42%, 6.5rem)' : '40%'} height={albumPreview ? 8 : undefined} className={styles.skeletonArtist} borderRadius={4} />
                     </div>
                 </div>
             </td>

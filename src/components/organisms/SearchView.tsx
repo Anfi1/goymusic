@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { searchMusic, searchMore } from '../../api/yt';
 import { searchSoundCloud, mergeTracks, searchSoundCloudExtra } from '../../api/soundcloud';
@@ -9,10 +9,12 @@ import { LazyImage } from '../atoms/LazyImage';
 import { Skeleton } from '../atoms/Skeleton';
 import { ArtistCard } from '../molecules/ArtistCard';
 import { TrackRow, TrackColumnGroup } from '../molecules/TrackRow';
+import { TrackRowSkeleton } from '../molecules/TrackRowSkeleton';
 import { QueueItem } from '../molecules/QueueItem';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
 import { Play, ChevronLeft, ChevronRight, ListMusic } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
+import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import styles from './SearchView.module.css';
 
 interface SearchViewProps {
@@ -65,6 +67,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
   onSelectPlaylist,
   onSearchAgain
 }) => {
+  const isDeck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
   const [activeFilter, setActiveFilter] = useState<FilterMode>('all');
 
   const { data: searchData, isLoading } = useQuery({
@@ -399,9 +402,16 @@ export const SearchView: React.FC<SearchViewProps> = ({
           {isTracksLoading ? (
             <div className={styles.section}>
               <Skeleton width={60} height={16} borderRadius={4} />
-              <div className={styles.skeletonTrackList}>
-                {Array.from({ length: 5 }).map((_, i) => <QueueItemSkeleton key={i} />)}
-              </div>
+              {isDeck ? (
+                <table className={styles.trackList}>
+                  <TrackColumnGroup />
+                  <tbody>{Array.from({ length: 5 }, (_, i) => <TrackRowSkeleton key={i} index={i} />)}</tbody>
+                </table>
+              ) : (
+                <div className={styles.skeletonTrackList}>
+                  {Array.from({ length: 5 }).map((_, i) => <QueueItemSkeleton key={i} />)}
+                </div>
+              )}
             </div>
           ) : tracks.length > 0 && (
             <section className={styles.section}>
@@ -552,7 +562,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
       {(activeFilter === 'songs' || activeFilter === 'videos') && (
         <>
           {filteredItems.length === 0 && (filteredInitialLoading || isLoadingMore) ? (
-            <div className={styles.skeletonTrackList} style={{ padding: '0 1rem' }}>
+            <div className={styles.skeletonTrackList} style={{ paddingInline: 'var(--search-gutter, 1rem)' }}>
               {Array.from({ length: 12 }).map((_, i) => <QueueItemSkeleton key={i} />)}
             </div>
           ) : (
@@ -588,7 +598,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
               }}
               components={{
                 Footer: () => isLoadingMore ? (
-                  <div className={styles.skeletonTrackList} style={{ padding: '0 1rem' }}>
+                  <div className={styles.skeletonTrackList} style={{ paddingInline: 'var(--search-gutter, 1rem)' }}>
                     {Array.from({ length: 4 }).map((_, i) => <QueueItemSkeleton key={i} />)}
                   </div>
                 ) : null

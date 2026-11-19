@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Fragment, memo, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, Fragment, memo, useMemo, useRef, useSyncExternalStore } from 'react';
 import {
   Shuffle, SkipBack, Pause, Play, SkipForward, Repeat, Repeat1,
   ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HeartCrack, HardDriveDownload, AlertCircle,
@@ -13,6 +13,7 @@ import { getOverride, onOverrideChanged } from '../../api/localOverrides';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
 import { YTMTrack } from '../../api/yt';
+import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import styles from './PlayerBar.module.css';
 
 interface PlayerBarProps {
@@ -262,12 +263,30 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onOpe
   );
 });
 
-const TimeProgress = memo(() => {
+const TimeProgress = memo(({ deck = false }: { deck?: boolean }) => {
   const currentRef = useRef<HTMLSpanElement>(null);
   const durationRef = useRef<HTMLSpanElement>(null);
+  const clockRef = useRef<HTMLSpanElement>(null);
+  const previewRef = useRef<number | null>(null);
   const progressBarRef = useRef<ProgressBarRef>(null);
   const lastUpdateRef = useRef<number>(0);
   const lastDisplayedTimeRef = useRef<number>(0);
+
+  const updateElapsed = useCallback(() => {
+    const preview = previewRef.current;
+    const text = formatTime(preview === null ? player.currentTime : player.duration * preview / 100);
+    if (currentRef.current && currentRef.current.textContent !== text) currentRef.current.textContent = text;
+  }, []);
+
+  const handlePreview = useCallback((pct: number | null) => {
+    previewRef.current = pct;
+    const clock = clockRef.current;
+    if (clock) {
+      clock.toggleAttribute('data-previewing', pct !== null);
+      if (pct !== null) clock.style.setProperty('--seek-preview-x', `${pct}vw`);
+    }
+    updateElapsed();
+  }, [updateElapsed]);
 
   useEffect(() => {
     const updateTime = (force = false) => {
@@ -278,7 +297,7 @@ const TimeProgress = memo(() => {
       lastUpdateRef.current = now;
       lastDisplayedTimeRef.current = player.currentTime;
 
-      if (currentRef.current) currentRef.current.textContent = formatTime(player.currentTime);
+      updateElapsed();
       if (durationRef.current) durationRef.current.textContent = formatTime(player.duration);
       
       if (progressBarRef.current) {
@@ -294,7 +313,7 @@ const TimeProgress = memo(() => {
 
     updateTime(true);
     return unsub;
-  }, []);
+  }, [updateElapsed]);
 
   const handleSeek = useCallback((pct: number) => {
     if (player.duration) {
@@ -336,16 +355,21 @@ const TimeProgress = memo(() => {
   };
 
   const pct = (t: number) => `${player.duration ? (t / player.duration) * 100 : 0}%`;
+  const elapsed = <span ref={currentRef} className={styles.time}>{formatTime(player.currentTime)}</span>;
+  const duration = <span ref={durationRef} className={styles.time}>{formatTime(player.duration)}</span>;
 
   return (
     <div className={styles.progress} onContextMenu={toggleLoop}>
-      <span ref={currentRef} className={styles.time}>{formatTime(player.currentTime)}</span>
+      {deck ? (
+        <span className={styles.clock} ref={clockRef} data-playback-time="">{elapsed} / {duration}</span>
+      ) : elapsed}
       <div className={styles.progressBar}>
         <ProgressBar
           ref={progressBarRef}
           buffered={player.buffered}
           label="Playback position"
           onSeek={handleSeek}
+          onPreviewChange={deck ? handlePreview : undefined}
           largeTarget
           nyanMode={true}
           isPlaying={player.isPlaying}
@@ -358,25 +382,21 @@ const TimeProgress = memo(() => {
           </div>
         )}
       </div>
-      <span ref={durationRef} className={styles.time}>{formatTime(player.duration)}</span>
+      {!deck && duration}
     </div>
   );
 });
 
-const VolumeControl = memo(() => {
-  const [volume, setVolume] = useState(player.volume);
-  const [showInput, setShowInput] = useState(false);
-  const [inputValue, setInputValue] = useState(player.volume.toString());
-  const inputRef = useRef<HTMLInputElement>(null);
+const subscribeVolume = (onChange: () => void) => player.subscribe(onChange);
+const getVolume = () => player.volume;
 
-  useEffect(() => {
-    return player.subscribe((ev) => { 
-      if (ev === 'state') {
-        setVolume(player.volume);
-        if (!showInput) setInputValue(player.volume.toString());
-      }
-    });
-  }, [showInput]);
+const VolumeControl = memo(() => {
+  const volume = useSyncExternalStore(subscribeVolume, getVolume);
+  const [showInput, setShowInput] = useState(false);
+  // Until the first edit, the field follows the same live value as the slider.
+  const [draft, setDraft] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const sliderRef = useRef<ProgressBarRef>(null);
 
   useEffect(() => {
     if (showInput && inputRef.current) {
@@ -385,44 +405,29 @@ const VolumeControl = memo(() => {
     }
   }, [showInput]);
 
-  useEffect(() => {
-    if (!showInput) return;
-    const handleClickAway = (e: MouseEvent) => {
-      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
-        setShowInput(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickAway);
-    return () => document.removeEventListener('mousedown', handleClickAway);
-  }, [showInput]);
-
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    setDraft(null);
     setShowInput(true);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Only allow numbers
-    const valStr = e.target.value.replace(/\D/g, '');
-
-    let val = parseInt(valStr, 10);
-    let finalStr = valStr;
-
-    if (!isNaN(val)) {
-      if (val > 100) {
-        val = 100;
-        finalStr = '100';
-      }
-      player.setVolume(val);
-    }
-
-    setInputValue(finalStr);
+    const digits = e.target.value.replace(/\D/g, '');
+    const next = Number(digits) > 100 ? '100' : digits;
+    setDraft(next);
+    if (next !== '') player.setVolume(Number(next));
   };
 
-  const handleInputKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === 'Escape') {
-      setShowInput(false);
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Reapply even when Enter didn't generate a change event (e.g. after a wheel adjustment).
+    if (e.key === 'Enter' && e.currentTarget.value !== '') {
+      player.setVolume(Number(e.currentTarget.value));
     }
+    setShowInput(false);
+    sliderRef.current?.container?.focus();
   };
 
   const handleVolumeSeek = useCallback((pct: number) => {
@@ -438,6 +443,7 @@ const VolumeControl = memo(() => {
     >
       <IconButton icon={VolumeIcon} size={34} iconSize={20} title={volume === 0 ? 'Unmute' : 'Mute'} onClick={() => player.toggleMute()} />
       <ProgressBar 
+        ref={sliderRef}
         progress={volume} 
         label="Volume"
         onSeek={handleVolumeSeek} 
@@ -452,10 +458,13 @@ const VolumeControl = memo(() => {
           <input
             ref={inputRef}
             type="text"
+            inputMode="numeric"
+            aria-label="Volume percent"
             className={styles.volumeInput}
-            value={inputValue}
+            value={draft ?? String(volume)}
             onChange={handleInputChange}
             onKeyDown={handleInputKeyDown}
+            onBlur={() => setShowInput(false)}
           />
         </div>
       )}
@@ -602,7 +611,6 @@ const PlayerControls = memo(() => {
   );
 });
 
-// MAIN COMPONENT - Now a 100% static shell
 export const PlayerBar: React.FC<PlayerBarProps> = memo(({
   activeRightPanel = 'none',
   onToggleRightPanel,
@@ -612,6 +620,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
   className
 }) => {
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
+  const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
 
   const infoSection = useMemo(() => (
     <TrackInfo
@@ -622,20 +631,17 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
     />
   ), [onSelectArtist, onSelectAlbum, onSelectPlaylist]);
 
-  const controlSection = useMemo(() => (
-    <div className={styles.controls}>
-      <TimeProgress />
-      <PlayerControls />
-    </div>
-  ), []);
-
   return (
     <footer aria-label="Player" className={`${styles.container} ${className || ''}`}>
       {infoSection}
-      {controlSection}
+      <div className={styles.controls}>
+        {!deck && <TimeProgress />}
+        <PlayerControls />
+      </div>
       <div className={styles.extra}>
         <AutoplayButton />
         <PanelButtons activeRightPanel={activeRightPanel} onToggleRightPanel={onToggleRightPanel} />
+        {deck && <TimeProgress deck />}
         <div className={styles.volumeSlot}>
           <VolumeControl />
         </div>

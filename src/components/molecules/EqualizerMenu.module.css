@@ -52,109 +52,6 @@
     min-height: 32px;
 }
 
-.presetSelector {
-    position: relative;
-    flex: 1;
-}
-
-.saveForm {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-}
-
-.saveForm input {
-    flex: 1;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: var(--radius-sm);
-    padding: 6px 10px;
-    color: var(--text-main);
-    font-size: var(--fs-md);
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-.saveForm input:focus {
-    border-color: var(--accent);
-}
-
-.saveBtn {
-    color: var(--accent);
-}
-
-.presetBtn {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: var(--radius-md);
-    color: var(--text-main);
-    font-size: var(--fs-md);
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.presetBtn:hover {
-    background: var(--cover-hover, rgba(255, 255, 255, 0.07));
-    border-color: rgba(255, 255, 255, 0.12);
-}
-
-/* ── Выпадающий список пресетов ──────────────────────────────────── */
-
-.presetsDropdown {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    background: var(--glass-popover-bg);
-    backdrop-filter: blur(var(--glass-popover-blur));
-    -webkit-backdrop-filter: blur(var(--glass-popover-blur));
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    z-index: 10;
-    animation: scaleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.presetItem {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    font-size: var(--fs-md);
-    color: var(--text-main);
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.presetItem:hover {
-    background: var(--cover-hover, rgba(255, 255, 255, 0.04));
-}
-
-.presetActions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--accent);
-}
-
-.deleteIcon {
-    color: var(--danger);
-    opacity: 0.4;
-    transition: opacity 0.2s;
-    cursor: pointer;
-}
-
-.deleteIcon:hover {
-    opacity: 1;
-}
-
 /* ── Визуализатор (канвас) ───────────────────────────────────────── */
 
 .visualizer {
@@ -307,12 +204,6 @@
 .addBandBtn:hover {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-}
-
-.headerActions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
 }
 
 .bottomBar {

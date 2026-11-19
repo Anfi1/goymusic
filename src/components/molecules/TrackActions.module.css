@@ -1,0 +1,31 @@
+/* Animate the action, not the row or its duration. A selected or pending
+   action remains visible when the pointer leaves. */
+:root[data-layout="deck"] .group {
+    gap: 0;
+    max-width: none;
+    flex-shrink: 0;
+    opacity: 1;
+    overflow: visible;
+    pointer-events: none;
+}
+
+:root[data-layout="deck"] .group > button {
+    --open: var(--track-actions-open, 0);
+    align-items: center;
+    justify-content: center;
+    width: calc(22px * var(--open));
+    height: 24px;
+    padding: 0;
+    overflow: clip;
+    opacity: var(--open);
+    scale: calc(.72 + .28 * var(--open));
+    transform-origin: right center;
+    pointer-events: var(--track-actions-pointer, none);
+    outline-offset: -2px;
+    transition: width 150ms ease-out, scale 150ms ease-out, opacity 120ms ease-out, transform 100ms ease;
+}
+
+:root[data-layout="deck"] .group > button:is([aria-pressed="true"], [aria-busy="true"], :focus-visible) {
+    --open: 1;
+    pointer-events: auto;
+}

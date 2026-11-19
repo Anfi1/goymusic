@@ -313,6 +313,7 @@
     --search-gutter: var(--collection-gutter);
     --search-track-artwork: 48px;
     --search-track-height: 64px;
+    --fs-track-title: var(--fs-lg);
     container-name: deck-search;
     container-type: inline-size;
     min-width: 0;
@@ -340,6 +341,7 @@
 
 :root[data-layout="deck"] .section { padding-inline: var(--search-gutter); }
 :root[data-layout="deck"] .trackList { border-collapse: separate; }
+:root[data-layout="deck"] .albumTitle { font-size: var(--fs-lg); line-height: 1.4; }
 
 :root[data-layout="deck"] :is(.sectionTitle, .sectionTitleBtn, .topResultTitle) {
     font-weight: 550;
@@ -386,6 +388,9 @@
 
 :root[data-layout="deck"] .scrollNavBtn:focus-visible { opacity: 1; }
 :root[data-layout="deck"] :is(.queueItemWrapper, .albumsGrid) { padding-inline: var(--search-gutter); }
+:root[data-layout="deck"] .queueItemWrapper { display: grid; min-height: var(--search-track-height); }
+:root[data-layout="deck"] .skeletonTrackList { gap: 0; }
+:root[data-layout="deck"] .skeletonRow { min-height: var(--search-track-height); padding: 6px 9px; gap: 10px; }
 
 /* Album and duration share a cell; leave title space in narrow panes. */
 @container deck-search (max-width: 540px) {

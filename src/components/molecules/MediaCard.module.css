@@ -312,6 +312,12 @@ button.title {
   font-weight: 500;
 }
 
+:root[data-layout="deck"] .card:not(.row) .title {
+  font-size: var(--fs-lg);
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
 :root[data-layout="deck"] .subtitle { font-size: var(--fs-sm); }
 :root[data-layout="deck"] .row { gap: 10px; }
 :root[data-layout="deck"] .row .thumbWrapper {

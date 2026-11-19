@@ -292,19 +292,16 @@
 }
 
 :root[data-layout="deck"] .container {
-    --player-wing-width: clamp(250px, 25vw, 310px);
     position: relative;
     grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
     grid-template-areas: "track transport tools";
     column-gap: var(--space-sm);
-    padding: var(--space-md) clamp(12px, 2vw, 28px) 0;
+    padding: 0 clamp(12px, 2vw, 28px);
     border-top: none;
 }
 
 :root[data-layout="deck"] .nowPlaying {
     grid-area: track;
-    justify-self: start;
-    width: min(100%, var(--player-wing-width));
     gap: 10px;
 }
 
@@ -339,7 +336,6 @@
 
 :root[data-layout="deck"] .controls {
     grid-area: transport;
-    gap: 2px;
 }
 
 :root[data-layout="deck"] .buttons {
@@ -374,28 +370,53 @@
 }
 
 :root[data-layout="deck"] .progress {
-    order: 1;
-    justify-content: center;
-    gap: 4px;
+    width: auto;
+    flex: none;
+    margin-inline-start: auto;
 }
 
-:root[data-layout="deck"] .progress::before {
-    content: "/";
-    order: 1;
+:root[data-layout="deck"] .clock {
+    white-space: nowrap;
+    font-size: clamp(13px, 1.1vw, 17px);
+    line-height: 1.15;
     color: var(--text-dim);
-    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+    margin-inline: 4px;
 }
 
 :root[data-layout="deck"] .time {
     min-width: 0;
+    font-size: inherit;
 }
 
-:root[data-layout="deck"] .time:last-child {
-    order: 2;
+/* The seek spans the viewport. Clamp the whole label (including its own
+   width) at the ends without changing the timestamp under the pointer. */
+:root[data-layout="deck"][data-deck-time="tooltip"] .progress {
+    display: contents;
+}
+
+:root[data-layout="deck"][data-deck-time="tooltip"] .clock {
+    display: none;
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 16px);
+    z-index: 7;
+    transform: translateX(clamp(4px, calc(var(--seek-preview-x, 0vw) - 50%), calc(100vw - 100% - 4px)));
+    margin: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--glass-popover-bg);
+    pointer-events: none;
+}
+
+:root[data-layout="deck"][data-deck-time="tooltip"] .clock[data-previewing] {
+    display: block;
 }
 
 /* Anchor the real slider (and its A–B overlay) to the footer, not the
-   transport column. Its transparent hit area straddles the visible line. */
+   tools column. Its transparent hit area straddles the visible line. */
 :root[data-layout="deck"] .progressBar {
     position: absolute;
     inset-inline: 0;
@@ -413,20 +434,29 @@
 
 :root[data-layout="deck"] .extra {
     grid-area: tools;
-    justify-self: end;
-    width: min(100%, var(--player-wing-width));
+    flex-wrap: wrap;
+    row-gap: 0;
+}
+
+/* Center the utility buttons between transport and the end-aligned volume. */
+:root[data-layout="deck"] .extra > :first-child,
+:root[data-layout="deck"][data-deck-time="tooltip"] .volumeSlot {
+    margin-inline-start: auto;
 }
 
 :root[data-layout="deck"] .volumeSlot {
-    flex: 1;
-    min-width: 0;
-    margin-left: 4px;
+    margin-left: 0;
 }
 
 :root[data-layout="deck"] .volume {
-    width: 100%;
+    width: auto;
     gap: var(--space-sm);
     --slider-rail-height: 6px;
+}
+
+:root[data-layout="deck"] .volumeBar {
+    flex: none;
+    width: clamp(72px, 6.5vw, 104px);
 }
 
 :root[data-layout="deck"] .volumeInputPopover {
@@ -437,19 +467,15 @@
 }
 
 @media (max-width: 899px) {
-    :root[data-layout="deck"] .container {
-        --player-wing-width: 200px;
-    }
-
     :root[data-layout="deck"] .extra {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         justify-items: end;
     }
 
+    :root[data-layout="deck"] .progress,
     :root[data-layout="deck"] .volumeSlot {
         grid-column: span 2;
-        width: 100%;
         margin: 0;
     }
 }

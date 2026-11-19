@@ -65,7 +65,7 @@ const MAX_SCROLL_SPEED = 12;
 
 // Count-only preview: use the real table without inventing playable tracks.
 const ALBUM_PREVIEW_ROWS = 6;
-const DECK_ALBUM_TRACK_HEIGHT = 50;
+const DECK_COLLECTION_TRACK_HEIGHT = 50;
 
 const VirtuosoScroller = React.forwardRef<HTMLDivElement, any>(({ children, context, ...props }, ref) => (
   <div 
@@ -151,7 +151,6 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
 
   if (context.showSkeletons) return (
     <TrackRowSkeleton {...rest} ref={ref} index={index} hideAlbum={context.playlistType === 'album'}
-      data-album-last={index === context.albumEndIndex || undefined}
       albumPreview={context.isDeck && context.playlistType === 'album'} />
   );
   
@@ -159,7 +158,6 @@ const VirtuosoTableRow = memo(React.forwardRef<HTMLTableRowElement, any>((props,
     <tr
       {...rest}
       ref={ref}
-      data-album-last={index === context.albumEndIndex || undefined}
       className={`${trackStyles.row} ${isActive ? trackStyles.active : ''} ${!isAvailable ? trackStyles.unavailable : ''} ${context.draggedIdx === index ? styles.draggingRow : ''} ${context.dragOverIdx === index ? styles.dropTarget : ''}`}
       onClick={isAvailable ? () => (isActive ? player.togglePlay() : context.onPlay(index)) : undefined}
       onContextMenu={(e) => { e.preventDefault(); context.onContextMenu(e, track); }}
@@ -295,8 +293,8 @@ const LargeHeader = memo(({
     <div className={styles.statsUnderCover}>
       {showSkeletons ? (
         <>
-          <Skeleton width={40} height={12} borderRadius={4} />
-          <Skeleton width={60} height={12} borderRadius={4} />
+          <Skeleton width={40} height={isDeckAlbum ? 14 : 12} borderRadius={4} />
+          <Skeleton width={60} height={isDeckAlbum ? 14 : 12} borderRadius={4} />
         </>
       ) : (
         <>
@@ -342,12 +340,12 @@ const LargeHeader = memo(({
       <div className={styles.info} data-testid={isDeckAlbum && showSkeletons ? 'album-skeleton-metadata' : undefined} style={showSkeletons && !isDeckAlbum ? { justifyContent: 'flex-start', paddingTop: '10px' } : undefined}>
         {showSkeletons ? (
           <>
-            <div className={styles.label}><Skeleton width={80} height={12} borderRadius={4} /></div>
-            <Skeleton width={isDeckAlbum ? 'min(80%, 23rem)' : '85%'} height={isDeckAlbum ? 'calc(var(--fs-collection-title) * 1.03)' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
+            <div className={styles.label}><Skeleton width={80} height={isDeckAlbum ? 14 : 12} borderRadius={4} /></div>
+            <Skeleton width={isDeckAlbum ? 'min(85%, 26rem)' : '85%'} height={isDeckAlbum ? 'calc(var(--fs-collection-title) * var(--album-title-leading))' : 52} borderRadius={8} style={isDeckAlbum ? undefined : { marginTop: '4px' }} />
             <div className={styles.headerMeta} style={{ animation: 'none' }}>
               <div className={styles.metaTextInfo}>
-                <Skeleton width={140} height={14} borderRadius={4} />
-                <Skeleton width={50} height={14} borderRadius={4} />
+                <Skeleton width={isDeckAlbum ? 'min(72%, 9rem)' : 140} height={isDeckAlbum ? 16 : 14} borderRadius={4} />
+                {!isDeckAlbum && <Skeleton width={50} height={14} borderRadius={4} />}
                 {isDeck && stats}
               </div>
               <div className={styles.headerActions}>
@@ -490,9 +488,14 @@ const LargeHeader = memo(({
 });
 
 const StickyTitlePanel = memo(({ 
-  isVisible, metadata, playlistTracks, totalReportedCount, likedCountLabel, isFetchingNextPage, viewLabel, viewTitle
+  isVisible, isDeckAlbum, metadata, playlistTracks, totalReportedCount, likedCountLabel, isFetchingNextPage, viewLabel, viewTitle
 }: any) => {
   const coverUrl = metadata?.thumbUrl || (playlistTracks[0]?.thumbUrl || '');
+  const albumArtist = isDeckAlbum && (metadata?.artists?.join(', ') || metadata?.author?.name);
+  const albumSongCount = Math.max(playlistTracks.length, totalReportedCount);
+  const albumFacts = [
+    metadata?.type, metadata?.year, `${albumSongCount} ${albumSongCount === 1 ? 'song' : 'songs'}`, metadata?.duration,
+  ];
   
   return (
     <div aria-hidden={!isVisible} className={`${styles.stickyHeaderContainer} ${isVisible ? styles.isSticky : ''}`}>
@@ -507,11 +510,15 @@ const StickyTitlePanel = memo(({
             )}
           </div>
           <div className={styles.stickyTextInfo}>
-            <div className={styles.stickyLabel}>{viewLabel}</div>
+            {!isDeckAlbum && <div className={styles.stickyLabel}>{viewLabel}</div>}
             <div className={styles.stickyMainTitle} data-tooltip={viewTitle} data-tooltip-overflow="">
               {viewTitle}
-              {isVisible && <span className={styles.stickyTrackCount}> • {likedCountLabel ?? `${playlistTracks.length} of ${totalReportedCount}`}</span>}
+              {!isDeckAlbum && isVisible && <span className={styles.stickyTrackCount}> • {likedCountLabel ?? `${playlistTracks.length} of ${totalReportedCount}`}</span>}
             </div>
+            {isDeckAlbum && <div className={styles.stickyAlbumMeta}>
+              {albumArtist && <span className={styles.stickyAlbumArtist} data-tooltip={albumArtist} data-tooltip-overflow="">{albumArtist}</span>}
+              {albumFacts.map((fact, index) => fact && <span key={index}>{fact}</span>)}
+            </div>}
           </div>
         </div>
       </div>
@@ -918,10 +925,8 @@ export const MainView = memo<MainViewProps>(({
     TableFooter: VirtuosoFooter
   }), [isDeck]);
 
-  const albumEndIndex = !isDeckAlbum || hasNextPage ? -1 : (isAlbumLoading ? ALBUM_PREVIEW_ROWS : displayTracks.length) - 1;
   const virtuosoContext = useMemo(() => ({
     isDeck, isSearch, showSkeletons, tracks: displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
-    albumEndIndex,
     onScroll: handleScroll, onPlay: handlePlayTrack, onContextMenu: handleContextMenu,
     metadata: playlistMetadata, handleHeaderAction, isHeaderActionLoading,
     headerRef, tableRef, scrollerRef, user, playlistType, isEditable, draggedIdx, dragOverIdx,
@@ -930,7 +935,6 @@ export const MainView = memo<MainViewProps>(({
     isLikedSongsView, likedSources, activeLikedSources: effectiveLikedSources, onToggleLikedSource: handleToggleLikedSource
   }), [
     isDeck, isSearch, showSkeletons, displayTracks, totalReportedCount, isSyncing, isFetchingNextPage, isSticky, likedCountLabel,
-    albumEndIndex,
     handleScroll, handlePlayTrack, handleContextMenu, playlistMetadata,
     handleHeaderAction, isHeaderActionLoading, user, playlistType, isEditable, draggedIdx,
     dragOverIdx, handleDragStart, handleDragOverItem, handleDragOverContainer, handleDrop, stopAutoScroll, sortMode, setSortMode, isSorting,
@@ -943,12 +947,12 @@ export const MainView = memo<MainViewProps>(({
   return (
     <div
       className={isDeckAlbum ? `${styles.container} ${styles.deckAlbum}` : styles.container}
-      style={isDeckAlbum ? {
-        '--virtual-track-height': `${DECK_ALBUM_TRACK_HEIGHT}px`,
-        '--album-art': playlistMetadata?.thumbUrl ? `url(${JSON.stringify(playlistMetadata.thumbUrl)})` : undefined,
+      style={isDeck ? {
+        '--virtual-track-height': `${DECK_COLLECTION_TRACK_HEIGHT}px`,
+        '--album-art': isDeckAlbum && playlistMetadata?.thumbUrl ? `url(${JSON.stringify(playlistMetadata.thumbUrl)})` : undefined,
       } as React.CSSProperties : undefined}
     >
-      <StickyTitlePanel isVisible={isSticky} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} likedCountLabel={likedCountLabel} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
+      <StickyTitlePanel isVisible={isSticky} isDeckAlbum={isDeckAlbum} metadata={playlistMetadata} playlistTracks={playlistTracks} totalReportedCount={totalReportedCount} likedCountLabel={likedCountLabel} isFetchingNextPage={isSyncing} viewLabel={viewLabel} viewTitle={viewTitle} />
       <div
         className={isDeck ? `${styles.virtuosoWrapper} deck-scroll` : styles.virtuosoWrapper}
         data-collection-scroll={isDeck ? playlistType : undefined}
@@ -973,7 +977,7 @@ export const MainView = memo<MainViewProps>(({
           components={virtuosoComponents} 
           overscan={400} 
           increaseViewportBy={500} 
-          fixedItemHeight={isDeckAlbum ? DECK_ALBUM_TRACK_HEIGHT : isDeck ? 44 : 56}
+          fixedItemHeight={isDeck ? DECK_COLLECTION_TRACK_HEIGHT : 56}
           endReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }} 
           computeItemKey={(index, track) => track?.setVideoId || track?.id || index}
           itemContent={(index, track) => track && <RenderTrackRow index={index} track={track} hideAlbum={playlistType === 'album'} onSelectArtist={onSelectArtist} onSelectAlbum={onSelectAlbum} />}

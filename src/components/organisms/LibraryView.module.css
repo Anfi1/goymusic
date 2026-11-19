@@ -505,6 +505,7 @@
 }
 
 :root[data-layout="deck"] :is(.trackList, .modalTable) {
+    --fs-track-title: var(--fs-lg);
     border-collapse: separate;
     border-spacing: 0;
 }

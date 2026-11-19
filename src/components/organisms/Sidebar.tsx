@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, memo, useCallback, useSyncExternalStore } from 'react';
 import { Settings, LogOut, PanelLeftClose, PanelLeftOpen, User as UserIcon, ChevronDown, Music, Plus, History, Home, Heart, Library, Zap, Radio, AudioLines, HardDrive } from 'lucide-react';
 import { NavLink } from '../molecules/NavLink';
 import { IconButton } from '../atoms/IconButton';
@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PlaylistContextMenu, PlaylistContextMenuRef } from './PlaylistContextMenu';
 import { InputDialog } from '../molecules/InputDialog';
 import sidebarStyles from './Sidebar.module.css';
+import { deckNavSize, subscribeDesktopLayout } from '../../utils/desktopLayout';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -128,15 +129,18 @@ const SidebarHeader = memo(({
 const UserProfileSection = memo(({ 
   user, 
   collapsed, 
+  deck,
   onSelectView, 
   onLogout 
 }: { 
   user?: YTMUser | null, 
   collapsed: boolean, 
+  deck: boolean,
   onSelectView?: (view: ActiveView) => void, 
   onLogout?: () => void 
 }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const navSize = useSyncExternalStore(subscribeDesktopLayout, deckNavSize.read);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -189,6 +193,13 @@ const UserProfileSection = memo(({
             <Settings size={14} />
             Settings
           </button>
+          {deck && (
+            <label className={sidebarStyles.menuItem}>
+              <input type="checkbox" checked={navSize === 'queue'}
+                onChange={event => deckNavSize.set(event.target.checked ? 'queue' : 'compact')} />
+              Match queue size
+            </label>
+          )}
           <div className={sidebarStyles.menuDivider} />
           <button onClick={onLogout} className={`${sidebarStyles.menuItem} ${sidebarStyles.logoutBtn}`}>
             <LogOut size={14} />
@@ -356,7 +367,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(({
   // Check if Liked Songs is active (either via dedicated type or via playlistId LM)
   const isLikedActive = activeViewType === 'liked' || activePlaylistId === 'LM';
   const account = isAuthenticated && (
-    <UserProfileSection user={user} collapsed={collapsed} onSelectView={onSelectView} onLogout={onLogout} />
+    <UserProfileSection user={user} collapsed={collapsed} deck={deck} onSelectView={onSelectView} onLogout={onLogout} />
   );
 
   return (

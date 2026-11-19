@@ -6,6 +6,8 @@ import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged, LOCAL_PLAYLIST_ID } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
 import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks, yandexRotorFeedback, yandexPlayAudio } from './yandex';
+import { DEFAULT_Q, type Band } from '../utils/equalizer';
+import { EQ_SELECTION_KEY, FLAT_PRESET, SAVED_EQ_KEY, readEqualizerState, savedPreset, type EqualizerPreset, type EqualizerState } from '../utils/equalizerPresets';
 
 // id станции rotor: "<тип>:<тег>" (user:onyourwave, genre:rap, activity:wake-up).
 // Явный список типов, чтобы не спутать с route-id альбома Яндекса ("yandex:123").
@@ -53,7 +55,10 @@ class PlayerStore {
     private sourceB: MediaElementAudioSourceNode | null = null;
     private normalizationGain: GainNode | null = null;
     private filters: BiquadFilterNode[] = [];
+    private eqState: EqualizerState = { activeId: FLAT_PRESET.id, bands: FLAT_PRESET.bands, saved: [] };
     private analyzer: AnalyserNode | null = null;
+    private spectrumBins: Float32Array<ArrayBuffer> | null = null;
+    private eqRevision = 0;
     private listeners: Set<PlayerCallback> = new Set();
     private tickListeners: Set<PlayerCallback> = new Set();
     private bufferListeners: Set<PlayerCallback> = new Set();
@@ -143,22 +148,11 @@ class PlayerStore {
             
             this.normalizationGain = this.audioContext.createGain();
             this.analyzer = this.audioContext.createAnalyser();
-            this.analyzer.fftSize = 1024;
-            this.analyzer.smoothingTimeConstant = 0.8;
+            this.analyzer.fftSize = 8192;
+            this.analyzer.smoothingTimeConstant = 0.65;
+            this.spectrumBins = new Float32Array(this.analyzer.frequencyBinCount);
 
-            const freqs = [60, 250, 1000, 4000, 8000, 16000];
-            const types: BiquadFilterType[] = ['lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf'];
-            this.filters = freqs.map((f, i) => {
-                const filter = this.audioContext!.createBiquadFilter();
-                filter.type = types[i];
-                filter.frequency.value = f;
-                filter.Q.value = 1;
-                filter.gain.value = 0;
-                return filter;
-            });
-
-            this.loadEQSettings();
-            this.rebuildAudioChain();
+            this.syncEQFilters();
             
             if (this.audioContext.state === 'suspended') {
                 await this.audioContext.resume();
@@ -183,9 +177,9 @@ class PlayerStore {
         
         let lastNode: AudioNode = this.normalizationGain;
 
-        // 2. Equalizer — skip filters near 0 dB (they don't affect sound)
+        // Only exact unity is bypassed; the plotted cascade uses the same rule.
         for (const f of this.filters) {
-            if (Math.abs(f.gain.value) > 0.1) {
+            if (f.gain.value !== 0) {
                 lastNode.connect(f);
                 lastNode = f;
             }
@@ -194,91 +188,109 @@ class PlayerStore {
         // 3. Analyzer
         lastNode.connect(this.analyzer);
         this.analyzer.connect(this.audioContext.destination);
+        this.eqRevision++;
     }
 
-    private loadEQSettings() {
-        try {
-            const saved = localStorage.getItem('ytm-eq-presets');
-            const activeName = localStorage.getItem('ytm-eq-active') || 'Flat';
-            if (saved) {
-                const presets = JSON.parse(saved);
-                const active = presets.find((p: any) => p.name === activeName) || presets[0];
-                if (active && this.filters && this.filters.length > 0) {
-                    active.bands.forEach((b: any, i: number) => {
-                        if (this.filters[i]) {
-                            this.filters[i].gain.value = b.gain;
-                            this.filters[i].frequency.value = b.frequency;
-                            if (b.type) {
-                                this.filters[i].type = b.type;
-                            }
-                        }
-                    });
-                }
-            }
-        } catch (e) {
-            console.error('Failed to load EQ settings', e);
+    private syncEQFilters(previous?: Band[]) {
+        if (!this.audioContext) return;
+        const { bands } = this.eqState;
+        let topologyChanged = !previous || this.filters.length !== bands.length;
+        for (let i = 0; i < bands.length; i++) {
+            const band = bands[i];
+            if (this.filters[i] && previous?.[i] === band) continue;
+            const filter = this.filters[i] ?? (this.filters[i] = this.audioContext.createBiquadFilter());
+            topologyChanged ||= (filter.gain.value === 0) !== (band.gain === 0);
+            if (filter.type !== band.type) filter.type = band.type;
+            if (filter.frequency.value !== band.frequency) filter.frequency.value = band.frequency;
+            if (filter.gain.value !== band.gain) filter.gain.value = band.gain;
+            if (filter.Q.value !== band.Q) filter.Q.value = band.Q;
         }
+        while (this.filters.length > bands.length) this.filters.pop()!.disconnect();
+        if (topologyChanged) this.rebuildAudioChain();
+        else this.eqRevision++;
     }
 
-    setBand(index: number, gain: number, freq?: number, type?: BiquadFilterType, Q?: number) {
-        this.initAudioContext();
-        if (this.filters[index]) {
-            this.filters[index].gain.value = gain;
-            if (freq !== undefined) this.filters[index].frequency.value = freq;
-            if (type !== undefined) {
-                this.filters[index].type = type;
-            }
-            if (Q !== undefined) {
-                this.filters[index].Q.value = Q;
-            }
-            this.rebuildAudioChain();
-            this.notify('state');
-        }
-    }
+    getEQState = () => this.eqState;
 
     getEQBands() {
-        if (this.filters.length === 0) return [];
-        return this.filters.map(f => ({
-            gain: f.gain.value,
-            frequency: f.frequency.value,
-            type: f.type,
-            Q: f.Q.value
-        }));
+        return this.eqState.bands;
     }
 
-    /** Add a new peaking band at the given frequency/gain. */
+    private changeEQ(bands: Band[], activeId: string | null, saved = this.eqState.saved) {
+        const previous = this.eqState;
+        if (bands === previous.bands && activeId === previous.activeId && saved === previous.saved) return;
+        if (saved !== previous.saved) localStorage.setItem(SAVED_EQ_KEY, JSON.stringify(saved));
+        localStorage.setItem(EQ_SELECTION_KEY, JSON.stringify(activeId ?? bands));
+        this.eqState = { bands, activeId, saved };
+        if (bands !== previous.bands) this.syncEQFilters(previous.bands);
+        this.notify('state');
+    }
+
+    applyEQPreset(preset: EqualizerPreset) {
+        this.changeEQ(preset.bands, preset.id);
+    }
+
+    saveEQPreset(name: string) {
+        name = name.trim();
+        if (!name || this.eqState.saved.some(p => p.name === name)) return false;
+        const preset = savedPreset(name, this.eqState.bands);
+        this.changeEQ(preset.bands, preset.id, [...this.eqState.saved, preset]);
+        return true;
+    }
+
+    deleteEQPreset(id: string) {
+        if (!this.eqState.saved.some(p => p.id === id)) return;
+        const saved = this.eqState.saved.filter(p => p.id !== id);
+        this.changeEQ(this.eqState.bands, this.eqState.activeId === id ? null : this.eqState.activeId, saved);
+    }
+
+    setBand(index: number, gain: number, frequency?: number, type?: BiquadFilterType, Q?: number) {
+        const prev = this.eqState.bands[index];
+        if (!prev) return;
+        if (prev.gain === gain && (frequency === undefined || prev.frequency === frequency)
+            && (type === undefined || prev.type === type) && (Q === undefined || prev.Q === Q)) return;
+        const bands = this.eqState.bands.slice();
+        bands[index] = { gain, frequency: frequency ?? prev.frequency, type: type ?? prev.type, Q: Q ?? prev.Q };
+        this.changeEQ(bands, null);
+    }
+
     addBand(frequency: number, gain: number) {
-        this.initAudioContext();
-        const filter = this.audioContext!.createBiquadFilter();
-        filter.type = 'peaking';
-        filter.frequency.value = Math.max(20, Math.min(20000, frequency));
-        filter.Q.value = 1;
-        filter.gain.value = gain;
-        this.filters.push(filter);
-        this.rebuildAudioChain();
-        this.notify('state');
+        const band: Band = { frequency: Math.max(20, Math.min(20000, frequency)), gain, type: 'peaking', Q: DEFAULT_Q };
+        this.changeEQ([...this.eqState.bands, band], null);
     }
 
-    /** Remove a band by index. */
     removeBand(index: number) {
-        if (index < 0 || index >= this.filters.length) return;
-        this.filters[index].disconnect();
-        this.filters.splice(index, 1);
-        this.rebuildAudioChain();
-        this.notify('state');
+        if (!this.eqState.bands[index]) return;
+        this.changeEQ(this.eqState.bands.filter((_, i) => i !== index), null);
     }
 
+    /** Post-normalization, post-EQ FFT magnitudes (dBFS); borrowed until the next read. */
     getAnalyzerData() {
-        if (!this.analyzer || !this.audioContext || this.audioContext.state !== 'running') return new Uint8Array(0);
-        const data = new Uint8Array(this.analyzer.frequencyBinCount);
-        this.analyzer.getByteFrequencyData(data);
-        return data;
+        if (!this.analyzer || !this.spectrumBins || this.audioContext?.state !== 'running' ||
+            this.activeAudio.paused || this.activeAudio.ended) return null;
+        this.analyzer.getFloatFrequencyData(this.spectrumBins);
+        return this.spectrumBins;
     }
 
-    /** Half of the audio context sample rate (Hz) — upper frequency the FFT covers. */
-    getAnalyzerSampleRate(): number {
-        if (!this.audioContext) return 44100;
-        return this.audioContext.sampleRate;
+    getAnalyzerSampleRate() {
+        return this.audioContext?.sampleRate ?? 0;
+    }
+
+    getEQRevision() {
+        return this.eqRevision;
+    }
+
+    /** Evaluate the connected DSP nodes, not a separate approximation of their coefficients. */
+    readEQResponse(frequencies: Float32Array<ArrayBuffer>, responseDb: Float32Array<ArrayBuffer>,
+                   magnitude: Float32Array<ArrayBuffer>, phase: Float32Array<ArrayBuffer>) {
+        responseDb.fill(0);
+        for (const filter of this.filters) {
+            if (filter.gain.value === 0) continue;
+            filter.getFrequencyResponse(frequencies, magnitude, phase);
+            for (let i = 0; i < responseDb.length; i++) {
+                responseDb[i] += 20 * Math.log10(magnitude[i]);
+            }
+        }
     }
 
     /** Time-domain (oscilloscope) samples, 0–255 with 128 as the zero line. */
@@ -291,6 +303,7 @@ class PlayerStore {
 
     private loadState() {
         try {
+            this.eqState = readEqualizerState(localStorage);
             const savedVolume = localStorage.getItem('ytm-volume');
             if (savedVolume !== null) {
                 this.volume = parseInt(savedVolume, 10);

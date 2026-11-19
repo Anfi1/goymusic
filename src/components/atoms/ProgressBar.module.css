@@ -201,14 +201,21 @@
     border-radius: inherit;
 }
 
-/* The nose follows the actual seek position; at zero the sprite is just
-   outside the rail. Clip its paint, never the focusable pointer target. */
+/* Clip the entering sprite's paint, never the focusable pointer target. */
 :root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanViewport {
     position: absolute;
     inset: 0;
     overflow: clip;
     z-index: 3;
     pointer-events: none;
+}
+
+/* Both transform percentages resolve against the full rail. Move the nose
+   half a sprite ahead of the playhead in the interior; taper that offset
+   over one sprite width at either end so it enters and finishes in motion. */
+:root[data-layout="deck"][data-nyan="on"] .largeTarget :is(.nyanViewport .thumbWrapper, .nyanFill) {
+    --nose-offset: min(calc(var(--nyan-width) / 2), calc(var(--progress) / 2), calc((100% - var(--progress)) / 2));
+    transform: translateX(calc(-100% + var(--progress) + var(--nose-offset)));
 }
 
 :root[data-layout="deck"][data-nyan="on"] .largeTarget .nyanThumb {

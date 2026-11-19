@@ -107,6 +107,8 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
         onClick={handleLike}
         disabled={!!loadingAction}
         aria-label={isLiked ? 'Unlike' : 'Like'}
+        aria-pressed={isLiked}
+        aria-busy={loadingAction === 'like'}
         data-tooltip={isLiked ? 'Unlike' : 'Like'}
       >
         {loadingAction === 'like' ? <Loader2 size={14} className={styles.spinner} /> : <Heart size={14} color={isLiked ? 'var(--danger)' : 'var(--text-sub)'} fill={isLiked ? 'var(--danger)' : 'none'} />}
@@ -116,6 +118,8 @@ const LikeButton = memo(({ id, initialLikeStatus, trackData, hideDislike }: { id
         onClick={handleDislike}
         disabled={!!loadingAction}
         aria-label={isDisliked ? 'Remove dislike' : 'Dislike'}
+        aria-pressed={isDisliked}
+        aria-busy={loadingAction === 'dislike'}
         data-tooltip={isDisliked ? 'Remove dislike' : 'Dislike'}
       >
         {loadingAction === 'dislike' ? <Loader2 size={14} className={styles.spinner} /> : <HeartCrack size={14} color={isDisliked ? 'var(--warning)' : 'var(--text-sub)'} />}

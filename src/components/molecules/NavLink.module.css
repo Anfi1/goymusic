@@ -30,7 +30,7 @@
 }
 
 .label {
-    font-size: var(--fs-base);
+    font-size: var(--fs-nav-label, var(--fs-base));
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -48,7 +48,8 @@
 }
 
 :root[data-layout="deck"] .container {
-    min-height: 36px;
+    min-height: var(--nav-item-height, 36px);
+    transition: background-color 0.15s ease, color 0.15s ease;
     opacity: 1;
     color: var(--text-sub);
 }

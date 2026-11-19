@@ -164,6 +164,13 @@
     table-layout: fixed; /* ВАЖНО: предотвращает расширение таблицы */
 }
 
+:root[data-layout="deck"] .trackList {
+    --search-track-artwork: var(--deck-list-artwork);
+    --search-track-height: var(--deck-list-row-height);
+    --virtual-track-height: var(--deck-list-row-height);
+    --fs-track-title: var(--fs-lg);
+}
+
 .tableHeader {
     background: var(--solid-base);
     position: sticky;
@@ -649,6 +656,38 @@
     background: var(--deck-selected, rgba(255, 255, 255, 0.1));
     color: var(--text-main);
     border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+:root[data-layout="deck"] .subscribeBtn[aria-pressed] {
+    min-width: 0;
+    min-height: 32px;
+    padding: 5px 12px;
+    gap: 6px;
+    border: 1px solid color-mix(in srgb, var(--text-sub) 35%, transparent);
+    background: var(--text-sub);
+    color: var(--bg-base);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+:root[data-layout="deck"] .subscribeBtn[aria-pressed="true"] {
+    background: var(--bg-mantle);
+    color: var(--text-sub);
+}
+
+:root[data-layout="deck"] .subscribeBtn[aria-pressed]:hover {
+    transform: none;
+    border-color: var(--text-main);
+    background: var(--text-main);
+}
+
+:root[data-layout="deck"] .subscribeBtn[aria-pressed="true"]:hover { background: var(--bg-raised); }
+:root[data-layout="deck"] .subscribeBtn[aria-pressed] svg { width: 15px; height: 15px; }
+:root[data-layout="deck"] .subscribeBtn[aria-pressed]:focus-visible {
+    outline: 2px solid var(--text-main);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--bg-base);
 }
 
 .stats {

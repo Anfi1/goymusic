@@ -53,3 +53,8 @@
 .matched { color: var(--success); flex-shrink: 0; }
 .notFound { color: var(--danger); flex-shrink: 0; }
 .error { color: var(--warning); flex-shrink: 0; }
+
+/* Import events carry text and match status, not cover art. */
+:root[data-layout="deck"] .row { min-height: 50px; }
+:root[data-layout="deck"] .title { font-size: var(--fs-lg); line-height: 1.25; }
+:root[data-layout="deck"] .artist { font-size: var(--fs-sm); }

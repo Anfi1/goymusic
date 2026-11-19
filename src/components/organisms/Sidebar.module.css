@@ -377,6 +377,11 @@
     gap: 2px;
 }
 
+:root[data-layout="deck"][data-deck-nav-size="queue"] .sidebar:not(.collapsed) {
+    --fs-nav-label: var(--fs-lg);
+    --nav-item-height: var(--deck-list-row-height);
+}
+
 :root[data-layout="deck"] .sectionHeader {
     min-height: 36px;
     padding-inline: 6px;
@@ -385,7 +390,7 @@
 
 :root[data-layout="deck"] .sectionTitle {
     color: var(--text-sub);
-    font-size: var(--fs-base);
+    font-size: var(--fs-nav-label, var(--fs-base));
     text-transform: none;
     letter-spacing: normal;
     opacity: 1;

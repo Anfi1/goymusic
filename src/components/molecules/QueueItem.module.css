@@ -144,6 +144,7 @@
 }
 
 .likeBtnGroup {
+    composes: group from './TrackActions.module.css';
     display: flex;
     align-items: center;
     gap: 2px;
@@ -154,6 +155,12 @@
     transition: opacity 0.15s ease, max-width 0s 0.15s;
 }
 
+:root[data-layout="deck"] .item:is(:hover, :focus-within) {
+    --track-actions-open: 1;
+    --track-actions-pointer: auto;
+}
+
+@scope (:root:not([data-layout="deck"])) {
 .item:hover .likeBtnGroup,
 .likeBtnGroup:has(.isLiked),
 .likeBtnGroup:has(.isDisliked),
@@ -162,6 +169,7 @@
     opacity: 1;
     pointer-events: auto;
     transition: opacity 0.15s ease, max-width 0s 0s;
+}
 }
 
 .likeBtn {
@@ -185,6 +193,7 @@
     transform: scale(0.9);
 }
 
+@scope (:root:not([data-layout="deck"])) {
 .likeBtnGroup:has(.isLiked) .likeBtn:not(.isLiked):not(.isLiking),
 .likeBtnGroup:has(.isDisliked) .likeBtn:not(.isDisliked):not(.isLiking) {
     opacity: 0;
@@ -202,6 +211,7 @@
     width: 20px;
     padding: 3px;
     transition: opacity 0.15s ease, width 0.15s ease, padding 0.15s ease;
+}
 }
 
 .spinner {
@@ -245,6 +255,8 @@
     box-shadow: none;
 }
 
+:root[data-layout="deck"] .title { font-size: var(--fs-track-title, var(--fs-base)); }
+
 :root[data-layout="deck"] .artist {
     margin: 0;
     font-size: var(--fs-xs);
@@ -258,15 +270,3 @@
     font-size: var(--fs-xs);
 }
 
-:root[data-layout="deck"] .likeBtnGroup:focus-within {
-    max-width: 60px;
-    opacity: 1;
-    pointer-events: auto;
-}
-
-:root[data-layout="deck"] .likeBtnGroup .likeBtn:focus-visible {
-    opacity: 1;
-    width: 20px;
-    padding: 3px;
-    outline-offset: -2px;
-}
