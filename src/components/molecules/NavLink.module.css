@@ -48,10 +48,13 @@
 }
 
 :root[data-layout="deck"] .container {
-    min-height: 36px;
     transition: background-color 0.15s ease, color 0.15s ease;
     opacity: 1;
     color: var(--text-sub);
+}
+
+:root[data-layout="deck"][data-deck-sidebar-size="new"] .container {
+    min-height: 36px;
 }
 
 :root[data-layout="deck"] .container:hover {

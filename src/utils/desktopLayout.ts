@@ -6,6 +6,7 @@ export const deckSpeeds = { ultra: 'Ultra fast', fast: 'Fast', medium: 'Medium',
 export const deckDimming = { light: 'Light', dim: 'Darker', original: 'Like Classic' } as const;
 export const deckTimes = { right: 'Right side', tooltip: 'At cursor' } as const;
 export const deckNavFonts = { compact: 'Standard', queue: 'Match queue heading' } as const;
+export const deckSidebarSizes = { new: 'New', classic: 'Classic' } as const;
 
 function deckChoice<T extends string>(attribute: string, choices: Record<T, string>, fallback: T) {
     const key = `goymusic-${attribute}`;
@@ -32,6 +33,7 @@ export const deckSpeed = deckChoice('deck-speed', deckSpeeds, 'medium');
 export const deckDim = deckChoice('deck-dim', deckDimming, 'light');
 export const deckTime = deckChoice('deck-time', deckTimes, 'right');
 export const deckNavSize = deckChoice('deck-nav-size', deckNavFonts, 'compact');
+export const deckSidebarSize = deckChoice('deck-sidebar-size', deckSidebarSizes, 'new');
 
 export function isDeckNyanEnabled(): boolean {
     return document.documentElement.dataset.nyan === 'on';
@@ -62,6 +64,7 @@ export function restoreDesktopLayout() {
     deckDim.restore();
     deckTime.restore();
     deckNavSize.restore();
+    deckSidebarSize.restore();
     if (localStorage.getItem(nyanKey) === 'on') document.documentElement.dataset.nyan = 'on';
     const saved = localStorage.getItem(storageKey);
     if (saved === 'sleeve') localStorage.setItem(storageKey, 'deck');

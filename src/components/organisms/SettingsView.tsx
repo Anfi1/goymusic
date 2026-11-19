@@ -15,7 +15,7 @@ import { YandexImportModal } from './YandexImportModal';
 import { SpotifyImportModal } from './SpotifyImportModal';
 import { ScEnableModal } from './ScEnableModal';
 import styles from './SettingsView.module.css';
-import { deckDim, deckDimming, deckNavFonts, deckNavSize, deckSpeed, deckSpeeds, deckTime, deckTimes, isDeckLayout, isDeckNyanEnabled, setDeckLayout, setDeckNyanEnabled, subscribeDesktopLayout } from '../../utils/desktopLayout';
+import { deckDim, deckDimming, deckNavFonts, deckNavSize, deckSidebarSize, deckSidebarSizes, deckSpeed, deckSpeeds, deckTime, deckTimes, isDeckLayout, isDeckNyanEnabled, setDeckLayout, setDeckNyanEnabled, subscribeDesktopLayout } from '../../utils/desktopLayout';
 import { interfaceScales, isInterfaceScale, readInterfaceScale, setInterfaceScale } from '../../utils/interfaceScale';
 import { Trash2, ShieldCheck, FolderOpen } from 'lucide-react';
 
@@ -30,6 +30,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const dim = useSyncExternalStore(subscribeDesktopLayout, deckDim.read);
     const time = useSyncExternalStore(subscribeDesktopLayout, deckTime.read);
     const navSize = useSyncExternalStore(subscribeDesktopLayout, deckNavSize.read);
+    const sidebarSize = useSyncExternalStore(subscribeDesktopLayout, deckSidebarSize.read);
     const [scale, setScale] = useState(readInterfaceScale);
     const [yandexModalOpen, setYandexModalOpen] = useState(false);
     const [spotifyModalOpen, setSpotifyModalOpen] = useState(false);
@@ -365,6 +366,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                 </p>
                 {deckEnabled && (
                     <>
+                        <div className={styles.row}>
+                            <label htmlFor="deck-sidebar-size">Sidebar size</label>
+                            <select className={styles.select} id="deck-sidebar-size" value={sidebarSize} onChange={e => deckSidebarSize.set(e.target.value)}>
+                                {Object.entries(deckSidebarSizes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                            </select>
+                        </div>
                         <div className={styles.row}>
                             <label htmlFor="deck-nav-font">Sidebar font size</label>
                             <select className={styles.select} id="deck-nav-font" value={navSize} onChange={e => deckNavSize.set(e.target.value)}>

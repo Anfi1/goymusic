@@ -296,31 +296,29 @@
 
 :root[data-layout="deck"] .sidebar {
     min-height: 0;
-    padding: 6px 8px 0;
     border: 0;
     box-shadow: inset -1px 0 var(--border-subtle), 3px 0 12px rgb(0 0 0 / 10%);
     overflow: visible;
 }
 
-:root[data-layout="deck"] .sidebar.collapsed {
-    width: 58px;
+/* Classic sizing uses the base sidebar geometry above, not a second copy.
+   The Deck palette, controls and account placement are shared by both sizes. */
+:root[data-layout="deck"][data-deck-sidebar-size="new"] {
+    .sidebar { padding: 6px 8px 0; }
+    .sidebar.collapsed { width: 58px; }
+    .header { min-height: 36px; gap: 0; padding: 0; margin-bottom: 6px; }
+    .logo { font-size: var(--fs-xl); letter-spacing: -0.035em; }
+    .logoButton { height: 28px; }
+    .toggleBtn { width: 42px; height: 28px; }
+    .userProfile { padding: 0; }
+    .collectionButton { min-height: 32px; padding-inline: 6px; }
+    .mainNav { display: grid; gap: 2px; }
+    .sectionHeader { min-height: 36px; padding-inline: 6px; margin-bottom: 2px; }
+    .sectionTitle { font-size: var(--fs-nav-label, var(--fs-base)); }
 }
 
 :root[data-layout="deck"] .header {
-    min-height: 36px;
     flex-shrink: 0;
-    gap: 0;
-    padding: 0;
-    margin: 0 0 6px;
-}
-
-:root[data-layout="deck"] .logo {
-    font-size: var(--fs-xl);
-    letter-spacing: -0.035em;
-}
-
-:root[data-layout="deck"] .logoButton {
-    height: 28px;
 }
 
 :root[data-layout="deck"] .collapsed .header {
@@ -333,19 +331,12 @@
 }
 
 :root[data-layout="deck"] .toggleBtn {
-    /* Same leading column as Browse: 12px inset + 18px icon + 12px gap. */
-    width: 42px;
-    height: 28px;
     opacity: 1;
     color: var(--accent);
 }
 
 :root[data-layout="deck"] .toggleBtn:hover {
     background: var(--hover);
-}
-
-:root[data-layout="deck"] .userProfile {
-    padding: 0;
 }
 
 :root[data-layout="deck"] .userMenu {
@@ -356,8 +347,6 @@
 }
 
 :root[data-layout="deck"] .collectionButton {
-    min-height: 32px;
-    padding-inline: 6px;
     border-radius: var(--radius-sm);
 }
 
@@ -372,24 +361,12 @@
     color: var(--text-main);
 }
 
-:root[data-layout="deck"] .mainNav {
-    display: grid;
-    gap: 2px;
-}
-
 :root[data-layout="deck"][data-deck-nav-size="queue"] .sidebar:not(.collapsed) {
     --fs-nav-label: var(--fs-lg);
 }
 
-:root[data-layout="deck"] .sectionHeader {
-    min-height: 36px;
-    padding-inline: 6px;
-    margin-bottom: 2px;
-}
-
 :root[data-layout="deck"] .sectionTitle {
     color: var(--text-sub);
-    font-size: var(--fs-nav-label, var(--fs-base));
     text-transform: none;
     letter-spacing: normal;
     opacity: 1;

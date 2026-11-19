@@ -103,11 +103,14 @@
 }
 
 :root[data-layout="deck"] .appWindow {
-    --sidebar-width: clamp(176px, 17vw, 212px);
     --right-panel-width: clamp(248px, 22vw, 320px);
     --player-height: 88px;
     background: var(--deck-floor);
     border: 0;
+}
+
+:root[data-layout="deck"][data-deck-sidebar-size="new"] .appWindow {
+    --sidebar-width: clamp(176px, 17vw, 212px);
 }
 
 :root[data-layout="deck"] .ambientBlur {
