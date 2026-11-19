@@ -25,6 +25,7 @@ sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import api
+from backend.local_media import _parse_ebur128
 
 # id из реального лога воспроизведения
 DEFAULT_IDS = ['Ar_vJ10NQHg', 'FDdkK8s87N0', 'JVilaNmHPLY', 'wsG5WtD7DAE', 'Ek_aNdxhTBQ', 'L5j7xQzgTNM']
@@ -118,9 +119,9 @@ def selfcheck():
                '    I:          -7.0 LUFS\r\n    Threshold: -17.1 LUFS\r\n\r\n'
                '  Loudness range:\r\n    LRA:         2.6 LU\r\n\r\n'
                '  True peak:\r\n    Peak:        3.1 dBFS\r\n')
-    assert api._parse_ebur128(summary) == (-7.0, 3.1), api._parse_ebur128(summary)
-    assert api._parse_ebur128('I: -70.0 LUFS\nPeak: -inf dBFS') is None  # нет Summary
-    assert api._parse_ebur128('Summary:\n I: -70.0 LUFS\n Peak: -inf dBFS')[1] == float('-inf')
+    assert _parse_ebur128(summary) == (-7.0, 3.1), _parse_ebur128(summary)
+    assert _parse_ebur128('I: -70.0 LUFS\nPeak: -inf dBFS') is None  # нет Summary
+    assert _parse_ebur128('Summary:\n I: -70.0 LUFS\n Peak: -inf dBFS')[1] == float('-inf')
 
     # бот-чек ставит путь быстрого резолва на паузу, обычный отказ -- нет
     api._bot_check_until.update(auth=0.0, anon=0.0)

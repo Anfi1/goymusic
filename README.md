@@ -22,6 +22,8 @@ Desktop YouTube Music player built with Electron + React + Python.
 - **Backend:** Python (ytmusicapi fork, yt-dlp, pytubefix)
 - **Desktop:** Electron with custom frameless window
 
+`python/api.py` is the shared entry point: desktop sends newline-delimited JSON on stdin/stdout; Android calls the same dispatcher through `python/mobile_host.py`. `COMMANDS` maps the wire command names to handlers. Catalog, library, discovery, history, lyrics, local media, imports, Yandex and SoundCloud live in `python/backend/`. Handlers receive a `CommandContext`: return results or progress with `ctx.emit(...)` so replies keep the request ID and respect cancellation. The desktop visuals and storage format are unchanged in 7.1.8.
+
 ## Prerequisites
 
 - Node.js 18+

@@ -72,6 +72,7 @@ jobs:
           $content = Get-Content $pthFile
           $content | Set-Content $pthFile
           Add-Content $pthFile "Lib\site-packages"
+          Add-Content $pthFile ".."
           Add-Content $pthFile "import site"
 
           # Install pip
@@ -99,6 +100,38 @@ jobs:
       - name: Build app
         run: npm run build
 
+      - name: Package stable installer without publishing
+        run: npx electron-builder --publish never
+
+      - name: Verify installer, update manifest and installed backend before publication
+        shell: pwsh
+        env:
+          EXPECTED: ${{ steps.version.outputs.version }}
+        run: |
+          $file = "GoyMusic-Setup-$env:EXPECTED.exe"
+          $setup = Get-Item "release/$file"
+          if (!(Test-Path "release/$file.blockmap")) { throw "Missing blockmap" }
+          $manifest = Get-Content release/latest.yml -Raw
+          $sha = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup -Algorithm SHA512).Hash))
+          if (!$manifest.Contains($sha) -or !$manifest.Contains($file)) { throw "Installer does not match latest.yml" }
+          $dir = Join-Path $env:RUNNER_TEMP "GoyMusic-candidate"
+          $p = Start-Process $setup.FullName -ArgumentList "/S", "/D=$dir" -Wait -PassThru
+          if ($p.ExitCode) { throw "Candidate install failed" }
+          $py = Join-Path $dir "resources/python"
+          python .github/workflows/check-backend.py "$py/bin/python.exe" "$py/api.py"
+          if ($LASTEXITCODE) { throw "Packaged backend protocol failed" }
+          & "$py/bin/python.exe" "$py/test_liked_songs.py"
+          if ($LASTEXITCODE) { throw "Packaged library regression" }
+          & "$py/bin/python.exe" "$py/test_backend_contract.py"
+          if ($LASTEXITCODE) { throw "Cancellation or concurrent request regression" }
+          & "$py/bin/python.exe" .github/workflows/check-mobile-host.py
+          if ($LASTEXITCODE) { throw "Android host callback contract failed" }
+          $info = (Get-Item "$dir/GoyMusic.exe").VersionInfo
+          if ("$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)" -ne $env:EXPECTED) { throw "Unexpected candidate version" }
+          $uninstaller = Get-ChildItem $dir -Filter "Uninstall*.exe" | Select-Object -First 1
+          $p = Start-Process $uninstaller.FullName -ArgumentList "/S", "_?=$dir" -Wait -PassThru
+          if ($p.ExitCode) { throw "Candidate uninstall failed" }
+
       # --- Push version bump & tag ---
       - name: Ensure git tag exists and push
         shell: bash
@@ -111,30 +144,16 @@ jobs:
           git tag -f "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}" --force
 
-      # --- Create the GitHub release up front ---
-      # electron-builder uploads several assets (exe, blockmap, latest.yml) concurrently;
-      # if no release exists yet each upload races to create one, which has produced
-      # duplicate release objects for the same tag in the past. Creating the release as
-      # a single atomic call first means electron-builder just finds and uploads to it.
-      - name: Create GitHub release
+      - name: Publish verified stable installer
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release $TAG already exists, reusing it."
-          else
-            gh release create "$TAG" --repo "${{ github.repository }}" \
-              --title "${{ steps.version.outputs.version }}" --generate-notes --latest
-          fi
-
-      # --- Package & Release ---
-      - name: Package and publish
-        run: npx electron-builder --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+          set -euo pipefail
+          installer="release/GoyMusic-Setup-${VERSION}.exe"
+          gh release create "v$VERSION" "$installer" "$installer.blockmap" release/latest.yml \
+            --verify-tag --title "$VERSION" --generate-notes --latest
 
       - name: Verify upgrade from the previous installed Windows release
         if: steps.version.outputs.previous != '0.0.0'
