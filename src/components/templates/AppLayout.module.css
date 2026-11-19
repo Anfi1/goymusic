@@ -109,8 +109,9 @@
     border: 0;
 }
 
-:root[data-layout="deck"][data-deck-sidebar-size="new"] .appWindow {
+:root[data-sidebar-width="new"] .appWindow {
     --sidebar-width: clamp(176px, 17vw, 212px);
+    --sidebar-collapsed-width: 58px;
 }
 
 :root[data-layout="deck"] .ambientBlur {

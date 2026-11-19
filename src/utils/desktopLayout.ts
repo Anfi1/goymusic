@@ -5,21 +5,18 @@ const nyanKey = 'goymusic-deck-nyan';
 export const deckSpeeds = { ultra: 'Ultra fast', fast: 'Fast', medium: 'Medium', slow: 'Slow' } as const;
 export const deckDimming = { light: 'Light', dim: 'Darker', original: 'Like Classic' } as const;
 export const deckTimes = { right: 'Right side', tooltip: 'At cursor' } as const;
-export const deckNavFonts = { compact: 'Standard', queue: 'Match queue heading' } as const;
-export const deckSidebarSizes = { new: 'New', classic: 'Classic' } as const;
+export const sidebarStyles = { new: 'New', classic: 'Classic' } as const;
 
-function deckChoice<T extends string>(attribute: string, choices: Record<T, string>, fallback: T) {
+function layoutChoice<T extends string>(attribute: string, choices: Record<T, string>, fallback: T | (() => T)) {
     const key = `goymusic-${attribute}`;
     const valid = (value: string | null): value is T => value !== null && Object.hasOwn(choices, value);
+    const resolve = (value: string | null): T => {
+        if (valid(value)) return value;
+        return typeof fallback === 'function' ? fallback() : fallback;
+    };
     return {
-        read: (): T => {
-            const value = document.documentElement.getAttribute(`data-${attribute}`);
-            return valid(value) ? value : fallback;
-        },
-        restore: () => {
-            const value = localStorage.getItem(key);
-            document.documentElement.setAttribute(`data-${attribute}`, valid(value) ? value : fallback);
-        },
+        read: () => resolve(document.documentElement.getAttribute(`data-${attribute}`)),
+        restore: () => document.documentElement.setAttribute(`data-${attribute}`, resolve(localStorage.getItem(key))),
         set: (value: string) => {
             if (!valid(value)) return;
             localStorage.setItem(key, value);
@@ -29,11 +26,11 @@ function deckChoice<T extends string>(attribute: string, choices: Record<T, stri
     };
 }
 
-export const deckSpeed = deckChoice('deck-speed', deckSpeeds, 'medium');
-export const deckDim = deckChoice('deck-dim', deckDimming, 'light');
-export const deckTime = deckChoice('deck-time', deckTimes, 'right');
-export const deckNavSize = deckChoice('deck-nav-size', deckNavFonts, 'compact');
-export const deckSidebarSize = deckChoice('deck-sidebar-size', deckSidebarSizes, 'new');
+export const deckSpeed = layoutChoice('deck-speed', deckSpeeds, 'medium');
+export const deckDim = layoutChoice('deck-dim', deckDimming, 'light');
+export const deckTime = layoutChoice('deck-time', deckTimes, 'right');
+export const sidebarButtons = layoutChoice('sidebar-buttons', sidebarStyles, () => isDeckLayout() ? 'new' : 'classic');
+export const sidebarWidth = layoutChoice('sidebar-width', sidebarStyles, 'new');
 
 export function isDeckNyanEnabled(): boolean {
     return document.documentElement.dataset.nyan === 'on';
@@ -63,12 +60,21 @@ export function restoreDesktopLayout() {
     deckSpeed.restore();
     deckDim.restore();
     deckTime.restore();
-    deckNavSize.restore();
-    deckSidebarSize.restore();
+    const legacySize = localStorage.getItem('goymusic-deck-sidebar-size');
+    if (legacySize !== null) {
+        if (Object.hasOwn(sidebarStyles, legacySize) && localStorage.getItem('goymusic-sidebar-buttons') === null) {
+            localStorage.setItem('goymusic-sidebar-buttons', legacySize);
+        }
+        localStorage.removeItem('goymusic-deck-sidebar-size');
+    }
+    localStorage.removeItem('goymusic-deck-nav-size');
     if (localStorage.getItem(nyanKey) === 'on') document.documentElement.dataset.nyan = 'on';
     const saved = localStorage.getItem(storageKey);
     if (saved === 'sleeve') localStorage.setItem(storageKey, 'deck');
     if (saved === 'deck' || saved === 'sleeve') document.documentElement.dataset.layout = 'deck';
+    else delete document.documentElement.dataset.layout;
+    sidebarButtons.restore();
+    sidebarWidth.restore();
 }
 
 export function setDeckLayout(enabled: boolean) {
@@ -79,5 +85,7 @@ export function setDeckLayout(enabled: boolean) {
         localStorage.removeItem(storageKey);
         delete document.documentElement.dataset.layout;
     }
+    sidebarButtons.restore();
+    sidebarWidth.restore();
     window.dispatchEvent(new Event(layoutChanged));
 }

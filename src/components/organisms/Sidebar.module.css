@@ -14,7 +14,8 @@
 }
 
 .collapsed {
-    width: 72px;
+    width: var(--sidebar-collapsed-width, 72px);
+    overflow: visible;
 }
 
 .immersive {
@@ -24,17 +25,25 @@
 
 .header {
     display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
     gap: 8px;
     margin-bottom: 16px;
-    padding: 0 12px;
+    padding-inline-start: 12px;
     min-height: 44px;
 }
 
 .collapsed .header {
     justify-content: center;
     padding: 0;
+}
+
+/* Keep the classic wordmark beside its toggle even at the narrow end of New width. */
+:root[data-sidebar-width="new"][data-sidebar-buttons="classic"] .sidebar:not(.collapsed) .header {
+    padding-inline-start: 4px;
+    gap: 4px;
 }
 
 .logo {
@@ -61,7 +70,7 @@
 }
 
 .collectionIcon {
-    display: none;
+    display: block;
 }
 
 .toggleBtn {
@@ -301,11 +310,10 @@
     overflow: visible;
 }
 
-/* Classic sizing uses the base sidebar geometry above, not a second copy.
-   The Deck palette, controls and account placement are shared by both sizes. */
-:root[data-layout="deck"][data-deck-sidebar-size="new"] {
+/* Classic buttons use the base geometry. The layout only selects colors
+   and where controls appear; sidebar width is independent of both. */
+:root[data-sidebar-buttons="new"] {
     .sidebar { padding: 6px 8px 0; }
-    .sidebar.collapsed { width: 58px; }
     .header { min-height: 36px; gap: 0; padding: 0; margin-bottom: 6px; }
     .logo { font-size: var(--fs-xl); letter-spacing: -0.035em; }
     .logoButton { height: 28px; }
@@ -314,11 +322,7 @@
     .collectionButton { min-height: 32px; padding-inline: 6px; }
     .mainNav { display: grid; gap: 2px; }
     .sectionHeader { min-height: 36px; padding-inline: 6px; margin-bottom: 2px; }
-    .sectionTitle { font-size: var(--fs-nav-label, var(--fs-base)); }
-}
-
-:root[data-layout="deck"] .header {
-    flex-shrink: 0;
+    .sectionTitle { font-size: var(--fs-base); text-transform: none; letter-spacing: normal; }
 }
 
 :root[data-layout="deck"] .collapsed .header {
@@ -361,26 +365,16 @@
     color: var(--text-main);
 }
 
-:root[data-layout="deck"][data-deck-nav-size="queue"] .sidebar:not(.collapsed) {
-    --fs-nav-label: var(--fs-lg);
-}
-
 :root[data-layout="deck"] .sectionTitle {
     color: var(--text-sub);
-    text-transform: none;
-    letter-spacing: normal;
     opacity: 1;
 }
 
-:root[data-layout="deck"] .collapsed .sectionHeader {
+.collapsed .sectionHeader {
     justify-content: center;
 }
 
-:root[data-layout="deck"] .collectionIcon {
-    display: block;
-}
-
-:root[data-layout="deck"] .collapsed .collectionButton {
+.collapsed .collectionButton {
     justify-content: center;
     width: 36px;
     height: 36px;
@@ -406,9 +400,5 @@
     .userProfile {
         flex-shrink: 0;
         z-index: 1;
-    }
-
-    .sidebar.collapsed {
-        overflow: visible;
     }
 }
