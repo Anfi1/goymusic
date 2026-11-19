@@ -156,8 +156,9 @@ export interface YTMArtistDetail {
 }
 
 export interface YTMHomeSection {
-    title: string;
+    title: string | null;
     category?: string;
+    homeRole?: 'listen-again' | 'quick-picks';
     contents: any[];
 }
 

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { ContextMenu, ContextMenuItem } from '../molecules/ContextMenu';
 import { useToast } from '../atoms/Toast';
-import { YTMHomeSection } from '../../api/yt';
+import { orderHomeShelves, shouldSeekHomeShelves, nextHomeContinuation } from '../../utils/homeShelves';
 import { ActiveView } from '../../types';
 import { isYandexEnabled } from '../../api/yandex';
 import { getHomeSource, setHomeSource, HomeSource } from '../../api/homeSource';
@@ -21,8 +21,8 @@ import { HomeSourceToggle } from '../atoms/HomeSourceToggle';
 import { YandexHomeView } from './YandexHomeView';
 import styles from './HomeView.module.css';
 
-const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
-  if (isFirst) return Zap;
+const getSectionIcon = (category: string | undefined, isListenAgain: boolean) => {
+  if (isListenAgain) return Zap;
   switch (category?.toLowerCase()) {
     case 'artist': return Mic2;
     case 'album': return Disc;
@@ -31,8 +31,6 @@ const getSectionIcon = (category: string | undefined, isFirst: boolean) => {
     default: return LayoutGrid;
   }
 };
-
-const FORBIDDEN_TITLES: string[] = [];
 
 // Маппинг заголовков секций для интерактивной навигации по клику
 interface SectionNavTarget {
@@ -54,7 +52,7 @@ const SECTION_NAV_TARGETS: SectionNavTarget[] = [
   },
 ];
 
-function getSectionNavTarget(title?: string): SectionNavTarget | null {
+function getSectionNavTarget(title: string | null): SectionNavTarget | null {
   if (!title) return null;
   const lower = title.toLowerCase();
   for (const nav of SECTION_NAV_TARGETS) {
@@ -63,40 +61,6 @@ function getSectionNavTarget(title?: string): SectionNavTarget | null {
     }
   }
   return null;
-}
-
-const LISTEN_AGAIN_KEYWORDS = [
-  'listen again',
-  'послушайте ещё раз',
-  'послушать ещё раз',
-  'послушайте еще раз',
-  'послушать еще раз',
-];
-
-const PRIORITY_KEYWORDS = [
-  ...LISTEN_AGAIN_KEYWORDS,
-  'быстрый выбор',
-  'quick picks',
-];
-
-function matchesTitle(title: string | undefined, keywords: string[]): boolean {
-  const lower = title?.toLowerCase();
-  return !!lower && keywords.some(k => lower.includes(k));
-}
-
-function filterSection(section: YTMHomeSection): boolean {
-  if (FORBIDDEN_TITLES.length === 0) return true;
-  return !FORBIDDEN_TITLES.some(t => section.title?.toLowerCase().includes(t));
-}
-
-function normalizePins(section: YTMHomeSection, isFirst: boolean): YTMHomeSection {
-  if (!isFirst || !section.contents) return section;
-  let foundUnpinned = false;
-  const contents = section.contents.map((item: any) => {
-    if (!item.isPinned) foundUnpinned = true;
-    return { ...item, isPinned: foundUnpinned ? false : item.isPinned };
-  });
-  return { ...section, contents };
 }
 
 // An initial preview, not a prediction of the personalized feed or its length.
@@ -155,66 +119,33 @@ export const HomeView: React.FC<{
     queryKey: ['home-sections'],
     queryFn: ({ pageParam }: { pageParam: string | null }) => getHomeSections(pageParam),
     initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.continuation ?? undefined,
+    getNextPageParam: (page, _pages, _param, params) => nextHomeContinuation(page.continuation, params),
     staleTime: 60 * 60 * 1000,
   });
 
-  // Prioritize within each page; prefetch must never insert a later shelf
-  // above the one the listener is already looking at.
-  const sections = useMemo(() => {
-    if (!data) return [];
-    const ordered = data.pages.flatMap(page => {
-      const priority: YTMHomeSection[] = [];
-      const other: YTMHomeSection[] = [];
-      for (const section of page.sections) {
-        if (!filterSection(section)) continue;
-        (matchesTitle(section.title, PRIORITY_KEYWORDS) ? priority : other).push(section);
-      }
-      return priority.concat(other);
-    });
-    return ordered.map((s, i) => normalizePins(s, i === 0));
-  }, [data]);
+  // Keep already-loaded shelves visible while the two pinned slots are discovered.
+  const sections = useMemo(() => orderHomeShelves(data?.pages ?? []), [data]);
+  const pagesLoaded = data?.pages.length ?? 0;
+  const seeking = shouldSeekHomeShelves(pagesLoaded, sections);
+  const emptyPage = data?.pages[pagesLoaded - 1]?.sections.length === 0;
 
-  const pagesLoaded = data?.pages?.length ?? 0;
-  const isBackgroundRefetch = isFetching && !isLoading && !isFetchingNextPage;
-  const wasRefetchingRef = useRef(false);
-
-  // After a background refetch (F5/invalidate) completes, trim cache to page 1.
-  // This way old sections stay visible during the refetch and disappear only when fresh data is ready.
   useEffect(() => {
-    if (isBackgroundRefetch) {
-      wasRefetchingRef.current = true;
-    } else if (wasRefetchingRef.current) {
-      wasRefetchingRef.current = false;
-      queryClient.setQueryData(['home-sections'], (old: any) => {
-        if (!old?.pages?.length) return old;
-        return { pages: [old.pages[0]], pageParams: [old.pageParams[0]] };
-      });
+    if (!yandexMode && seeking && hasNextPage && !isFetching && !isError) {
+      void fetchNextPage({ cancelRefetch: false });
     }
-  }, [isBackgroundRefetch, queryClient]);
+  }, [yandexMode, seeking, hasNextPage, isFetching, isError, fetchNextPage, pagesLoaded]);
 
-  // IntersectionObserver — preload next page(s) when 700px from container bottom.
-  // Skip while background-refetching (isFetching && !isFetchingNextPage) so that
-  // when the refetch completes, the effect re-runs and the sentinel re-fires.
+  // After discovery, only fetch as the listener approaches the bottom. An empty
+  // page (or failed request) must not leave a visible sentinel fetching forever.
   useEffect(() => {
-    const isBackgroundRefetch = isFetching && !isFetchingNextPage;
-    if (!sentinelRef.current || !containerRef.current || !hasNextPage || isBackgroundRefetch) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry.isIntersecting) return;
-        if (pagesLoaded >= 2) {
-          // Fetch 2 pages at once for smoother deep-scroll experience
-          fetchNextPage().then(() => fetchNextPage());
-        } else {
-          fetchNextPage();
-        }
-      },
-      { root: containerRef.current, rootMargin: '0px 0px 700px 0px' }
-    );
+    if (yandexMode || seeking || emptyPage || isError || isFetching || !hasNextPage
+        || !sentinelRef.current || !containerRef.current) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) void fetchNextPage({ cancelRefetch: false });
+    }, { root: containerRef.current, rootMargin: '0px 0px 700px 0px' });
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [fetchNextPage, hasNextPage, pagesLoaded, isFetching, isFetchingNextPage]);
+  }, [yandexMode, seeking, emptyPage, isError, isFetching, hasNextPage, fetchNextPage, pagesLoaded]);
 
   const handlePlayClick = useCallback(async (item: any) => {
     const type = item.type?.toLowerCase();
@@ -292,14 +223,14 @@ export const HomeView: React.FC<{
       {yandexToggle}
       {isLoading && <HomeSkeleton />}
       {isError && sections.length === 0 && <p className={styles.feedError}>Failed to load home feed.</p>}
-      {sections.map((section: any, idx: number) => {
-        const Icon = getSectionIcon(section.category, idx === 0);
+      {sections.map(({ section, role, feedIndex }, idx) => {
+        const Icon = getSectionIcon(section.category, role === 'listen-again');
         const isSongGrid = section.category === 'song';
         const navTarget = getSectionNavTarget(section.title);
 
         return (
           <section
-            key={`${section.title}-${idx}`}
+            key={`${feedIndex}-${section.title}`}
             className={`${styles.section} ${isSongGrid ? styles.songSection : ''}`}
           >
             <div className={styles.sectionHeader}>
@@ -342,8 +273,9 @@ export const HomeView: React.FC<{
         );
       })}
 
-      {/* Sentinel — triggers prefetch 600px before reaching it */}
-      {hasNextPage && <div ref={sentinelRef} style={{ height: 1 }} />}
+      {hasNextPage && ((emptyPage && !seeking) || isError
+        ? <button disabled={isFetching} onClick={() => void fetchNextPage({ cancelRefetch: false })}>Load more</button>
+        : <div ref={sentinelRef} style={{ height: 1 }} />)}
 
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={menuItems} onClose={() => setContextMenu(null)} />}
     </div>

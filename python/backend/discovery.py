@@ -1,10 +1,47 @@
 """Home sections, new releases, mixes and queue recommendations."""
+import base64
 import random
+import re
 import sys
+from urllib.parse import unquote
 
-from ytmusicapi.navigation import SECTION_LIST, SINGLE_COLUMN_TAB, TITLE_TEXT, nav
+from ytmusicapi.navigation import MRLIR, NAVIGATION_BROWSE_ID, PLAY_BUTTON, SECTION_LIST, SINGLE_COLUMN_TAB, TITLE, TITLE_TEXT, nav
+from ytmusicapi.parsers.browsing import parse_mixed_content
 
 from .formatting import _extract_pro_badge, track_to_dict
+
+
+def _home_role(row):
+    shelf = row.get('musicCarouselShelfRenderer', {})
+    header = nav(shelf, ['header', 'musicCarouselShelfBasicHeaderRenderer'], True) or {}
+    more = nav(header, ['moreContentButton', 'buttonRenderer', 'navigationEndpoint'], True) or {}
+    listen_again_id = 'FEmusic_listen_again'
+    if (nav(header, TITLE + NAVIGATION_BROWSE_ID, True) == listen_again_id
+            or nav(more, ['browseEndpoint', 'browseId'], True) == listen_again_id):
+        return 'listen-again'
+
+    # WEB_REMIX Quick picks: Play all seeds a mix with these exact videos, and
+    # each row starts its own song radio. Neither a Play all button nor a
+    # radio menu item by itself identifies this shelf. shelfId is per response.
+    watch = more.get('watchEndpoint') or {}
+    params = watch.get('params')
+    rows = shelf.get('contents', [])
+    if not isinstance(params, str) or len(rows) < 2:
+        return None
+    try:
+        payload = base64.urlsafe_b64decode(unquote(params) + '===')
+    except ValueError:
+        return None
+    # The repeated length-delimited field 5 holds 11-byte video IDs.
+    seeds = re.findall(rb'\x2a\x0b([a-zA-Z0-9_-]{11})', payload)
+    if len(seeds) != len(rows) or seeds[0].decode() != watch.get('videoId'):
+        return None
+    for seed, item in zip(seeds, rows):
+        video_id = seed.decode()
+        play = nav(item, [MRLIR, *PLAY_BUTTON, 'playNavigationEndpoint', 'watchEndpoint'], True) or {}
+        if play.get('videoId') != video_id or play.get('playlistId') != 'RDAMVM' + video_id:
+            return None
+    return 'quick-picks'
 
 
 def _build_formatted_section(section):
@@ -95,7 +132,8 @@ def get_home_sections(request, ctx):
             response = api._send_request('browse', {'browseId': 'FEmusic_home'})
             section_list = nav(response, SINGLE_COLUMN_TAB + ['sectionListRenderer'])
 
-        from ytmusicapi.parsers.browsing import parse_mixed_content
+        # Parse each row with its own metadata: parse_mixed_content skips
+        # unrecognized renderers, so zipping two lists would shift the roles.
         sections_raw = section_list.get('contents', [])
         conts = section_list.get('continuations', [])
         next_continuation = None
@@ -103,8 +141,13 @@ def get_home_sections(request, ctx):
             next_continuation = (conts[0].get('nextContinuationData', {}).get('continuation')
                                  or conts[0].get('reloadContinuationData', {}).get('continuation'))
 
-        parsed = parse_mixed_content(sections_raw)
-        formatted = [s for s in (_build_formatted_section(sec) for sec in parsed) if s]
+        formatted = []
+        for row in sections_raw:
+            for section in parse_mixed_content([row]):
+                if card := _build_formatted_section(section):
+                    if role := _home_role(row):
+                        card['homeRole'] = role
+                    formatted.append(card)
         ctx.emit({'status': 'ok', 'sections': formatted, 'continuation': next_continuation})
     except Exception as e:
         ctx.emit({'status': 'error', 'message': str(e)})
