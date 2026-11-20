@@ -207,8 +207,7 @@
 }
 
 /* Reserve both metadata lines on the fixed card shelves as covers resolve. */
-.knownShelves .card,
-:root[data-layout="deck"] .container .card {
+.container .card {
     --card-caption-height: 2lh;
 }
 
