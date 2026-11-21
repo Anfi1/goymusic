@@ -52,7 +52,7 @@ function Save-View($name) {
 }
 function Get-NestedVerdict($view, $target) {
     $groups = @($view | Where-Object { $_.type -eq 'Group' -and $_.id -in 'TmGroupHeader_Apps','TmGroupHeader_Background','TmGroupHeader_Windows' })
-    $labRows = @($view | Where-Object { $_.type -eq 'TreeItem' -and $_.name -match '^GoyMusic MSIX Lab(?:\.exe)?(?:\s*\(\d+\))?$' })
+    $labRows = @($view | Where-Object { $_.type -eq 'TreeItem' -and $_.state -in 'Expanded','Collapsed' -and $_.name -match '^GoyMusic MSIX Lab(?:\s*\(\d+\)|\.\s+\d+\s+instances?\.)?$' })
     if (!$groups.Count -or !$labRows.Count) { return }
     $suffix = ':' + $target.record.ProcessId
     $processName = if ($target.key -eq 'python') { '^python(?:\.exe|\b)' } else { '^node(?:\.exe|\.js|\b)' }
