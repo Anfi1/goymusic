@@ -2,7 +2,7 @@ name: Build & Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/owned-processes]
   workflow_dispatch:
 
 concurrency:
@@ -15,11 +15,14 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    outputs:
+      ram: ${{ steps.memory.outputs.ram }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: ${{ github.ref == 'refs/heads/main' }}
 
       # --- Version determination ---
       # Источник правды -- реально опубликованные GitHub Releases, а не git-теги:
@@ -130,6 +133,33 @@ jobs:
           $info = (Get-Item "$dir/GoyMusic.exe").VersionInfo
           if ("$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)" -ne $env:EXPECTED) { throw "Unexpected candidate version" }
           & ./.github/workflows/check-windows-lifecycle.ps1 -InstallDir $dir
+          try { & ./.github/workflows/check-owned-processes.ps1 -InstallDir $dir }
+          catch { Write-Output "::error::Process ownership check: $($_.Exception.Message)"; throw }
+
+      - name: Install player verification driver
+        shell: pwsh
+        run: npm install --prefix "$env:RUNNER_TEMP/update-driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
+
+      - name: Measure installed player private working set
+        id: memory
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:NODE_PATH = "$env:RUNNER_TEMP/update-driver/node_modules"
+          $dir = Join-Path $env:RUNNER_TEMP "GoyMusic-candidate"
+          try { & ./.github/workflows/measure-player-memory.ps1 -InstallDir $dir }
+          catch { Write-Output "::error::Memory measurement: $($_.Exception.Message)"; throw }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-private-working-set
+          path: ram-report.json
+          if-no-files-found: error
+
+      - name: Uninstall candidate
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "GoyMusic-candidate"
           $uninstaller = Get-ChildItem $dir -Filter "Uninstall*.exe" | Select-Object -First 1
           $p = Start-Process $uninstaller.FullName -ArgumentList "/S", "_?=$dir" -Wait -PassThru
           if ($p.ExitCode) { throw "Candidate uninstall failed" }
@@ -147,13 +177,20 @@ jobs:
           gh release download "v$env:PREVIOUS" --repo $env:GITHUB_REPOSITORY --pattern $installer --dir $env:RUNNER_TEMP
           if ($LASTEXITCODE) { throw "Cannot download previous installer" }
           Remove-Item Env:GH_TOKEN
-          # Playwright управляет окном установленного Electron; браузер скачивать не нужно.
-          npm install --prefix "$env:RUNNER_TEMP/update-driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
-          if ($LASTEXITCODE) { throw "Cannot install update driver" }
           & ./.github/workflows/check-windows-upgrade.ps1 -LocalFeed
 
-      # --- Push version bump & tag ---
+      - name: Save independently tested NSIS candidate
+        if: github.ref == 'refs/heads/fix/owned-processes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoyMusic-NSIS-process-test
+          path: release/GoyMusic-Setup-*.exe
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Ensure git tag exists and push
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -165,6 +202,7 @@ jobs:
           git push origin "v${{ steps.version.outputs.version }}" --force
 
       - name: Publish verified stable installer
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -176,7 +214,7 @@ jobs:
             --verify-tag --title "$VERSION" --generate-notes --latest
 
       - name: Verify upgrade through the public GitHub update feed
-        if: steps.version.outputs.previous != '0.0.0'
+        if: github.ref == 'refs/heads/main' && steps.version.outputs.previous != '0.0.0'
         timeout-minutes: 12
         shell: pwsh
         env:
@@ -184,3 +222,11 @@ jobs:
           EXPECTED: ${{ steps.version.outputs.version }}
         run: ./.github/workflows/check-windows-upgrade.ps1
 
+  measurement:
+    needs: release
+    name: 'Private working set: ${{ needs.release.outputs.ram }}'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "$MEASUREMENT" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          MEASUREMENT: ${{ needs.release.outputs.ram }}
