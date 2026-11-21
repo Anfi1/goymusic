@@ -28,6 +28,8 @@ Desktop YouTube Music player built with Electron + React + Python.
 
 On Windows, launching GoyMusic again opens the existing player for that profile. Several entries in Task Manager are normal: Chromium runs the renderer, GPU and utilities separately, and Python runs the music backend. The installed shortcut and player windows use the same taskbar identity. During a silent update, the installer releases its launch lock before restarting the updated player.
 
+Ending the main GoyMusic process also ends its Python backend and the helpers started by that backend (including Node and FFmpeg). This uses a Windows Job Object, not a process-name scan. Other applications and the independent update installer are not terminated. This does not change Task Manager's visual grouping or require MSIX.
+
 ## Prerequisites
 
 - Node.js 18+

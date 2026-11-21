@@ -6,6 +6,10 @@ import io
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, 'python', 'fork'))
 
+if __name__ == '__main__' and sys.platform == 'win32' and 'GOYMUSIC_DESKTOP_PID' in os.environ:
+    from backend.windows_job import bind_to_desktop
+    bind_to_desktop()
+
 import copy
 import json
 import logging

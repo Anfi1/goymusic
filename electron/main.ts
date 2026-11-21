@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, session, screen, dialog } from 'electron'
 import { join, dirname } from 'path'
 import { pathToFileURL } from 'url'
-import { spawn, exec, ChildProcess } from 'child_process'
+import { spawn, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
@@ -228,6 +228,7 @@ function tryNextPython(candidates: string[], index: number, scriptPath: string, 
         ...process.env,
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
+        GOYMUSIC_DESKTOP_PID: String(process.pid),
         GOYMUSIC_USER_DATA: getUserDataDir()
       }
     });
@@ -329,17 +330,8 @@ function exitPyProc() {
     pyProc.kill()
     pyProc = null
   }
-  //killScChrome()
 }
 
-function killScChrome() {
-  const scDir = join(app.getPath('userData'), 'sc-chrome')
-  const escaped = scDir.replace(/\\/g, '\\\\')
-  exec(
-    `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\\"name='chrome.exe'\\\" | Where-Object { $_.CommandLine -like '*${escaped}*' } | Stop-Process -Force"`,
-    () => {} // silence errors
-  )
-}
 
 function initAutoUpdater() {
   autoUpdater.autoDownload = false
