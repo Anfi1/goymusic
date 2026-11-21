@@ -103,7 +103,8 @@ jobs:
       - name: Package stable installer without publishing
         run: npx electron-builder --publish never
 
-      - name: Verify installer, update manifest and installed backend before publication
+      - name: Verify installed Windows lifecycle, backend and update manifest before publication
+        timeout-minutes: 10
         shell: pwsh
         env:
           EXPECTED: ${{ steps.version.outputs.version }}
@@ -128,9 +129,28 @@ jobs:
           if ($LASTEXITCODE) { throw "Android host callback contract failed" }
           $info = (Get-Item "$dir/GoyMusic.exe").VersionInfo
           if ("$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)" -ne $env:EXPECTED) { throw "Unexpected candidate version" }
+          & ./.github/workflows/check-windows-lifecycle.ps1 -InstallDir $dir
           $uninstaller = Get-ChildItem $dir -Filter "Uninstall*.exe" | Select-Object -First 1
           $p = Start-Process $uninstaller.FullName -ArgumentList "/S", "_?=$dir" -Wait -PassThru
           if ($p.ExitCode) { throw "Candidate uninstall failed" }
+
+      - name: Verify in-app upgrade and relaunch before publication
+        if: steps.version.outputs.previous != '0.0.0'
+        timeout-minutes: 12
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          EXPECTED: ${{ steps.version.outputs.version }}
+        run: |
+          $installer = "GoyMusic-Setup-$env:PREVIOUS.exe"
+          gh release download "v$env:PREVIOUS" --repo $env:GITHUB_REPOSITORY --pattern $installer --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE) { throw "Cannot download previous installer" }
+          Remove-Item Env:GH_TOKEN
+          # Playwright управляет окном установленного Electron; браузер скачивать не нужно.
+          npm install --prefix "$env:RUNNER_TEMP/update-driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
+          if ($LASTEXITCODE) { throw "Cannot install update driver" }
+          & ./.github/workflows/check-windows-upgrade.ps1 -LocalFeed
 
       # --- Push version bump & tag ---
       - name: Ensure git tag exists and push
@@ -155,42 +175,12 @@ jobs:
           gh release create "v$VERSION" "$installer" "$installer.blockmap" release/latest.yml \
             --verify-tag --title "$VERSION" --generate-notes --latest
 
-      - name: Verify upgrade from the previous installed Windows release
+      - name: Verify upgrade through the public GitHub update feed
         if: steps.version.outputs.previous != '0.0.0'
         timeout-minutes: 12
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREVIOUS: ${{ steps.version.outputs.previous }}
           EXPECTED: ${{ steps.version.outputs.version }}
-        run: |
-          $installer = "GoyMusic-Setup-$env:PREVIOUS.exe"
-          gh release download "v$env:PREVIOUS" --repo $env:GITHUB_REPOSITORY --pattern $installer --dir $env:RUNNER_TEMP
-          if ($LASTEXITCODE) { throw "Cannot download previous installer" }
-          Remove-Item Env:GH_TOKEN
-          $dir = Join-Path $env:RUNNER_TEMP "GoyMusic-update-test"
-          $setup = Start-Process (Join-Path $env:RUNNER_TEMP $installer) -ArgumentList "/S", "/D=$dir" -Wait -PassThru
-          if ($setup.ExitCode) { throw "Previous installer exited with $($setup.ExitCode)" }
-          $exe = Join-Path $dir "GoyMusic.exe"
-          function Read-ReleaseVersion {
-            $info = (Get-Item $exe).VersionInfo
-            return "$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)"
-          }
-          if ((Read-ReleaseVersion) -ne $env:PREVIOUS) { throw "Unexpected starting version" }
-          # Playwright управляет окном установленного Electron; браузер скачивать не нужно.
-          npm install --prefix "$env:RUNNER_TEMP/update-driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
-          if ($LASTEXITCODE) { throw "Cannot install update driver" }
-          $env:NODE_PATH = "$env:RUNNER_TEMP/update-driver/node_modules"
-          $process = Start-Process $exe -ArgumentList "--devtools", "--remote-debugging-port=9222" -PassThru
-          node .github/workflows/check-installed-update.cjs
-          if ($LASTEXITCODE) { throw "In-app download or install action failed" }
-          $deadline = (Get-Date).AddMinutes(3)
-          do {
-            $running = Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe -and $_.MainWindowHandle -ne 0 -and $_.Id -ne $process.Id }
-            if ($running -and (Read-ReleaseVersion) -eq $env:EXPECTED) {
-              Write-Output "Verified in-place upgrade: $env:PREVIOUS -> $env:EXPECTED ($exe)"
-              exit 0
-            }
-            Start-Sleep -Seconds 2
-          } while ((Get-Date) -lt $deadline)
-          throw "Updated GoyMusic did not restart in its original directory"
+        run: ./.github/workflows/check-windows-upgrade.ps1
+
