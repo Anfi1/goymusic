@@ -3,7 +3,7 @@ import { join, dirname } from 'path'
 import { pathToFileURL } from 'url'
 import { spawn, exec, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
-import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync } from 'fs'
+import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
 import { autoUpdater, NsisUpdater } from 'electron-updater'
 
@@ -11,7 +11,14 @@ process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
 
 app.name = 'GoyMusic'
-app.setAppUserModelId('com.goymusic.app')
+const windowsAppId = 'com.goymusic.app'
+if (process.platform === 'win32') {
+  app.setAppUserModelId(windowsAppId)
+  app.on('browser-window-created', (_event, window) => window.setAppDetails({ appId: windowsAppId }))
+}
+
+let isShuttingDown = false
+let installRequested = false
 
 let win: BrowserWindow | null
 let pyProc: ChildProcess | null
@@ -33,29 +40,27 @@ app.commandLine.appendSwitch('enable-features', 'CalculateNativeWinOcclusion,Int
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256 --expose-gc --max-semi-space-size=64'); 
 
-// Periodic memory cleanup
-setInterval(() => {
-  if (win) {
-    session.defaultSession.clearCache();
-    // Force V8 GC if exposed
-    win.webContents.executeJavaScript('window.gc && window.gc()').catch(() => {});
+function getLiveMainWindow() {
+  if (isShuttingDown || !win || win.isDestroyed()) return null
+  return win.webContents?.isDestroyed() === false ? win : null
+}
+
+// Между выходом старого процесса и перезапуском блокировкой владеет NSIS.
+function installerIsWriting(): boolean {
+  if (process.platform !== 'win32' || !app.isPackaged) return false
+  try {
+    closeSync(openSync(join(app.getPath('temp'), `${windowsAppId}.update-lock`), 'r'))
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EBUSY'
   }
-}, 1000 * 60 * 5); // Every 5 minutes
+}
 
-// Single Instance Lock
-const gotTheLock = app.requestSingleInstanceLock()
-
+const gotTheLock = !installerIsWriting() && app.requestSingleInstanceLock()
 if (!gotTheLock) {
-  app.quit()
+  app.exit(0)
 } else {
-  app.on('second-instance', (_event, argv) => {
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
-    const url = argv.find(arg => arg.startsWith('goymusic://'))
-    if (url) handleDeepLink(url)
-  })
+  app.on('second-instance', (_event, argv) => activatePrimary(argv))
 
   app.whenReady().then(() => {
     // True portable logs: next to the executable/resources
@@ -86,19 +91,25 @@ if (!gotTheLock) {
     initRPC()
     initAutoUpdater()
 
-    // Открытие по протоколу при холодном старте (приложение не было запущено)
-    const startUrl = process.argv.find(arg => arg.startsWith('goymusic://'))
-    if (startUrl) {
-      win?.webContents.once('did-finish-load', () => handleDeepLink(startUrl))
+    if (process.argv.some(arg => arg.startsWith('goymusic://'))) {
+      win?.webContents.once('did-finish-load', () => activatePrimary(process.argv))
     }
   })
 }
 
-function handleDeepLink(url: string) {
-  if (!win || !url.startsWith('goymusic://')) return
-  win.webContents.send('deep-link', url)
-  if (win.isMinimized()) win.restore()
-  win.focus()
+function activatePrimary(argv: string[]) {
+  const primary = getLiveMainWindow()
+  if (!primary || installRequested) return
+  if (primary.isMinimized()) primary.restore()
+  primary.show()
+  primary.focus()
+  const url = argv.find(arg => arg.startsWith('goymusic://'))
+  if (!url) return
+  const deliver = () => {
+    if (getLiveMainWindow() === primary && !installRequested) primary.webContents.send('deep-link', url)
+  }
+  if (primary.webContents.isLoadingMainFrame()) primary.webContents.once('did-finish-load', deliver)
+  else deliver()
 }
 
 function getAppRoot() {
@@ -133,10 +144,10 @@ function migrateUserData() {
 // Discord RPC
 const clientId = '985877044523044885'
 let rpc: DiscordRPC.Client | null = null
-let rpcRetryTimeout: NodeJS.Timeout | null = null
+let rpcRetryTimeout: NodeJS.Timeout | undefined
 
 function initRPC() {
-  if (rpc) return
+  if (rpc || isShuttingDown) return
 
   logToFile('Attempting to connect to Discord RPC...')
   rpc = new DiscordRPC.Client({ transport: 'ipc' })
@@ -145,7 +156,7 @@ function initRPC() {
     logToFile('Discord RPC ready')
     if (rpcRetryTimeout) {
       clearTimeout(rpcRetryTimeout)
-      rpcRetryTimeout = null
+      rpcRetryTimeout = undefined
     }
   })
 
@@ -163,10 +174,10 @@ function initRPC() {
 }
 
 function scheduleRPCRetry() {
-  if (rpcRetryTimeout) return
+  if (rpcRetryTimeout || isShuttingDown) return
   logToFile('Scheduling Discord RPC reconnection in 120 seconds...')
   rpcRetryTimeout = setTimeout(() => {
-    rpcRetryTimeout = null
+    rpcRetryTimeout = undefined
     initRPC()
   }, 120000) // Increased to 120 seconds to minimize idle activity
 }
@@ -195,9 +206,10 @@ function createPyProc() {
 }
 
 function tryNextPython(candidates: string[], index: number, scriptPath: string, root: string) {
+  if (isShuttingDown) return
   if (index >= candidates.length) {
     logToFile(`ERROR: Could not start Python with any of the candidates.`);
-    win?.webContents.send('py:event', { 
+    getLiveMainWindow()?.webContents.send('py:event', {
       event: 'backend_dead', 
       code: -1, 
       error: 'Python not found. Please install Python 3.13 and add it to PATH.' 
@@ -211,6 +223,7 @@ function tryNextPython(candidates: string[], index: number, scriptPath: string, 
   try {
     const proc = spawn(pyPath, [scriptPath], {
       cwd: root,
+      windowsHide: true,
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1',
@@ -219,32 +232,19 @@ function tryNextPython(candidates: string[], index: number, scriptPath: string, 
       }
     });
 
-    // We need to check if it actually started
-    proc.on('error', (err: any) => {
-      logToFile(`Failed to start with ${pyPath}: ${err.message}`);
-      if (!pyProc) { // If we haven't successfully started yet
-        tryNextPython(candidates, index + 1, scriptPath, root);
-      }
-    });
-
-    // If no error within 500ms, assume it's working
-    const startTimeout = setTimeout(() => {
-      if (!pyProc) {
-        pyProc = proc;
-        logToFile(`Successfully started Python with: ${pyPath}`);
-        setupPyHandlers(pyPath);
-      }
-    }, 500);
-
-    proc.on('spawn', () => {
-      // Modern node versions support this
-      clearTimeout(startTimeout);
-      if (!pyProc) {
-        pyProc = proc;
-        logToFile(`Python process spawned successfully: ${pyPath}`);
-        setupPyHandlers(pyPath);
-      }
-    });
+    pyProc = proc
+    const onStartError = (err: Error) => {
+      if (pyProc !== proc) return
+      pyProc = null
+      logToFile(`Failed to start with ${pyPath}: ${err.message}`)
+      tryNextPython(candidates, index + 1, scriptPath, root)
+    }
+    proc.once('error', onStartError)
+    proc.once('spawn', () => {
+      proc.removeListener('error', onStartError)
+      logToFile(`Python process spawned successfully: ${pyPath}`)
+      setupPyHandlers(proc, pyPath)
+    })
 
   } catch (e: any) {
     logToFile(`Exception while starting ${pyPath}: ${e.message}`);
@@ -252,11 +252,9 @@ function tryNextPython(candidates: string[], index: number, scriptPath: string, 
   }
 }
 
-function setupPyHandlers(usedPath: string) {
-  if (!pyProc) return;
-
+function setupPyHandlers(proc: ChildProcess, usedPath: string) {
   let buffer = ''
-  pyProc.stdout?.on('data', (data) => {
+  proc.stdout?.on('data', (data) => {
     const str = data.toString();
     buffer += str;
     let lines = buffer.split('\n')
@@ -269,7 +267,7 @@ function setupPyHandlers(usedPath: string) {
 
     // If it's an event, always send it to the frontend
     if (msg.event) {
-      win?.webContents.send('py:event', msg)
+      getLiveMainWindow()?.webContents.send('py:event', msg)
     }
 
     // Only resolve the call if it has a callId AND is NOT an event
@@ -285,17 +283,19 @@ function setupPyHandlers(usedPath: string) {
     }
     }  })
 
-  pyProc.stderr?.on('data', (data) => {
+  proc.stderr?.on('data', (data) => {
     logToFile(`Python: ${data.toString()}`);
   })
 
-  pyProc.on('close', (code) => {
+  proc.on('close', (code) => {
     logToFile(`Python process (${usedPath}) exited with code ${code}`);
-    pyProc = null;
-    win?.webContents.send('py:event', { event: 'backend_dead', code });
+    if (pyProc !== proc) return
+    pyProc = null
+    stopPoTokenTimers()
+    getLiveMainWindow()?.webContents.send('py:event', { event: 'backend_dead', code });
   })
 
-  pyProc.on('error', (err) => {
+  proc.on('error', (err) => {
     logToFile(`Process error (${usedPath}): ${err.message}`);
   })
 
@@ -303,12 +303,26 @@ function setupPyHandlers(usedPath: string) {
   // browser.json (persist:google-auth сессия должна быть уже залогинена заранее
   // через auth:start, иначе минтинг просто ничего не поймает и это не страшно -
   // резолв продолжит работать по старой схеме pytubefix/yt-dlp).
-  setTimeout(() => { refreshPoToken(); }, 5000);
+  if (pyProc !== proc || isShuttingDown) return
+  firstPoTokenCheck = setTimeout(refreshPoToken, 5000)
+  periodicPoTokenCheck = setInterval(refreshPoToken, 1000 * 60 * 60 * 3)
 }
 
-// TTL GVS PO Token не документирован и не проверен на практике - берём
-// консервативный интервал, чтобы не гонять токен впустую и не словить протухший.
-setInterval(() => { refreshPoToken(); }, 1000 * 60 * 60 * 3); // Every 3 hours
+let firstPoTokenCheck: NodeJS.Timeout | undefined
+let periodicPoTokenCheck: NodeJS.Timeout | undefined
+let firstUpdateCheck: NodeJS.Timeout | undefined
+let periodicUpdateCheck: NodeJS.Timeout | undefined
+
+function stopPoTokenTimers() {
+  clearTimeout(firstPoTokenCheck)
+  clearInterval(periodicPoTokenCheck)
+}
+
+function stopWindowTimers() {
+  stopPoTokenTimers()
+  clearTimeout(firstUpdateCheck)
+  clearInterval(periodicUpdateCheck)
+}
 
 function exitPyProc() {
   if (pyProc != null) {
@@ -340,7 +354,7 @@ function initAutoUpdater() {
 
   autoUpdater.on('update-available', (info) => {
     logToFile(`Update available: ${info.version}`)
-    win?.webContents.send('update:available', {
+    getLiveMainWindow()?.webContents.send('update:available', {
       version: info.version,
       releaseNotes: info.releaseNotes
     })
@@ -351,7 +365,7 @@ function initAutoUpdater() {
   })
 
   autoUpdater.on('download-progress', (progress) => {
-    win?.webContents.send('update:progress', {
+    getLiveMainWindow()?.webContents.send('update:progress', {
       percent: progress.percent,
       speed: progress.bytesPerSecond,
       transferred: progress.transferred,
@@ -361,22 +375,23 @@ function initAutoUpdater() {
 
   autoUpdater.on('update-downloaded', () => {
     logToFile('Update downloaded, ready to install')
-    win?.webContents.send('update:downloaded')
+    getLiveMainWindow()?.webContents.send('update:downloaded')
   })
 
   autoUpdater.on('error', (err) => {
     logToFile(`Auto-updater error: ${err.message}`)
-    win?.webContents.send('update:error', { message: err.message })
+    getLiveMainWindow()?.webContents.send('update:error', { message: err.message })
   })
 
   const safeCheck = () => {
+    if (isShuttingDown) return
     autoUpdater.checkForUpdates().catch((err: any) => {
       logToFile(`Update check failed: ${err.message}`)
     })
   }
 
-  setTimeout(safeCheck, 5000)
-  setInterval(safeCheck, 60 * 60 * 1000)
+  firstUpdateCheck = setTimeout(safeCheck, 5000)
+  periodicUpdateCheck = setInterval(safeCheck, 60 * 60 * 1000)
 }
 
 function getWindowConfigPath() {
@@ -465,9 +480,22 @@ function createWindow() {
     win.maximize();
   }
 
-  win.on('close', saveWindowConfig);
-  win.on('focus', () => win?.webContents.send('win:focus-changed', true))
-  win.on('blur', () => win?.webContents.send('win:focus-changed', false))
+  const mainWindow = win
+  const memoryTimer = setInterval(() => {
+    if (getLiveMainWindow() !== mainWindow) return
+    session.defaultSession.clearCache()
+    mainWindow.webContents.executeJavaScript('window.gc && window.gc()').catch(() => {})
+  }, 1000 * 60 * 5)
+
+  mainWindow.on('close', saveWindowConfig)
+  mainWindow.once('closed', () => {
+    clearInterval(memoryTimer)
+    if (win !== mainWindow) return
+    win = null
+    if (process.platform === 'win32' && !isShuttingDown) app.quit()
+  })
+  mainWindow.on('focus', () => getLiveMainWindow()?.webContents.send('win:focus-changed', true))
+  mainWindow.on('blur', () => getLiveMainWindow()?.webContents.send('win:focus-changed', false))
 
   // Filter for both imagery and video playback domains
   const filter = {
@@ -523,18 +551,21 @@ function createWindow() {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
-    win = null
   }
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (gotTheLock && !isShuttingDown && !installRequested && !win) {
     createWindow()
   }
 })
 
-app.on('will-quit', exitPyProc)
-app.on('before-quit', exitPyProc)
+app.once('before-quit', () => {
+  isShuttingDown = true
+  stopWindowTimers()
+  clearTimeout(rpcRetryTimeout)
+  exitPyProc()
+})
 
 // Auto-updater IPC handlers
 ipcMain.handle('update:check', async () => {
@@ -552,7 +583,9 @@ ipcMain.handle('update:download', async () => {
 })
 
 ipcMain.handle('update:install', async () => {
-  exitPyProc()
+  if (installRequested || isShuttingDown) return
+  installRequested = true
+  autoUpdater.once('error', () => { installRequested = false })
   autoUpdater.quitAndInstall(true, true)
 })
 
@@ -639,11 +672,13 @@ ipcMain.handle('py:cancel', async (event, callId) => {
 // Interactive Login Helper
 // Interactive Login Helper
 ipcMain.handle('auth:start', async () => {
+  if (isShuttingDown) return { status: 'cancelled' }
   const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
   
   // Use a completely isolated and sandboxed session for auth
   const authSession = session.fromPartition('persist:google-auth', { cache: false });
   await authSession.clearStorageData();
+  if (isShuttingDown) return { status: 'cancelled' }
 
   // Aggressively strip Electron identifiers from headers
   authSession.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -674,6 +709,7 @@ ipcMain.handle('auth:start', async () => {
 
   return new Promise((resolve) => {
     let captured = false;
+    let closeTimer: NodeJS.Timeout | undefined
 
     const filter = {
       urls: ['https://music.youtube.com/youtubei/v1/*']
@@ -681,7 +717,7 @@ ipcMain.handle('auth:start', async () => {
 
     // Listen for the ytmusicapi headers on the auth session
     authSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
-      if (!captured) {
+      if (!captured && !isShuttingDown && !loginWin.isDestroyed()) {
         const headers = details.requestHeaders;
         const auth = headers['Authorization'] || headers['authorization'];
         const cookie = headers['Cookie'] || headers['cookie'];
@@ -706,9 +742,9 @@ ipcMain.handle('auth:start', async () => {
             const path = join(root, 'browser.json');
             writeFileSync(path, JSON.stringify(browserData, null, 4));
             
-            win?.webContents.send('py:event', { event: 'auth_complete' });
+            getLiveMainWindow()?.webContents.send('py:event', { event: 'auth_complete' });
             
-            setTimeout(() => {
+            closeTimer = setTimeout(() => {
               if (!loginWin.isDestroyed()) loginWin.close();
             }, 1000);
             
@@ -721,7 +757,8 @@ ipcMain.handle('auth:start', async () => {
       callback({ requestHeaders: details.requestHeaders });
     });
 
-    loginWin.on('closed', () => {
+    loginWin.once('closed', () => {
+      clearTimeout(closeTimer)
       if (!captured) resolve({ status: 'cancelled' });
     });
   });
@@ -784,11 +821,17 @@ function mintPoToken(): Promise<PoTokenResult> {
 
       win.loadURL('https://music.youtube.com/watch?v=dQw4w9WgXcQ');
 
+      const mintWindow = win
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 15000);
-        const check = setInterval(() => {
-          if (box.pot) { clearTimeout(timer); clearInterval(check); resolve(); }
-        }, 250);
+        const finish = () => {
+          clearTimeout(timer)
+          clearInterval(check)
+          mintWindow.removeListener('closed', finish)
+          resolve()
+        }
+        const timer = setTimeout(finish, 15000)
+        const check = setInterval(() => { if (box.pot) finish() }, 250)
+        mintWindow.once('closed', finish)
       });
 
       // Снимаем перехватчик, чтобы не мешать возможному параллельному логину
@@ -801,7 +844,7 @@ function mintPoToken(): Promise<PoTokenResult> {
       // проигрывании (большой Range/без Range) сервер отдаёт 403 - см. warning
       // yt-dlp "missing Data Sync ID for account. Formats may not work."
       let dataSyncId: string | null = null;
-      if (win && !win.isDestroyed()) {
+      if (!isShuttingDown && !win.isDestroyed() && win.webContents?.isDestroyed() === false) {
         try {
           dataSyncId = await win.webContents.executeJavaScript(
             "(function(){ try { return (window.ytcfg && window.ytcfg.get && window.ytcfg.get('DATASYNC_ID')) || null; } catch(e) { return null; } })()"
@@ -830,8 +873,9 @@ function mintPoToken(): Promise<PoTokenResult> {
 }
 
 async function refreshPoToken() {
+  if (isShuttingDown || !pyProc) return
   const { token, dataSyncId } = await mintPoToken();
-  if (token && pyProc) {
+  if (token && pyProc && !isShuttingDown) {
     try {
       await callPython('set_po_token', { token, dataSyncId });
     } catch (e) {
@@ -910,7 +954,8 @@ function installScStealth(w: BrowserWindow) {
   }
 }
 
-async function ensureScWindow(show: boolean): Promise<BrowserWindow> {
+async function ensureScWindow(show: boolean): Promise<BrowserWindow | null> {
+  if (isShuttingDown) return null
   if (scWin && !scWin.isDestroyed()) {
     if (show) scWin.show()
     return scWin
@@ -925,33 +970,47 @@ async function ensureScWindow(show: boolean): Promise<BrowserWindow> {
     // sandbox: true прячет Node/Electron-переменные от детекта (как в auth:start)
     webPreferences: { session: sess, sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
-  scWin.webContents.setUserAgent(SC_WIN_UA)
-  installScStealth(scWin)
-  scWin.on('closed', () => { scWin = null })
-  await scWin.loadURL('https://soundcloud.com/discover')
-  return scWin
+  const target = scWin
+  target.webContents.setUserAgent(SC_WIN_UA)
+  installScStealth(target)
+  target.once('closed', () => { if (scWin === target) scWin = null })
+  try {
+    await target.loadURL('https://soundcloud.com/discover')
+  } catch (err) {
+    if (!target.isDestroyed()) throw err
+    return null
+  }
+  return target
 }
 
 // Окно входа: резолвим, когда в сессии появилась кука oauth_token (пользователь залогинился).
 ipcMain.handle('sc:login', async () => {
   const win = await ensureScWindow(true)
-  win.show()
+  if (!win || win.isDestroyed() || isShuttingDown) return { status: 'cancelled' }
   const sess = session.fromPartition(SC_PARTITION)
   return new Promise((resolve) => {
     let done = false
-    const finish = (payload: any) => { if (!done) { done = true; clearInterval(timer); resolve(payload) } }
+    const onClosed = () => finish({ status: 'cancelled' })
+    const finish = (payload: { status: 'cancelled' } | { status: 'ok'; token: string }) => {
+      if (done) return
+      done = true
+      clearInterval(timer)
+      win.removeListener('closed', onClosed)
+      resolve(payload)
+    }
     const check = async () => {
       try {
         const cookies = await sess.cookies.get({ name: 'oauth_token' })
+        if (done || isShuttingDown || win.isDestroyed()) return
         const tok = cookies.find(c => c.domain?.includes('soundcloud.com'))?.value || cookies[0]?.value
         if (tok) {
           finish({ status: 'ok', token: tok })
-          setTimeout(() => { if (scWin && !scWin.isDestroyed()) scWin.hide() }, 800)
+          setTimeout(() => { if (!isShuttingDown && !win.isDestroyed()) win.hide() }, 800)
         }
       } catch { /* ignore */ }
     }
     const timer = setInterval(check, 1500)
-    win.on('closed', () => finish({ status: 'cancelled' }))
+    win.once('closed', onClosed)
     check()
   })
 })
@@ -1002,10 +1061,11 @@ ipcMain.handle('win:get-bounds', () => {
 })
 
 function sendWindowState() {
-  if (!win) return
-  win.webContents.send('win:state-changed', {
-    isMaximized: win.isMaximized(),
-    isFullScreen: win.isFullScreen()
+  const target = getLiveMainWindow()
+  if (!target) return
+  target.webContents.send('win:state-changed', {
+    isMaximized: target.isMaximized(),
+    isFullScreen: target.isFullScreen()
   })
 }
 
