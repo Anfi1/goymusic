@@ -56,28 +56,4 @@ contextBridge.exposeInMainWorld('bridge', {
     return () => ipcRenderer.removeListener('deep-link', listener);
   },
 
-  // Auto-updater
-  checkForUpdates: () => ipcRenderer.invoke('update:check'),
-  downloadUpdate: () => ipcRenderer.invoke('update:download'),
-  installUpdate: () => ipcRenderer.invoke('update:install'),
-  onUpdateAvailable: (callback: (info: any) => void) => {
-    const listener = (_e: any, info: any) => callback(info);
-    ipcRenderer.on('update:available', listener);
-    return () => ipcRenderer.removeListener('update:available', listener);
-  },
-  onUpdateProgress: (callback: (progress: any) => void) => {
-    const listener = (_e: any, progress: any) => callback(progress);
-    ipcRenderer.on('update:progress', listener);
-    return () => ipcRenderer.removeListener('update:progress', listener);
-  },
-  onUpdateDownloaded: (callback: () => void) => {
-    const listener = () => callback();
-    ipcRenderer.on('update:downloaded', listener);
-    return () => ipcRenderer.removeListener('update:downloaded', listener);
-  },
-  onUpdateError: (callback: (err: any) => void) => {
-    const listener = (_e: any, err: any) => callback(err);
-    ipcRenderer.on('update:error', listener);
-    return () => ipcRenderer.removeListener('update:error', listener);
-  },
 })

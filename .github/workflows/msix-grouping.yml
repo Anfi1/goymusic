@@ -1,0 +1,67 @@
+name: MSIX grouping lab
+on:
+  push:
+    branches: [experiment/msix-grouping-7.1.15]
+permissions:
+  contents: read
+concurrency:
+  group: msix-grouping-lab
+  cancel-in-progress: true
+jobs:
+  package:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Package and verify isolated MSIX
+        run: ./tools/msix/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoyMusic-MSIX-Lab-x64
+          path: |
+            msix-out/*.msix
+            msix-out/*.cer
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+  task-manager:
+    outputs:
+      verdict: ${{ steps.probe.outputs.verdict }}
+    needs: package
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: GoyMusic-MSIX-Lab-x64
+          path: msix-out
+      - name: Install package and inspect Task Manager Processes
+        id: probe
+        run: ./tools/msix/probe.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-11-Task-Manager-evidence
+          path: msix-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+  result:
+    needs: task-manager
+    if: always() && needs.task-manager.outputs.verdict != ''
+    runs-on: ubuntu-latest
+    name: 'Observed: ${{ needs.task-manager.outputs.verdict }}'
+    steps:
+      - run: echo "$VERDICT" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VERDICT: ${{ needs.task-manager.outputs.verdict }}

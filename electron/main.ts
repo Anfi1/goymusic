@@ -1,24 +1,27 @@
 import { app, BrowserWindow, ipcMain, shell, session, screen, dialog } from 'electron'
-import { join, dirname } from 'path'
+import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { spawn, exec, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
-import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs'
+import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
-import { autoUpdater, NsisUpdater } from 'electron-updater'
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
 
-app.name = 'GoyMusic'
-const windowsAppId = 'com.goymusic.app'
+app.name = 'GoyMusic MSIX Lab'
+const packageFamily = 'GoyMusic.GroupingLab_m5zretgaer7at'
+const windowsAppId = `${packageFamily}!Player`
 if (process.platform === 'win32') {
+  const profile = join(process.env.LOCALAPPDATA!, 'Packages', packageFamily, 'LocalState')
+  mkdirSync(profile, { recursive: true })
+  app.setPath('userData', profile)
+  app.setPath('sessionData', profile)
   app.setAppUserModelId(windowsAppId)
   app.on('browser-window-created', (_event, window) => window.setAppDetails({ appId: windowsAppId }))
 }
 
 let isShuttingDown = false
-let installRequested = false
 
 let win: BrowserWindow | null
 let pyProc: ChildProcess | null
@@ -45,27 +48,14 @@ function getLiveMainWindow() {
   return win.webContents?.isDestroyed() === false ? win : null
 }
 
-// Между выходом старого процесса и перезапуском блокировкой владеет NSIS.
-function installerIsWriting(): boolean {
-  if (process.platform !== 'win32' || !app.isPackaged) return false
-  try {
-    closeSync(openSync(join(app.getPath('temp'), `${windowsAppId}.update-lock`), 'r'))
-    return false
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EBUSY'
-  }
-}
-
-const gotTheLock = !installerIsWriting() && app.requestSingleInstanceLock()
+const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.exit(0)
 } else {
   app.on('second-instance', (_event, argv) => activatePrimary(argv))
 
   app.whenReady().then(() => {
-    // True portable logs: next to the executable/resources
-    const root = getAppRoot();
-    logPath = join(root, 'app.log');
+    logPath = join(getUserDataDir(), 'app.log')
     
     // Clear log on start
     try { writeFileSync(logPath, ''); } catch(e) {}
@@ -75,21 +65,9 @@ if (!gotTheLock) {
     logToFile(`Packaged: ${app.isPackaged}`);
     logToFile(`AppData: ${app.getPath('userData')}`);
 
-    migrateUserData()
-
-    // В dev-режиме нужно явно передать путь к скрипту, иначе Electron
-    // получит URL как первый аргумент и попытается загрузить его как модуль
-    // Регистрация протокола только в packaged-сборке.
-    // В dev-режиме (vite) setAsDefaultProtocolClient работает некорректно —
-    // протокол тестируется через npm run dist.
-    if (app.isPackaged) {
-      app.setAsDefaultProtocolClient('goymusic')
-    }
-
     createPyProc()
     createWindow()
     initRPC()
-    initAutoUpdater()
 
     if (process.argv.some(arg => arg.startsWith('goymusic://'))) {
       win?.webContents.once('did-finish-load', () => activatePrimary(process.argv))
@@ -99,14 +77,14 @@ if (!gotTheLock) {
 
 function activatePrimary(argv: string[]) {
   const primary = getLiveMainWindow()
-  if (!primary || installRequested) return
+  if (!primary) return
   if (primary.isMinimized()) primary.restore()
   primary.show()
   primary.focus()
   const url = argv.find(arg => arg.startsWith('goymusic://'))
   if (!url) return
   const deliver = () => {
-    if (getLiveMainWindow() === primary && !installRequested) primary.webContents.send('deep-link', url)
+    if (getLiveMainWindow() === primary) primary.webContents.send('deep-link', url)
   }
   if (primary.webContents.isLoadingMainFrame()) primary.webContents.once('did-finish-load', deliver)
   else deliver()
@@ -120,26 +98,6 @@ function getUserDataDir() {
   return app.getPath('userData');
 }
 
-function migrateUserData() {
-  if (!app.isPackaged) return;
-  const oldRoot = getAppRoot();
-  const newRoot = getUserDataDir();
-  const filesToMigrate = ['browser.json', 'window-config.json'];
-
-  for (const file of filesToMigrate) {
-    const oldPath = join(oldRoot, file);
-    const newPath = join(newRoot, file);
-    if (existsSync(oldPath) && !existsSync(newPath)) {
-      try {
-        copyFileSync(oldPath, newPath);
-        unlinkSync(oldPath);
-        logToFile(`Migrated ${file} to ${newRoot}`);
-      } catch (e) {
-        logToFile(`Failed to migrate ${file}: ${e}`);
-      }
-    }
-  }
-}
 
 // Discord RPC
 const clientId = '985877044523044885'
@@ -187,7 +145,8 @@ const pendingCalls = new Map<string, { resolve: Function, reject: Function, time
 
 function createPyProc() {
   const root = getAppRoot();
-  const scriptPath = join(root, 'python', 'api.py')
+  const probe = existsSync(join(getUserDataDir(), 'grouping-probe.request'))
+  const scriptPath = join(root, 'python', probe ? 'grouping_backend.py' : 'api.py')
   
   // Priority: Bundled portable Python -> Venv -> System Python, и в dev тоже.
   // venv\Scripts\python.exe лишь запускает системный Python, а тот идёт через VPN: ссылки
@@ -244,6 +203,10 @@ function tryNextPython(candidates: string[], index: number, scriptPath: string, 
       proc.removeListener('error', onStartError)
       logToFile(`Python process spawned successfully: ${pyPath}`)
       setupPyHandlers(proc, pyPath)
+      if (scriptPath.endsWith('grouping_backend.py')) {
+        callPython('ping').then(reply => logToFile(`MSIX lab backend: ${reply.data}`))
+          .catch(error => logToFile(`MSIX lab backend ping failed: ${error}`))
+      }
     })
 
   } catch (e: any) {
@@ -310,19 +273,12 @@ function setupPyHandlers(proc: ChildProcess, usedPath: string) {
 
 let firstPoTokenCheck: NodeJS.Timeout | undefined
 let periodicPoTokenCheck: NodeJS.Timeout | undefined
-let firstUpdateCheck: NodeJS.Timeout | undefined
-let periodicUpdateCheck: NodeJS.Timeout | undefined
 
 function stopPoTokenTimers() {
   clearTimeout(firstPoTokenCheck)
   clearInterval(periodicPoTokenCheck)
 }
 
-function stopWindowTimers() {
-  stopPoTokenTimers()
-  clearTimeout(firstUpdateCheck)
-  clearInterval(periodicUpdateCheck)
-}
 
 function exitPyProc() {
   if (pyProc != null) {
@@ -341,58 +297,6 @@ function killScChrome() {
   )
 }
 
-function initAutoUpdater() {
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-  // NSIS-апдейтер по умолчанию не знает, что юзер ставил приложение в кастомную
-  // папку (allowToChangeInstallationDirectory), и тихий инсталлятор без /D=...
-  // падает в дефолтный путь — рядом появляется вторая, отдельная установка.
-  // installDirectory явно указывает обновляться поверх текущей директории.
-  if (autoUpdater instanceof NsisUpdater) {
-    autoUpdater.installDirectory = dirname(app.getPath('exe'))
-  }
-
-  autoUpdater.on('update-available', (info) => {
-    logToFile(`Update available: ${info.version}`)
-    getLiveMainWindow()?.webContents.send('update:available', {
-      version: info.version,
-      releaseNotes: info.releaseNotes
-    })
-  })
-
-  autoUpdater.on('update-not-available', () => {
-    logToFile('No update available')
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    getLiveMainWindow()?.webContents.send('update:progress', {
-      percent: progress.percent,
-      speed: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total
-    })
-  })
-
-  autoUpdater.on('update-downloaded', () => {
-    logToFile('Update downloaded, ready to install')
-    getLiveMainWindow()?.webContents.send('update:downloaded')
-  })
-
-  autoUpdater.on('error', (err) => {
-    logToFile(`Auto-updater error: ${err.message}`)
-    getLiveMainWindow()?.webContents.send('update:error', { message: err.message })
-  })
-
-  const safeCheck = () => {
-    if (isShuttingDown) return
-    autoUpdater.checkForUpdates().catch((err: any) => {
-      logToFile(`Update check failed: ${err.message}`)
-    })
-  }
-
-  firstUpdateCheck = setTimeout(safeCheck, 5000)
-  periodicUpdateCheck = setInterval(safeCheck, 60 * 60 * 1000)
-}
 
 function getWindowConfigPath() {
   return join(getUserDataDir(), 'window-config.json');
@@ -555,39 +459,18 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (gotTheLock && !isShuttingDown && !installRequested && !win) {
+  if (gotTheLock && !isShuttingDown && !win) {
     createWindow()
   }
 })
 
 app.once('before-quit', () => {
   isShuttingDown = true
-  stopWindowTimers()
+  stopPoTokenTimers()
   clearTimeout(rpcRetryTimeout)
   exitPyProc()
 })
 
-// Auto-updater IPC handlers
-ipcMain.handle('update:check', async () => {
-  try {
-    const result = await autoUpdater.checkForUpdates()
-    return result ? { version: result.updateInfo.version } : null
-  } catch (e: any) {
-    logToFile(`Manual update check error: ${e.message}`)
-    return null
-  }
-})
-
-ipcMain.handle('update:download', async () => {
-  await autoUpdater.downloadUpdate()
-})
-
-ipcMain.handle('update:install', async () => {
-  if (installRequested || isShuttingDown) return
-  installRequested = true
-  autoUpdater.once('error', () => { installRequested = false })
-  autoUpdater.quitAndInstall(true, true)
-})
 
 // RPC Update handler
 ipcMain.on('rpc:set', (event, data) => {
