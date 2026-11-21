@@ -1,6 +1,10 @@
-# GoyMusic
+# GoyMusic MSIX Lab
 
 Desktop YouTube Music player built with Electron + React + Python.
+
+This experimental Windows package installs alongside GoyMusic. It uses its own profile, does not register `goymusic://` and cannot download or install stable updates. Build and test artifacts come from **MSIX grouping lab**, not GitHub Releases.
+
+For a manual test on Windows 11, extract the `.msix` and `.cer` from the same Actions artifact. On a test PC, trust only the supplied public leaf certificate in **Local Machine → Trusted People** (not **Trusted Root**), then open the `.msix`. Start **GoyMusic MSIX Lab** from Start. To compare with real playback, inspect **Task Manager → Processes** while a track is playing. The automated test uses a guest profile and labels its optional diagnostic Node separately from one started by playback. After testing, uninstall the lab and remove its certificate by thumbprint.
 
 ## Features
 
