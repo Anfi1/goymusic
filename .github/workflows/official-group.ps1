@@ -74,10 +74,25 @@ function Observe($tag) {
 Start-Process "$env:WINDIR\System32\Taskmgr.exe"
 Start-Process (Shortcut)
 $p=MainWindow '7.1.15'; $old=Observe '15-start'; Stop-Player $p
-$p=Start-Process $exe -ArgumentList '--devtools','--remote-debugging-port=9222' -PassThru
-$env:EXPECTED='7.1.16'; node .github/workflows/check-installed-update.cjs
-if ($LASTEXITCODE) { throw 'Actual in-app upgrade failed' }
-$new=MainWindow '7.1.16' $p.Id; $after=Observe '16-updated'; Stop-Player $new
+$after='not observed'
+try {
+    $p=Start-Process $exe -ArgumentList '--devtools','--remote-debugging-port=9222' -PassThru
+    $env:EXPECTED='7.1.16'; node .github/workflows/check-installed-update.cjs
+    if ($LASTEXITCODE) { throw 'Actual in-app upgrade failed' }
+    $new=MainWindow '7.1.16' $p.Id; $after=Observe '16-updated'; Stop-Player $new
+} catch {
+    $note=$_.Exception.Message
+    $remaining=@(Get-Process GoyMusic -ErrorAction SilentlyContinue | Select-Object Id,MainWindowHandle,Path)
+    @{reason=$note; onDisk=$(if (Test-Path $exe) {(Get-Item $exe).VersionInfo.ProductVersion}); remaining=$remaining} | ConvertTo-Json -Depth 4 | Set-Content observations/update.json
+    $remaining | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -eq $exe } | ForEach-Object { Stop-Player (Get-Process -Id $_.Id) }
+}
+if (!(Test-Path $exe) -or !(Get-Item $exe).VersionInfo.ProductVersion.StartsWith('7.1.16')) {
+    $setup16="$env:RUNNER_TEMP\GoyMusic-Setup-7.1.16.exe"
+    Invoke-WebRequest 'https://github.com/Anfi1/goymusic/releases/download/v7.1.16/GoyMusic-Setup-7.1.16.exe' -OutFile $setup16
+    if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup16 -Algorithm SHA512).Hash)) -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected 7.1.16 installer' }
+    $s=Start-Process $setup16 -ArgumentList '/S',"/D=$dir" -Wait -PassThru
+    if ($s.ExitCode) { throw 'Official 7.1.16 install failed' }
+}
 Start-Process (Shortcut)
 $new=MainWindow '7.1.16'; $cold=Observe '16-start'; Stop-Player $new
 "counts=Nested/seen/live Electron processes - 15 Start $old, 16 updater $after, 16 Start $cold" >> $env:GITHUB_OUTPUT
