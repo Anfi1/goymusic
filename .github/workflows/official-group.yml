@@ -1,0 +1,35 @@
+name: Compare official Task Manager groups
+on:
+  push:
+    branches: [qa/official-group-716]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-11-arm
+    timeout-minutes: 18
+    outputs:
+      counts: ${{ steps.inspect.outputs.counts }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: npm install --prefix "$env:RUNNER_TEMP/driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
+      - id: inspect
+        run: |
+          $env:NODE_PATH = "$env:RUNNER_TEMP/driver/node_modules"
+          try { & ./.github/workflows/official-group.ps1 } catch { Write-Output "::error::$($_.Exception.Message)"; throw }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-group-observations
+          path: observations/
+          if-no-files-found: warn
+  result:
+    needs: compare
+    runs-on: ubuntu-latest
+    name: '${{ needs.compare.outputs.counts }}'
+    steps:
+      - run: echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          RESULT: ${{ needs.compare.outputs.counts }}
