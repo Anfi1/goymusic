@@ -106,8 +106,10 @@ Start-Process (Shortcut)
 $new=MainWindow '7.1.16'; $cold=Observe '16-start'
 $null=New-Item -ItemType Directory 'restore-kit'
 Copy-Item $setup, ./tools/restore-7.1.15.* -Destination 'restore-kit'
-& ./restore-kit/restore-7.1.15.cmd
-if ($LASTEXITCODE) { throw "Rollback failed: $LASTEXITCODE" }
+$restoreLog = & ./restore-kit/restore-7.1.15.cmd 2>&1
+$restoreExit = $LASTEXITCODE
+$restoreLog | Out-String | Set-Content observations/restore-log.txt
+if ($restoreExit) { throw "Rollback failed ($restoreExit): $($restoreLog -join ' ')" }
 $back=MainWindow '7.1.15' $new.Id
 if ([IO.File]::ReadAllText($marker) -cne $value) { throw 'Player profile lost' }
 if ((Get-Content $config -Raw | ConvertFrom-Json).songsPath -ne $songs -or [IO.File]::ReadAllText("$songs/library-probe.txt") -cne $value) { throw 'Music library path or contents changed' }
