@@ -29,6 +29,10 @@ try {
     & 7z.exe e "$work\app-64.7z" GoyMusic.exe 'resources\python\bin\python.exe' 'resources\python\bin\Lib\site-packages\nodejs_wheel\node.exe' "-o$kit"
     $executables = @("$kit\GoyMusic.exe","$kit\python.exe","$kit\node.exe")
     foreach ($exe in $executables) {
+    # A modified PE must not keep the vendor signature for the original bytes.
+    if ((Get-AuthenticodeSignature -LiteralPath $exe).SignerCertificate) {
+        & "$sdk\signtool.exe" remove /s $exe
+    }
 
     # Amend the extracted RT_MANIFEST/#1, not a replacement assembly template.
     $manifest = "$work\player.manifest"
@@ -84,10 +88,19 @@ try {
         -TextExtension '2.5.29.37={text}1.3.6.1.5.5.7.3.3','2.5.29.19={text}'
     $thumb = $cert.Thumbprint
     $null = Export-Certificate -Cert $cert -FilePath "$kit\lab.cer" -Type CERT
-    & "$sdk\signtool.exe" sign /sha1 $thumb /fd SHA256 @executables $msix
+    $PSNativeCommandUseErrorActionPreference=$false
+    foreach ($file in ($executables + @($msix))) {
+        $log=& "$sdk\signtool.exe" sign /debug /sha1 $thumb /fd SHA256 $file 2>&1 | Out-String
+        if ($LASTEXITCODE) { throw "Sign $([IO.Path]::GetFileName($file)): $($log.Trim() -replace '[\r\n]+',' ')" }
+    }
     # SignTool's Authenticode policy needs a trusted chain for the PE as well as the MSIX.
     $null = Import-Certificate -FilePath "$kit\lab.cer" -CertStoreLocation Cert:\LocalMachine\Root
-    try { & "$sdk\signtool.exe" verify /pa /v @executables $msix }
+    try {
+        foreach ($file in ($executables + @($msix))) {
+            $outputLog=& "$sdk\signtool.exe" verify /pa /v $file 2>&1 | Out-String
+            if ($LASTEXITCODE) { throw "Verification failed for $([IO.Path]::GetFileName($file)): $($outputLog.Trim() -replace '[\r\n]+',' ')" }
+        }
+    }
     finally { Remove-Item "Cert:\LocalMachine\Root\$thumb" }
     Get-FileHash -Algorithm SHA256 -LiteralPath ($executables + @($msix,"$kit\lab.cer")) | Format-List Path,Hash
     Move-Item -LiteralPath $kit -Destination $output
