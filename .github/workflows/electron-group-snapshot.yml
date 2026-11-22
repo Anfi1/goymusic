@@ -1,0 +1,44 @@
+name: Stock GoyMusic process snapshot
+on:
+  push:
+    branches: [qa/official-group-716]
+    paths: ['tools/check-goymusic-group.*', '.github/workflows/electron-group-snapshot.yml']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture the installed desktop app in Task Manager
+        run: |
+          $ErrorActionPreference='Stop'
+          try {
+            $dir="$env:RUNNER_TEMP\GoyMusic process test"
+            $setup="$env:RUNNER_TEMP\GoyMusic-Setup-7.1.16.exe"
+            Invoke-WebRequest 'https://github.com/Anfi1/goymusic/releases/download/v7.1.16/GoyMusic-Setup-7.1.16.exe' -OutFile $setup
+            if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup -Algorithm SHA512).Hash)) -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected installer' }
+            $p=Start-Process $setup -ArgumentList '/S',"/D=$dir" -Wait -PassThru; if ($p.ExitCode) { throw 'NSIS failed' }
+            Start-Process "$dir\GoyMusic.exe"
+            Start-Process "$env:WINDIR\System32\Taskmgr.exe"
+            Start-Sleep -Seconds 30
+            . ./.github/workflows/memory-sort.ps1
+            $tm=Get-Process Taskmgr | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+            if (!(Select-MemoryDescending $tm.MainWindowHandle)) { throw 'Memory descending not verified' }
+            & ./tools/check-goymusic-group.cmd
+            if ($LASTEXITCODE) { throw 'Probe failed' }
+            $diag=Get-Content ./tools/goymusic-group.json -Raw | ConvertFrom-Json
+            foreach ($s in $diag.samples) {
+              if ($s.processes.Count -lt 2 -or $s.uiError -or $s.memoryHeader -notmatch 'descending' -or !($s.processes.role -contains 'main') -or !($s.processes.role -contains 'renderer')) {throw "Missing process data: $($s.uiError)"}
+              if (!($s.processes | Where-Object { $_.taskManagerRows.Count -gt 0 })) {throw 'Missing UI PID correlation'}
+            }
+          } catch { Write-Output "::error::$($_.Exception.Message)"; throw }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-goymusic-process-snapshot
+          path: tools/goymusic-group.json
+          if-no-files-found: warn
