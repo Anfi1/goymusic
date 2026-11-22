@@ -26,8 +26,9 @@ try {
     $digest = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup -Algorithm SHA512).Hash))
     if ($digest -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected official 7.1.16 installer SHA512' }
     & 7z.exe e $setup -r app-64.7z "-o$work"
-    & 7z.exe e "$work\app-64.7z" GoyMusic.exe "-o$kit"
-    $exe = "$kit\GoyMusic.exe"
+    & 7z.exe e "$work\app-64.7z" GoyMusic.exe 'resources\python\bin\python.exe' 'resources\python\bin\Lib\site-packages\nodejs_wheel\node.exe' "-o$kit"
+    $executables = @("$kit\GoyMusic.exe","$kit\python.exe","$kit\node.exe")
+    foreach ($exe in $executables) {
 
     # Amend the extracted RT_MANIFEST/#1, not a replacement assembly template.
     $manifest = "$work\player.manifest"
@@ -56,6 +57,7 @@ try {
         }
     }
     if (![Xml.Linq.XNode]::DeepEquals($original, $embedded)) { throw 'Embedding identity changed the original manifest' }
+    }
 
     # Only the manifest and logo are packaged. The installed EXE remains external.
     Copy-Item "$PSScriptRoot\..\..\build\icon.png" "$packageDir\logo.png"
@@ -82,12 +84,12 @@ try {
         -TextExtension '2.5.29.37={text}1.3.6.1.5.5.7.3.3','2.5.29.19={text}'
     $thumb = $cert.Thumbprint
     $null = Export-Certificate -Cert $cert -FilePath "$kit\lab.cer" -Type CERT
-    & "$sdk\signtool.exe" sign /sha1 $thumb /fd SHA256 $exe $msix
+    & "$sdk\signtool.exe" sign /sha1 $thumb /fd SHA256 @executables $msix
     # SignTool's Authenticode policy needs a trusted chain for the PE as well as the MSIX.
     $null = Import-Certificate -FilePath "$kit\lab.cer" -CertStoreLocation Cert:\LocalMachine\Root
-    try { & "$sdk\signtool.exe" verify /pa /v $exe $msix }
+    try { & "$sdk\signtool.exe" verify /pa /v @executables $msix }
     finally { Remove-Item "Cert:\LocalMachine\Root\$thumb" }
-    Get-FileHash -Algorithm SHA256 -LiteralPath $exe,$msix,"$kit\lab.cer" | Format-List Path,Hash
+    Get-FileHash -Algorithm SHA256 -LiteralPath ($executables + @($msix,"$kit\lab.cer")) | Format-List Path,Hash
     Move-Item -LiteralPath $kit -Destination $output
 } finally {
     if ($cert) { Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey }

@@ -65,7 +65,10 @@ try {
     $pkg=Get-AppxPackage -Name GoyMusic.ExternalIdentityTest
     if (!$pkg -or $pkg.Publisher -ne $certificate.Subject) { throw 'Missing registered external identity' }
     $sparse=Measure-Mode 'external-identity'
-    $summary="Stock: $baseline | AppID: $appid | external identity: $sparse"
+    Copy-Item './identity-kit/python.exe' "$pyFolder/bin/python.exe" -Force
+    Copy-Item './identity-kit/node.exe' "$pyFolder/bin/Lib/site-packages/nodejs_wheel/node.exe" -Force
+    $all=Measure-Mode 'external-all'
+    $summary="Stock: $baseline | AppID: $appid | external main: $sparse | external all: $all"
     Write-Host $summary; "groups=$summary" >> $env:GITHUB_OUTPUT
 } finally {
     Get-AppxPackage -Name GoyMusic.ExternalIdentityTest | Remove-AppxPackage
