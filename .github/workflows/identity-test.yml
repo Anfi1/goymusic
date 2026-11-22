@@ -1,0 +1,64 @@
+name: NSIS process identity experiment
+on:
+  push:
+    branches: [qa/official-group-716]
+    paths:
+      - '.github/workflows/identity-test.yml'
+      - '.github/workflows/*identity*.ps1'
+      - '.github/workflows/lab-*'
+permissions:
+  contents: read
+jobs:
+  kit:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build lab identity from the official NSIS executable
+        run: |
+          try { & ./.github/workflows/make-identity-lab.ps1 } catch { Write-Output "::error::$($_.Exception.Message)"; throw }
+      - name: Build the x64 Node-API AppID probe
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cl /nologo /O1 /MT /LD .github\workflows\lab-app-id.c shell32.lib /link /OUT:identity-kit\lab-app-id.node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: internal-identity-probe
+          path: identity-kit/
+          retention-days: 1
+          if-no-files-found: error
+  compare:
+    needs: kit
+    runs-on: windows-11-arm
+    timeout-minutes: 18
+    outputs:
+      groups: ${{ steps.observe.outputs.groups }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: internal-identity-probe
+          path: identity-kit
+      - id: observe
+        run: |
+          try { & ./.github/workflows/compare-external-identity.ps1 } catch { Write-Output "::error::$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"; throw }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nsis-identity-observations
+          path: observations/
+          if-no-files-found: warn
+  result:
+    needs: compare
+    name: '${{ needs.compare.outputs.groups }}'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "$GROUPS_RESULT" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GROUPS_RESULT: ${{ needs.compare.outputs.groups }}

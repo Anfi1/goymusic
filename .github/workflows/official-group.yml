@@ -2,6 +2,10 @@ name: Compare official Task Manager groups
 on:
   push:
     branches: [qa/official-group-716]
+    paths:
+      - '.github/workflows/official-group.*'
+      - '.github/workflows/memory-sort.ps1'
+      - 'tools/restore-7.1.15.*'
 permissions:
   contents: read
 jobs:
