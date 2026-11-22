@@ -8,14 +8,21 @@ $payloads = @{
     '7.1.16' = 'd3103c1cdc872ced73288828511a6b0382ca96fd1766d5c39f468a6f2dfe5159','692e77e326cc7db73b6d6c788625e5990c6e72525f57c560c87fa25a22a68f04'
 }
 
+function Get-PayloadHash($path) {
+    $file = [IO.File]::OpenRead($path)
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { [BitConverter]::ToString($hash.ComputeHash($file)).Replace('-', '') }
+    finally { $hash.Dispose(); $file.Dispose() }
+}
+
 function Get-Release {
     $info = (Get-Item -LiteralPath $exe).VersionInfo
     $version = $info.ProductVersion -replace '^(7\.1\.(?:15|16))\.0$', '$1'
     if ($info.ProductName -ne 'GoyMusic' -or !$payloads.ContainsKey([string]$version)) {
         throw "Unsupported product or version at $exe ($($info.ProductVersion)); expected official 7.1.15 or 7.1.16."
     }
-    if ((Get-FileHash -LiteralPath $exe).Hash -ne $payloads[$version][0] -or
-        (Get-FileHash -LiteralPath (Join-Path $dir 'resources\app.asar')).Hash -ne $payloads[$version][1]) {
+    if ((Get-PayloadHash $exe) -ne $payloads[$version][0] -or
+        (Get-PayloadHash (Join-Path $dir 'resources\app.asar')) -ne $payloads[$version][1]) {
         throw "The installed EXE or app.asar differs from official $version at $dir. Restore stopped."
     }
     $version
@@ -52,8 +59,10 @@ try {
     if (!(Test-Path -LiteralPath $setup -PathType Leaf)) { throw "Place the original GoyMusic-Setup-7.1.15.exe next to this script: $PSScriptRoot" }
     # Keep the verified file open read-only and deny replacement through launch.
     $stream = [IO.File]::OpenRead($setup)
-    $pin = [BitConverter]::ToString([Convert]::FromBase64String($setupPin)).Replace('-', '')
-    if ((Get-FileHash -InputStream $stream -Algorithm SHA512).Hash -ne $pin) { throw 'Wrong installer SHA-512. Obtain the original v7.1.15 installer from Anfi1/goymusic Releases.' }
+    $hash = [Security.Cryptography.SHA512]::Create()
+    try { $actual = [Convert]::ToBase64String($hash.ComputeHash($stream)) }
+    finally { $hash.Dispose() }
+    if ($actual -cne $setupPin) { throw 'Wrong installer SHA-512. Obtain the original v7.1.15 installer from Anfi1/goymusic Releases.' }
 
     $dir = $null
     foreach ($hive in 'HKCU:', 'HKLM:') {
