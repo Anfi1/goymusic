@@ -14,11 +14,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: npm install --prefix "$env:RUNNER_TEMP/driver" --ignore-scripts --no-audit --no-fund playwright-core@1.55.1
       - id: inspect
         run: |
-          $env:NODE_PATH = "$env:RUNNER_TEMP/driver/node_modules"
           try { & ./.github/workflows/official-group.ps1 } catch { Write-Output "::error::$($_.Exception.Message)"; throw }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoyMusic-restore-7.1.15
+          path: restore-kit/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:

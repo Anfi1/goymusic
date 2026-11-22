@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or (Get-CimInstance Win32_OperatingSystem).ProductType -ne 1) { throw 'Requires a disposable Windows client runner' }
 $null = New-Item -ItemType Directory observations
-$dir = "$env:RUNNER_TEMP\GoyMusic-official"
+$dir = "$env:RUNNER_TEMP\GoyMusic official restore test"
 $exe = "$dir\GoyMusic.exe"
 $py = "$dir\resources\python\bin\python.exe"
 $setup = "$env:RUNNER_TEMP\GoyMusic-Setup-7.1.15.exe"
@@ -33,6 +33,7 @@ function Stop-Player($p) {
     throw 'Installed helpers remain'
 }
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes,WindowsBase
+. "$PSScriptRoot/memory-sort.ps1"
 function Snapshot($tag,$index) {
     $manager = Get-Process Taskmgr | Where-Object { $_.MainWindowHandle -ne 0 -and $_.SessionId -eq (Get-Process -Id $PID).SessionId } | Select-Object -First 1
     if (!$manager) { throw 'No Task Manager HWND' }
@@ -44,7 +45,7 @@ function Snapshot($tag,$index) {
     function Visit($e,$parents) {
         $c=$e.Cached; $type=$c.ControlType.ProgrammaticName; $id=$c.AutomationId; $name=$c.Name
         if ($type -eq 'ControlType.Group' -and $id -like 'TmGroupHeader_*') { $parents=@($name) }
-        if ($type -eq 'ControlType.TreeItem' -and $parents.Count) {
+        if ($type -eq 'ControlType.TreeItem') {
             $procId = if ($id -match '^\d+:(\d+)$') { $Matches[1] } else { '' }
             $our = @($inventory | Where-Object { [string]$_.ProcessId -eq $procId })
             if ($our.Count -or $name -match '^GoyMusic\b') { $rows.Add([pscustomobject]@{name=$name;id=$id;pid=$procId;image=$our[0].Name;parents=@($parents);onscreen=!$c.IsOffscreen}) }
@@ -53,12 +54,15 @@ function Snapshot($tag,$index) {
         foreach ($child in $e.CachedChildren) { Visit $child $parents }
     }
     Visit $root @()
+    $header=$root.FindFirst([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty,'TmColMemory'))
+    $memoryHeader=if ($header) { $header.Current.Name } else { 'missing' }
     $grouped=@($rows | Where-Object { $_.image -eq 'GoyMusic.exe' -and ($_.parents -match '^GoyMusic\b').Count }).Count
     $seen=@($rows | Where-Object image -eq 'GoyMusic.exe').Count
     $total=@($inventory | Where-Object Name -eq 'GoyMusic.exe').Count
-    $r=[pscustomobject]@{tag=$tag;sample=$index;grouped=$grouped;seen=$seen;total=$total;rows=$rows;inventory=$inventory;taskmgrVersion=$manager.FileVersion}
+    $r=[pscustomobject]@{tag=$tag;sample=$index;grouped=$grouped;seen=$seen;total=$total;rows=$rows;inventory=$inventory;taskmgrVersion=$manager.FileVersion;memoryHeader=$memoryHeader}
     $r | ConvertTo-Json -Depth 8 | Set-Content "observations/$tag-$index.json"
-    "$grouped/$seen/$total"
+    $order=if ($memoryHeader -match '\bdescend') { 'memory-desc' } else { 'unverified-sort' }
+    "${order}:$grouped/$seen/$total"
 }
 function Observe($tag) {
     # Do not count the first transient renderer set as the settled state.
@@ -72,27 +76,33 @@ function Observe($tag) {
     $c
 }
 Start-Process "$env:WINDIR\System32\Taskmgr.exe"
+for ($i=0;$i -lt 20;$i++) {
+    $tm=Get-Process Taskmgr -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+    if ($tm) { break }
+    Start-Sleep -Milliseconds 500
+}
+if (!$tm) { throw 'Task Manager unavailable' }
+$null=Select-MemoryDescending $tm.MainWindowHandle
 Start-Process (Shortcut)
 $p=MainWindow '7.1.15'; $old=Observe '15-start'; Stop-Player $p
-$after='not observed'
-try {
-    $p=Start-Process $exe -ArgumentList '--devtools','--remote-debugging-port=9222' -PassThru
-    $env:EXPECTED='7.1.16'; node .github/workflows/check-installed-update.cjs
-    if ($LASTEXITCODE) { throw 'Actual in-app upgrade failed' }
-    $new=MainWindow '7.1.16' $p.Id; $after=Observe '16-updated'; Stop-Player $new
-} catch {
-    $note=$_.Exception.Message
-    $remaining=@(Get-Process GoyMusic -ErrorAction SilentlyContinue | Select-Object Id,MainWindowHandle,Path)
-    @{reason=$note; onDisk=$(if (Test-Path $exe) {(Get-Item $exe).VersionInfo.ProductVersion}); remaining=$remaining} | ConvertTo-Json -Depth 4 | Set-Content observations/update.json
-    $remaining | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -eq $exe } | ForEach-Object { Stop-Player (Get-Process -Id $_.Id) }
-}
-if (!(Test-Path $exe) -or !(Get-Item $exe).VersionInfo.ProductVersion.StartsWith('7.1.16')) {
-    $setup16="$env:RUNNER_TEMP\GoyMusic-Setup-7.1.16.exe"
-    Invoke-WebRequest 'https://github.com/Anfi1/goymusic/releases/download/v7.1.16/GoyMusic-Setup-7.1.16.exe' -OutFile $setup16
-    if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup16 -Algorithm SHA512).Hash)) -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected 7.1.16 installer' }
-    $s=Start-Process $setup16 -ArgumentList '/S',"/D=$dir" -Wait -PassThru
-    if ($s.ExitCode) { throw 'Official 7.1.16 install failed' }
-}
+$setup16="$env:RUNNER_TEMP\GoyMusic-Setup-7.1.16.exe"
+Invoke-WebRequest 'https://github.com/Anfi1/goymusic/releases/download/v7.1.16/GoyMusic-Setup-7.1.16.exe' -OutFile $setup16
+if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup16 -Algorithm SHA512).Hash)) -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected 7.1.16 installer' }
+$s=Start-Process $setup16 -ArgumentList '/S',"/D=$dir" -Wait -PassThru
+if ($s.ExitCode) { throw 'Official 7.1.16 install failed' }
 Start-Process (Shortcut)
-$new=MainWindow '7.1.16'; $cold=Observe '16-start'; Stop-Player $new
-"counts=Nested/seen/live Electron processes - 15 Start $old, 16 updater $after, 16 Start $cold" >> $env:GITHUB_OUTPUT
+$new=MainWindow '7.1.16'; $cold=Observe '16-start'
+$profile=Join-Path $env:APPDATA 'GoyMusic'
+if (!(Test-Path $profile -PathType Container)) { throw 'Missing player profile' }
+$marker=Join-Path $profile 'qa-restore-profile.txt'
+$value=[guid]::NewGuid().ToString()
+[IO.File]::WriteAllText($marker,$value)
+$null=New-Item -ItemType Directory 'restore-kit'
+Copy-Item $setup, ./tools/restore-7.1.15.* -Destination 'restore-kit'
+& ./restore-kit/restore-7.1.15.cmd
+if ($LASTEXITCODE) { throw "Rollback failed: $LASTEXITCODE" }
+$back=MainWindow '7.1.15' $new.Id
+if ([IO.File]::ReadAllText($marker) -cne $value) { throw 'Player profile lost' }
+$rolled=Observe '15-restored'
+Stop-Player $back
+"counts=Nested/seen/live: 15 $old, 16 $cold, restored 15 $rolled" >> $env:GITHUB_OUTPUT
