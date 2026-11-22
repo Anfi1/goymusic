@@ -90,19 +90,27 @@ Invoke-WebRequest 'https://github.com/Anfi1/goymusic/releases/download/v7.1.16/G
 if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup16 -Algorithm SHA512).Hash)) -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected 7.1.16 installer' }
 $s=Start-Process $setup16 -ArgumentList '/S',"/D=$dir" -Wait -PassThru
 if ($s.ExitCode) { throw 'Official 7.1.16 install failed' }
-Start-Process (Shortcut)
-$new=MainWindow '7.1.16'; $cold=Observe '16-start'
 $profile=Join-Path $env:APPDATA 'GoyMusic'
 if (!(Test-Path $profile -PathType Container)) { throw 'Missing player profile' }
 $marker=Join-Path $profile 'qa-restore-profile.txt'
 $value=[guid]::NewGuid().ToString()
 [IO.File]::WriteAllText($marker,$value)
+$config=Join-Path $profile 'window-config.json'
+$prefs=Get-Content -LiteralPath $config -Raw | ConvertFrom-Json -AsHashtable
+$songs=Join-Path $env:RUNNER_TEMP 'QA music library'
+$null=New-Item -ItemType Directory $songs
+$prefs['songsPath']=$songs
+$prefs | ConvertTo-Json | Set-Content -LiteralPath $config -Encoding utf8NoBOM
+Set-Content -LiteralPath "$songs/library-probe.txt" -Value $value -NoNewline
+Start-Process (Shortcut)
+$new=MainWindow '7.1.16'; $cold=Observe '16-start'
 $null=New-Item -ItemType Directory 'restore-kit'
 Copy-Item $setup, ./tools/restore-7.1.15.* -Destination 'restore-kit'
 & ./restore-kit/restore-7.1.15.cmd
 if ($LASTEXITCODE) { throw "Rollback failed: $LASTEXITCODE" }
 $back=MainWindow '7.1.15' $new.Id
 if ([IO.File]::ReadAllText($marker) -cne $value) { throw 'Player profile lost' }
+if ((Get-Content $config -Raw | ConvertFrom-Json).songsPath -ne $songs -or [IO.File]::ReadAllText("$songs/library-probe.txt") -cne $value) { throw 'Music library path or contents changed' }
 $rolled=Observe '15-restored'
 Stop-Player $back
 "counts=Nested/seen/live: 15 $old, 16 $cold, restored 15 $rolled" >> $env:GITHUB_OUTPUT
