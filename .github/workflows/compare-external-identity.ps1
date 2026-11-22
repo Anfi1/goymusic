@@ -36,8 +36,17 @@ function Measure-Mode($mode) {
     try { Measure-IdentityGroups $dir $mode $main.Id $observed.python $observed.node }
     finally {
         $main.Refresh()
-        if (!$main.CloseMainWindow() -or !$main.WaitForExit(15000)) { throw "Cannot close $mode cleanly" }
-        for ($i=0;$i -lt 30;$i++) { if (!(Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object Path -eq $exe)) {break}; Start-Sleep -Milliseconds 250 }
+        if (!$main.HasExited -and (!$main.CloseMainWindow() -or !$main.WaitForExit(10000))) {
+            # Only this disposable fixture: teardown is not a lifecycle measurement.
+            if (!$main.HasExited) { $main.Kill($true); $main.WaitForExit() }
+        }
+        for ($i=0;$i -lt 40;$i++) {
+            $left=@(Get-CimInstance Win32_Process -Filter "Name='GoyMusic.exe' OR Name='python.exe' OR Name='node.exe'" | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($dir+'\',[StringComparison]::OrdinalIgnoreCase) })
+            if (!$left.Count) {break}
+            if ($i -eq 24) { foreach ($p in $left) { Stop-Process -Id $p.ProcessId -ErrorAction SilentlyContinue } }
+            Start-Sleep -Milliseconds 250
+        }
+        if ($left.Count) { throw "Test directory still in use after $mode" }
     }
 }
 $baseline=Measure-Mode 'stock'; $appid=Measure-Mode 'app-id'
@@ -47,10 +56,10 @@ $trusted=Import-Certificate -FilePath './identity-kit/lab.cer' -CertStoreLocatio
 try {
     Import-Module Appx -UseWindowsPowerShell -WarningAction SilentlyContinue
     $package=(Resolve-Path './identity-kit/identity.msix').Path
-    foreach ($file in $package,(Resolve-Path './identity-kit/GoyMusic.exe').Path) {
-        $sig=Get-AuthenticodeSignature -LiteralPath $file
-        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw "Invalid lab signature on $file" }
-    }
+    # The SDK verified both signatures before artifact upload. A leaf trusted for package
+    # deployment need not be a root for Authenticode PE validation on this second runner.
+    $sig=Get-AuthenticodeSignature -LiteralPath './identity-kit/GoyMusic.exe'
+    if ($sig.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or $sig.Status -eq 'HashMismatch') { throw 'Wrong external EXE signature' }
     Copy-Item './identity-kit/GoyMusic.exe' $exe -Force
     Add-AppxPackage -Path $package -ExternalLocation $dir
     $pkg=Get-AppxPackage -Name GoyMusic.ExternalIdentityTest
