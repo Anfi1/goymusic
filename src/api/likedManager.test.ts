@@ -216,15 +216,28 @@ describe('Liked Songs mirror', () => {
     expect((await refresh()).visible).toEqual(['a', 'c']);
   });
 
+  it.each([false, true])('imports every returned page when the header overcounts (cached: %s)', async cached => {
+    if (!cached) committed = [];
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a, b], trackCount: 7, continuation: 'last' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [b, song('new')], unavailableCount: 0, continuation: null });
+    const { visible } = await refresh();
+    expect(visible).toEqual(cached ? ['a', 'b', 'new', 'c'] : ['a', 'b', 'new']);
+    expect(likedManager.getProgress().phase).toBe('idle');
+    expect(likedStore.commitYtImport).toHaveBeenCalledWith(expect.any(Array), 3);
+  });
+
+  it.each([{ tail: [] }, { tail: [b] }])('keeps cached likes after a short empty or overlapping last page (%#)', async ({ tail }) => {
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a, b], trackCount: 4, continuation: 'end' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: tail, unavailableCount: 0, continuation: null });
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    expect(likedManager.getProgress().phase).toBe('idle');
+  });
+
   it.each([
     [{ status: 'error', message: 'not authenticated' }],
     [{ status: 'ok', tracks: [a], trackCount: 9 }],
     [{ status: 'ok', tracks: [a], trackCount: null }],
     [{ status: 'ok', tracks: [a], trackCount: 4, continuation: 'next' }, { status: 'error' }],
-    [{ status: 'ok', tracks: [a], trackCount: 2, continuation: 'end' },
-      { status: 'ok', tracks: [], unavailableCount: 0, continuation: null }],
-    [{ status: 'ok', tracks: [a, b], trackCount: 3, continuation: 'overlap' },
-      { status: 'ok', tracks: [b], continuation: null }],
   ])('never publishes a partial replacement on an incomplete refresh (%#)', async (...[first, next]) => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     pyCall.mockResolvedValueOnce(first);

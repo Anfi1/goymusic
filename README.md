@@ -11,7 +11,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 - Crossfade playback with dual audio engine
 - Live spectrum and EQ response, with built-in Flat, Bass Boost, Rock, Vocal Focus and Warm presets. Saved presets remain separate from the built-ins.
 - Discord Rich Presence integration
-- Playlist management, liked songs, history. If a YouTube likes sync is interrupted, the next sync can resume at the last saved page. An incomplete response does not replace the previous list.
+- Playlist management, liked songs, history. YouTube likes sync can resume after an interruption. If the last page arrives but the playlist header reports more tracks than YouTube returned, GoyMusic saves the tracks it received and keeps any previously cached likes missing from the response.
 - Lyrics view
 - Search with suggestions
 - Deck desktop layout: centered playback controls, full-width seek bar, and optional Nyan Cat on the progress bar. Switch in **Settings → Appearance → new Experement Layout** without restarting. Right-click the current track for track actions.

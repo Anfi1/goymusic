@@ -172,9 +172,16 @@ class LikedManager {
         discardCursor = false;
       }
       if (revision !== this.ytRevision) return;
-      if ((ytTotal !== null && entries.length + importState.unavailableCount < ytTotal) ||
-          (ytTotal === null && entries.length < currentLocal.length)) {
+      const observedCount = entries.length + importState.unavailableCount;
+      const shortCount = ytTotal !== null && observedCount < ytTotal;
+      if ((shortCount && !firstPage.continuation) || (ytTotal === null && entries.length < currentLocal.length)) {
         throw new Error('Incomplete Liked Songs response');
+      }
+      if (shortCount) {
+        // Цепочка страниц завершилась, но счетчик в шапке выше. Отсутствие в выдаче не доказывает снятие лайка.
+        for (const entry of currentLocal) {
+          if (!knownIds.has(entry.trackId)) entries.push(entry);
+        }
       }
 
       // YouTube не отдаёт дату лайка, а у SC она есть всегда. Без даты лайк с телефона
@@ -189,7 +196,7 @@ class LikedManager {
         likedAt: likedAtMap.get(entry.trackId) ?? (completedVersion >= 2 && !likedAtMap.has(entry.trackId) ? syncedAt : undefined),
       }));
       this.setProgress({ phase: 'saving' });
-      await likedStore.commitYtImport(finalEntries, ytTotal ?? entries.length + importState.unavailableCount);
+      await likedStore.commitYtImport(finalEntries, observedCount);
     } catch (error) {
       failed = true;
       console.error('[liked] sync failed:', error);
