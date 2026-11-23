@@ -1,0 +1,34 @@
+name: Unsigned Electron launch comparison
+on:
+  push:
+    branches: [qa/official-group-716]
+    paths: ['tools/group-trial*','.github/workflows/unsigned-launch-trial*']
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    outputs:
+      result: ${{ steps.trial.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: trial
+        run: |
+          try { & ./.github/workflows/unsigned-launch-trial.ps1 } catch { Write-Output "::error::$($_.Exception.Message) at $($_.InvocationInfo.ScriptLineNumber)"; throw }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: normal-token-launch-results
+          path: launch-results/
+          if-no-files-found: warn
+  result:
+    needs: capture
+    name: '${{ needs.capture.outputs.result }}'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          RESULT: ${{ needs.capture.outputs.result }}
