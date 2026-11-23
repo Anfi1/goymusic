@@ -17,7 +17,7 @@ interface ShelfProps<T> {
   title: string;
   items: T[] | null;
   emptyText: string;
-  renderCard: (item: T) => React.ReactNode;
+  renderCard: (item: T, index: number) => React.ReactNode;
   icon?: React.ComponentType<{ size?: number; className?: string }>;
 }
 
@@ -78,8 +78,8 @@ export const YandexHomeView: React.FC<{
     return () => { alive = false; };
   }, []);
 
-  const playWave = useCallback(() => {
-    if (waveTracks && waveTracks.length > 0) player.playTrackList(waveTracks, 0, 'yandex-wave');
+  const playWave = useCallback((index: number) => {
+    if (waveTracks && waveTracks.length > 0) player.playTrackList(waveTracks, index, 'yandex-wave');
   }, [waveTracks]);
 
   const playAlbum = useCallback(async (albumId: string) => {
@@ -102,6 +102,15 @@ export const YandexHomeView: React.FC<{
     if (detail?.tracks?.length) player.playTrackList(detail.tracks, 0, id, 'playlist');
   }, []);
 
+  const songCards = (play: (index: number) => void) => (track: YTMTrack, index: number) => {
+    const playSelected = () => play(index);
+    return (
+      <MediaCard key={`${track.id}:${index}`} id={track.id} title={track.title} thumbUrl={track.thumbUrl} artists={track.artists}
+        artistIds={track.artistIds} onArtistClick={onSelectArtist}
+        type="song" className={styles.card} onClick={playSelected} onPlayClick={playSelected} />
+    );
+  };
+
   return (
     <div className={`${styles.container} ${styles.knownShelves} deck-scroll`}>
       {sourceToggle}
@@ -110,11 +119,7 @@ export const YandexHomeView: React.FC<{
         icon={AudioLines}
         items={waveTracks?.slice(0, 20) ?? waveTracks}
         emptyText="Не удалось загрузить волну."
-        renderCard={(t) => (
-          <MediaCard key={t.id} id={t.id} title={t.title} thumbUrl={t.thumbUrl} artists={t.artists}
-            artistIds={t.artistIds} onArtistClick={onSelectArtist}
-            type="song" className={styles.card} onClick={playWave} onPlayClick={playWave} />
-        )}
+        renderCard={songCards(playWave)}
       />
       <Shelf
         title="Новинки"
@@ -145,14 +150,7 @@ export const YandexHomeView: React.FC<{
         icon={Heart}
         items={likedTracks?.slice(0, 20) ?? likedTracks}
         emptyText="Лайков пока нет."
-        renderCard={(t) => {
-          const idx = (likedTracks || []).findIndex(lt => lt.id === t.id);
-          return (
-            <MediaCard key={t.id} id={t.id} title={t.title} thumbUrl={t.thumbUrl} artists={t.artists}
-              artistIds={t.artistIds} onArtistClick={onSelectArtist}
-              type="song" className={styles.card} onClick={() => playLiked(idx)} onPlayClick={() => playLiked(idx)} />
-          );
-        }}
+        renderCard={songCards(playLiked)}
       />
       {(genres === null || genres.length > 0) && (
         <Shelf

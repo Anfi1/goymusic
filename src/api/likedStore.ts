@@ -33,7 +33,7 @@ export interface HydratedYandexLikedEntry extends YandexLikedEntry {
   track: YTMTrack;
 }
 
-export const YT_IMPORT_VERSION = 2;
+export const YT_IMPORT_VERSION = 3;
 
 export interface YtImportState {
   version: typeof YT_IMPORT_VERSION;
@@ -43,6 +43,7 @@ export interface YtImportState {
   downloadedCount: number;
   continuation: string | null;
   headIds: string[];
+  headUnavailableCount: number;
   startedAt: number;
   updatedAt: number;
 }

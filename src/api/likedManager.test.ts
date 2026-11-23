@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { likedStore, type LikedEntry, YT_IMPORT_VERSION } from './likedStore';
+import { likedStore, type LikedEntry, type YtImportState, YT_IMPORT_VERSION } from './likedStore';
 import { tracksStore } from './tracks';
 import { likedManager, likedSyncLabel } from './likedManager';
 import type { YTMTrack } from './yt';
@@ -24,11 +24,22 @@ beforeEach(() => {
   metadata = new Map([a, b, c].map(t => [t.id, t]));
   vi.spyOn(likedStore, 'getAllTracks').mockImplementation(async () => committed);
   vi.spyOn(likedStore, 'getVirtualCount').mockResolvedValue(3);
-  vi.spyOn(likedStore, 'getYtImportState').mockResolvedValue(null);
+  let checkpoint: YtImportState | null = null;
+  const staged: LikedEntry[] = [];
+  vi.spyOn(likedStore, 'getYtImportState').mockImplementation(async () => checkpoint);
+  vi.spyOn(likedStore, 'getYtImportTracks').mockImplementation(async () => [...staged]);
   vi.spyOn(likedStore, 'getYtImportCompletedVersion').mockResolvedValue(1);
-  vi.spyOn(likedStore, 'saveYtImportPage').mockResolvedValue(undefined);
-  vi.spyOn(likedStore, 'setYtImportState').mockResolvedValue(undefined);
-  vi.spyOn(likedStore, 'commitYtImport').mockImplementation(async entries => { committed = entries; });
+  vi.spyOn(likedStore, 'saveYtImportPage').mockImplementation(async (entries, state) => {
+    staged.push(...entries);
+    checkpoint = state;
+  });
+  vi.spyOn(likedStore, 'setYtImportState').mockImplementation(async state => { checkpoint = state; });
+  vi.spyOn(likedStore, 'clearYtImport').mockImplementation(async () => { staged.length = 0; checkpoint = null; });
+  vi.spyOn(likedStore, 'commitYtImport').mockImplementation(async entries => {
+    committed = entries;
+    staged.length = 0;
+    checkpoint = null;
+  });
   vi.spyOn(tracksStore, 'upsertTracksBatch').mockImplementation(async tracks => {
     for (const t of tracks) metadata.set(t.id, t);
   });
@@ -91,9 +102,9 @@ describe('Liked Songs mirror', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(likedStore.getYtImportState).mockResolvedValue({
       version: YT_IMPORT_VERSION, status: 'importing', ytTotal: null, unavailableCount: 1,
-      downloadedCount: 2, continuation: 'checkpoint', headIds: ['a'], startedAt: 1, updatedAt: 2,
+      downloadedCount: 2, continuation: 'checkpoint', headIds: ['a'], headUnavailableCount: 0, startedAt: 1, updatedAt: 2,
     });
-    vi.spyOn(likedStore, 'getYtImportTracks').mockResolvedValue(committed.slice(0, 2));
+    vi.mocked(likedStore.getYtImportTracks).mockResolvedValue(committed.slice(0, 2));
     pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a], continuation: 'first-page' })
       .mockResolvedValueOnce({ status: 'error', message: 'offline' });
     const labels: (string | null)[] = [];
@@ -106,6 +117,52 @@ describe('Liked Songs mirror', () => {
     } finally { stop(); }
   });
 
+  it('resumes a failed last request without downloading earlier pages again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const head = { status: 'ok', tracks: [a], trackCount: 3, continuation: 'middle' };
+    pyCall.mockResolvedValueOnce(head)
+      .mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: 'last' })
+      .mockResolvedValueOnce({ status: 'error', message: 'offline' });
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    pyCall.mockResolvedValueOnce(head)
+      .mockResolvedValueOnce({ status: 'ok', tracks: [song('new')], continuation: null });
+    expect((await refresh()).visible).toEqual(['a', 'c', 'new']);
+    expect(pyCall.mock.calls[4][1].token).toBe('last');
+  });
+
+  it('restarts from a fresh cursor when the saved one is rejected again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const head = { status: 'ok', tracks: [b], trackCount: 2, continuation: 'expired' };
+    const fresh = { ...head, continuation: 'fresh' };
+    const error = { status: 'error', message: 'cursor unavailable' };
+    pyCall.mockResolvedValueOnce(head).mockResolvedValueOnce(error);
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    pyCall.mockResolvedValueOnce(fresh).mockResolvedValueOnce(error);
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    pyCall.mockResolvedValueOnce(fresh).mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: null });
+    expect((await refresh()).visible).toEqual(['b', 'c']);
+    expect([1, 3, 5].map(i => pyCall.mock.calls[i][1].token)).toEqual(['expired', 'expired', 'fresh']);
+  });
+
+  it('does not resume a continuation cycle', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const head = { status: 'ok', tracks: [b], trackCount: 2, continuation: 'loop' };
+    pyCall.mockResolvedValueOnce(head).mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: 'loop' });
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    pyCall.mockResolvedValueOnce({ ...head, continuation: 'fresh' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [a], continuation: null });
+    expect((await refresh()).visible).toEqual(['b', 'a']);
+    expect(pyCall.mock.calls[3][1].token).toBe('fresh');
+  });
+
+  it('follows a cursor-only page and commits at the explicit end of a complete playlist', async () => {
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [b], trackCount: 2, continuation: 'middle' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [], unavailableCount: 0, continuation: 'last' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [c], unavailableCount: 0, continuation: 'end' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [], unavailableCount: 0, continuation: null });
+    expect((await refresh()).visible).toEqual(['b', 'c']);
+  });
+
   it('repairs a one-row v1 mirror whose saved virtual count already matches YouTube', async () => {
     committed = committed.slice(0, 1);
     metadata.delete('b'); metadata.delete('c');
@@ -114,6 +171,49 @@ describe('Liked Songs mirror', () => {
     expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
     expect(pyCall.mock.calls.map(([command]) => command)).toEqual(['get_playlist_tracks', 'get_continuation']);
     expect(likedStore.commitYtImport).toHaveBeenCalledOnce();
+    expect(committed.every(entry => entry.likedAt === undefined)).toBe(true);
+  });
+
+  it.each([false, true])('repairs v2 mirrors without trusting v2 checkpoints (checkpoint: %s)', async withCheckpoint => {
+    vi.mocked(likedStore.getYtImportCompletedVersion).mockResolvedValue(2);
+    committed[0].likedAt = 123;
+    committed[1] = { ...committed[1], trackId: 'old' };
+    if (withCheckpoint) {
+      // Persisted before the parser could recover b from its playlist row.
+      vi.mocked(likedStore.getYtImportState).mockResolvedValue({
+        version: 2, status: 'importing', ytTotal: 3, unavailableCount: 1,
+        downloadedCount: 1, continuation: 'old-last', headIds: ['a'], startedAt: 1, updatedAt: 2,
+      } as unknown as YtImportState);
+      vi.mocked(likedStore.getYtImportTracks).mockResolvedValue(committed.slice(0, 1));
+    }
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a], trackCount: 3, continuation: 'middle' })
+      .mockImplementationOnce(async (_, { token }) => token === 'middle'
+        ? { status: 'ok', tracks: [b], continuation: 'last' }
+        : { status: 'ok', tracks: [c], continuation: null })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: null });
+    expect((await refresh()).visible).toEqual(['b', 'a', 'c']);
+    expect(committed.map(entry => entry.likedAt)).toEqual([123, committed[1].syncedAt, undefined]);
+  });
+
+  it.each(['eleventh ID', 'unavailable count'])('rejects a checkpoint when the first page changes its %s', async change => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prefix = Array.from({ length: 10 }, (_, i) => song(`head-${i}`));
+    const head = { status: 'ok', tracks: [...prefix, a], trackCount: 12, continuation: 'old',
+      unavailableCount: change === 'unavailable count' ? 1 : 0 };
+    pyCall.mockResolvedValueOnce(head).mockResolvedValueOnce({ status: 'error', message: 'offline' });
+    await refresh();
+    const tracks = [...prefix, change === 'eleventh ID' ? b : a];
+    pyCall.mockResolvedValueOnce({ ...head, tracks, unavailableCount: 0, continuation: 'fresh' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: null });
+    expect((await refresh()).visible).toEqual([...tracks.map(t => t.id), 'c']);
+    expect(pyCall.mock.calls[3][1].token).toBe('fresh');
+  });
+
+  it('does not skip an unavailable row newly reported in the first page', async () => {
+    vi.mocked(likedStore.getYtImportCompletedVersion).mockResolvedValue(YT_IMPORT_VERSION);
+    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a], trackCount: 3, unavailableCount: 1, continuation: 'next' })
+      .mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: null });
+    expect((await refresh()).visible).toEqual(['a', 'c']);
   });
 
   it.each([
@@ -121,6 +221,10 @@ describe('Liked Songs mirror', () => {
     [{ status: 'ok', tracks: [a], trackCount: 9 }],
     [{ status: 'ok', tracks: [a], trackCount: null }],
     [{ status: 'ok', tracks: [a], trackCount: 4, continuation: 'next' }, { status: 'error' }],
+    [{ status: 'ok', tracks: [a], trackCount: 2, continuation: 'end' },
+      { status: 'ok', tracks: [], unavailableCount: 0, continuation: null }],
+    [{ status: 'ok', tracks: [a, b], trackCount: 3, continuation: 'overlap' },
+      { status: 'ok', tracks: [b], continuation: null }],
   ])('never publishes a partial replacement on an incomplete refresh (%#)', async (...[first, next]) => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     pyCall.mockResolvedValueOnce(first);
@@ -137,7 +241,6 @@ describe('Liked Songs mirror', () => {
     else committed = [{ trackId: albumTrack.id, originalIndex: 0, syncedAt: 1 }];
     metadata.set(albumTrack.id, albumTrack);
     vi.stubGlobal('CustomEvent', class {});
-    vi.spyOn(likedStore, 'clearYtImport').mockResolvedValue(undefined);
     vi.spyOn(likedStore, 'getMinIndex').mockResolvedValue(0);
     vi.spyOn(likedStore, 'setVirtualCount').mockResolvedValue(undefined);
     vi.spyOn(tracksStore, 'upsertTrack').mockImplementation(async t => { metadata.set(t.id, t); });

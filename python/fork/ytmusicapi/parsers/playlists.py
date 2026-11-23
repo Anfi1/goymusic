@@ -202,6 +202,67 @@ def parse_playlist_items(
     return songs
 
 
+def parse_liked_continuation(response: JsonDict) -> JsonDict:
+    # Other actions may precede the append; their absence of rows isn't an empty page.
+    actions = response.get("onResponseReceivedActions", [])
+    if not isinstance(actions, list) or not all(isinstance(action, dict) for action in actions):
+        raise ValueError("Missing Liked Songs continuation actions")
+    appends = [action["appendContinuationItemsAction"] for action in actions if "appendContinuationItemsAction" in action]
+    if "continuationContents" in response:
+        contents = response["continuationContents"]
+        if appends or not isinstance(contents, dict) or set(contents) != {"musicPlaylistShelfContinuation"}:
+            raise ValueError("Expected one Liked Songs playlist shelf")
+        return parse_liked_playlist_shelf(contents["musicPlaylistShelfContinuation"])
+    if len(appends) != 1 or not isinstance(appends[0], dict):
+        raise ValueError("Expected one Liked Songs continuation page")
+    return parse_liked_playlist_page(appends[0].get("continuationItems"))
+
+
+def parse_liked_playlist_shelf(shelf: JsonDict) -> JsonDict:
+    if not isinstance(shelf, dict):
+        raise ValueError("Invalid Liked Songs playlist shelf")
+    page = parse_liked_playlist_page(shelf.get("contents"))
+    continuations = shelf.get("continuations", [])
+    if not isinstance(continuations, list) or len(continuations) > 1:
+        raise ValueError("Invalid Liked Songs shelf continuations")
+    if continuations:
+        token = nav(continuations[0], ["nextContinuationData", "continuation"], True)
+        if not isinstance(token, str) or not token.strip() or page["continuation"] not in (None, token):
+            raise ValueError("Invalid or conflicting Liked Songs shelf cursor")
+        page["continuation"] = token
+    return page
+
+
+def parse_liked_playlist_page(rows: JsonList) -> JsonDict:
+    if not isinstance(rows, list):
+        raise ValueError("Missing Liked Songs page items")
+    token = None
+    row_count = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Invalid Liked Songs row")
+        if MRLIR in row:
+            row_count += 1
+        elif "continuationItemRenderer" in row:
+            next_token = get_continuation_token([row])
+            if token is not None or not isinstance(next_token, str) or not next_token.strip():
+                raise ValueError("Invalid Liked Songs continuation")
+            token = next_token
+        else:
+            raise ValueError("Unrecognized Liked Songs row")
+
+    tracks = []
+    for track in parse_playlist_items(rows):
+        video_id = track["videoId"]
+        if video_id is None and not track["isAvailable"]:
+            continue
+        if not isinstance(video_id, str) or not video_id.strip():
+            raise ValueError("Missing Liked Songs track ID")
+        tracks.append(track)
+    # parse_playlist_items omits deleted songs; the loop also omits identified unavailable rows.
+    return {"tracks": tracks, "unavailableCount": row_count - len(tracks), "continuation": token}
+
+
 def parse_playlist_item(
     data: JsonDict,
     is_album: bool = False,
@@ -273,6 +334,8 @@ def parse_playlist_item(
 
         if "watchEndpoint" in navigation_endpoint:
             title_index = index
+            if not videoId:
+                videoId = nav(navigation_endpoint, WATCH_VIDEO_ID, True)
         elif "browseEndpoint" in navigation_endpoint:
             page_type = nav(
                 navigation_endpoint,
@@ -316,11 +379,9 @@ def parse_playlist_item(
         views = get_item_text(data, views_index)
 
     duration = get_item_text(data, duration_index) if duration_index else None
-    if "fixedColumns" in data:
-        if "simpleText" in nav(get_fixed_column_item(data, 0), ["text"]):
-            duration = nav(get_fixed_column_item(data, 0), ["text", "simpleText"])
-        else:
-            duration = nav(get_fixed_column_item(data, 0), TEXT_RUN_TEXT)
+    if data.get("fixedColumns"):
+        text = nav(data, ["fixedColumns", 0, "musicResponsiveListItemFixedColumnRenderer", "text"])
+        duration = text["simpleText"] if "simpleText" in text else nav(text, RUN_TEXT)
 
     thumbnails = nav(data, THUMBNAILS, True)
 
@@ -344,7 +405,7 @@ def parse_playlist_item(
     )
 
     song = {
-        "videoId": videoId,
+        "videoId": videoId or nav(data, ["playlistItemData", "videoId"], True),
         "title": title,
         "artists": artists,
         "album": album,

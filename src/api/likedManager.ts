@@ -86,6 +86,7 @@ class LikedManager {
     let failed = false;
 
     let importState: YtImportState | null = null;
+    let discardCursor = false;
     try {
       const currentLocal = await likedStore.getAllTracks();
       const completedVersion = await likedStore.getYtImportCompletedVersion();
@@ -96,17 +97,20 @@ class LikedManager {
       if (!firstPage.tracks.length && !firstPage.unavailableCount && ytTotal !== 0) {
         throw new Error('Liked Songs response has no rows or confirmed empty count');
       }
-      const headIds = firstPage.tracks.slice(0, 10).map(track => track.id);
+      const headIds = firstPage.tracks.map(track => track.id);
       const savedImport = await likedStore.getYtImportState();
-      if (!savedImport && ytTotal !== null && currentLocal.length === ytTotal &&
-          (!firstPage.continuation || currentLocal.length > firstPage.tracks.length) &&
+      if (!savedImport && ytTotal !== null && currentLocal.length === ytTotal && firstPage.unavailableCount === 0 &&
+          (firstPage.continuation ? currentLocal.length > headIds.length : currentLocal.length === headIds.length) &&
           headIds.every((id, i) => currentLocal[i]?.trackId === id) &&
           await likedStore.getVirtualCount() === ytTotal &&
           completedVersion === YT_IMPORT_VERSION) return;
 
       const canResume = savedImport?.version === YT_IMPORT_VERSION &&
-        savedImport.status === 'importing' && savedImport.continuation !== null &&
-        savedImport.ytTotal === ytTotal && savedImport.headIds.length === headIds.length &&
+        (savedImport.status === 'importing' || savedImport.status === 'failed') && !!firstPage.continuation &&
+        typeof savedImport.continuation === 'string' && savedImport.continuation.length > 0 &&
+        Number.isSafeInteger(savedImport.unavailableCount) && savedImport.unavailableCount >= 0 &&
+        savedImport.headUnavailableCount === firstPage.unavailableCount &&
+        savedImport.ytTotal === ytTotal && Array.isArray(savedImport.headIds) && savedImport.headIds.length === headIds.length &&
         savedImport.headIds.every((id, i) => id === headIds[i]);
       if (savedImport && !canResume) await likedStore.clearYtImport();
 
@@ -116,7 +120,8 @@ class LikedManager {
       const now = Date.now();
       importState = canResume ? savedImport : {
         version: YT_IMPORT_VERSION, status: 'importing', ytTotal, unavailableCount: 0,
-        downloadedCount: 0, continuation: null, headIds, startedAt: now, updatedAt: now,
+        downloadedCount: 0, continuation: null, headIds, headUnavailableCount: firstPage.unavailableCount,
+        startedAt: now, updatedAt: now,
       };
 
       const publishCheckpoint = (state: YtImportState) => {
@@ -142,7 +147,7 @@ class LikedManager {
         // Hydration reads a separate DB: persist metadata before publishing any references.
         await tracksStore.upsertTracksBatch(newTracks);
         const nextState: YtImportState = {
-          ...previous, downloadedCount: entries.length + pageEntries.length,
+          ...previous, status: 'importing', downloadedCount: entries.length + pageEntries.length,
           unavailableCount: previous.unavailableCount + page.unavailableCount,
           continuation: page.continuation || null, updatedAt: Date.now(),
         };
@@ -156,11 +161,15 @@ class LikedManager {
       if (!canResume) importState = await addPage(firstPage, importState);
       while (revision === this.ytRevision && importState.continuation) {
         const token: string = importState.continuation;
-        if (requestedTokens.has(token)) throw new Error('Repeated Liked Songs continuation');
+        discardCursor = requestedTokens.has(token);
+        if (discardCursor) throw new Error('Repeated Liked Songs continuation');
         requestedTokens.add(token);
+        // A failed checkpoint gets one more request; an expired token must not trap later syncs.
+        discardCursor = importState.status === 'failed';
         const next = await getContinuation(token, true);
         if (revision !== this.ytRevision) return;
         importState = await addPage(next, importState);
+        discardCursor = false;
       }
       if (revision !== this.ytRevision) return;
       if ((ytTotal !== null && entries.length + importState.unavailableCount < ytTotal) ||
@@ -177,7 +186,7 @@ class LikedManager {
         ...entry,
         originalIndex: index,
         syncedAt,
-        likedAt: likedAtMap.get(entry.trackId) ?? (completedVersion === YT_IMPORT_VERSION && !likedAtMap.has(entry.trackId) ? syncedAt : undefined),
+        likedAt: likedAtMap.get(entry.trackId) ?? (completedVersion >= 2 && !likedAtMap.has(entry.trackId) ? syncedAt : undefined),
       }));
       this.setProgress({ phase: 'saving' });
       await likedStore.commitYtImport(finalEntries, ytTotal ?? entries.length + importState.unavailableCount);
@@ -186,7 +195,10 @@ class LikedManager {
       console.error('[liked] sync failed:', error);
       if (importState) {
         try {
-          await likedStore.setYtImportState({ ...importState, status: 'failed', updatedAt: Date.now() });
+          await likedStore.setYtImportState({
+            ...importState, status: 'failed', continuation: discardCursor ? null : importState.continuation,
+            updatedAt: Date.now(),
+          });
         } catch (stateError) {
           console.error('[liked] failed to save import checkpoint:', stateError);
         }

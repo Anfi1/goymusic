@@ -224,7 +224,18 @@ class PlaylistsMixin(MixinProtocol):
 
         playlist["tracks"] = []
         content_data = nav(section_list, [*CONTENT, "musicPlaylistShelfRenderer"])
-        if "contents" in content_data:
+        if playlistId in ("LM", "VLLM"):
+            playlist.update(parse_liked_playlist_shelf(content_data))
+            seen_tokens = set()
+            while limit is not None and len(playlist["tracks"]) < limit and (token := playlist["continuation"]):
+                if token in seen_tokens:
+                    raise ValueError("Repeated Liked Songs continuation")
+                seen_tokens.add(token)
+                page = parse_liked_continuation(request_func_continuations({"continuation": token}))
+                playlist["tracks"].extend(page["tracks"])
+                playlist["unavailableCount"] += page["unavailableCount"]
+                playlist["continuation"] = page["continuation"]
+        elif "contents" in content_data:
             playlist["tracks"] = parse_playlist_items(
                 content_data["contents"], is_collaborative=is_collaborative
             )

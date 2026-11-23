@@ -2,6 +2,7 @@
 import sys
 
 from ytmusicapi.navigation import SINGLE_COLUMN_TAB, nav
+from ytmusicapi.parsers.playlists import parse_liked_continuation
 
 from .account import fetch_account_info, playlist_to_dict
 from .formatting import clean_duration, parse_watch_video_renderer, track_to_dict
@@ -20,17 +21,25 @@ def get_playlists(request, ctx):
     ctx.emit({'status': 'ok', 'playlists': formatted})
 
 
+def _liked_tracks(playlist):
+    tracks = [track_to_dict(t) for t in playlist['tracks']]
+    if any(t is None for t in tracks):
+        raise ValueError('Could not format a Liked Songs track')
+    return tracks
+
+
 def get_liked_songs(request, ctx):
     api = ctx.get_api()
     limit = request.get('limit')
     liked = api.get_liked_songs(limit=limit)
-    tracks = [track_to_dict(t) for t in liked.get('tracks', []) if track_to_dict(t)]
+    tracks = _liked_tracks(liked)
     ctx.emit({
         'status': 'ok',
         'id': 'LM',
         'audioPlaylistId': 'LM',
         'tracks': tracks,
         'trackCount': liked.get('trackCount', len(tracks)),
+        'unavailableCount': liked['unavailableCount'],
         'continuation': liked.get('continuation'),
         'owned': True,
         'privacy': 'PRIVATE',
@@ -41,8 +50,16 @@ def get_continuation(request, ctx):
     token = request.get('token')
     api = ctx.get_api()
 
+    liked = request.get('liked') is True
+    if liked and (not isinstance(token, str) or not token.strip()):
+        raise ValueError('Missing Liked Songs continuation token')
     # YouTube Music continuation request
     response = api._send_request("browse", {"continuation": token})
+    if liked:
+        page = parse_liked_continuation(response)
+        page['tracks'] = _liked_tracks(page)
+        ctx.emit({'status': 'ok', **page})
+        return
 
     # Extract items and next token
     from ytmusicapi.continuations import get_continuation_token, CONTINUATION_ITEMS
@@ -117,7 +134,7 @@ def get_playlist_tracks(request, ctx):
             # LM must never use a playback queue as the account's list of likes.
             is_liked = playlist_id in ('LM', 'VLLM')
             playlist = api.get_liked_songs(limit=None) if is_liked else api.get_playlist(playlist_id, limit=limit)
-            tracks = [row for t in playlist['tracks'] if (row := track_to_dict(t))]
+            tracks = _liked_tracks(playlist) if is_liked else [row for t in playlist['tracks'] if (row := track_to_dict(t))]
 
             author_data = playlist.get('author')
             author = None

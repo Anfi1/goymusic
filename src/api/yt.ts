@@ -572,9 +572,13 @@ export async function sendFeedback(token: string): Promise<boolean> {
 }
 
 export async function getContinuation(token: string, liked = false): Promise<{ tracks: YTMTrack[], continuation: string | null, unavailableCount: number }> {
-    const res = await pyCall('get_continuation', { token });
-    if (liked && (res.status !== 'ok' || !Array.isArray(res.tracks) || (!res.tracks.length && !res.unavailableCount))) {
-        throw new Error(res.message || 'Liked Songs continuation unavailable');
+    const res = await pyCall('get_continuation', liked ? { token, liked: true } : { token });
+    if (liked) {
+        const hasCursor = res.continuation === null || (typeof res.continuation === 'string' && res.continuation.length > 0);
+        const explicitPage = hasCursor && Number.isSafeInteger(res.unavailableCount) && res.unavailableCount >= 0;
+        if (res.status !== 'ok' || !Array.isArray(res.tracks) || (!res.tracks.length && !explicitPage)) {
+            throw new Error(res.message || 'Liked Songs continuation unavailable');
+        }
     }
     if (res.status === 'ok') {
         return {

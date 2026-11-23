@@ -7,10 +7,11 @@ Desktop YouTube Music player built with Electron + React + Python.
 - YouTube Music streaming with account authentication
 - YouTube Music Home keeps **Listen again** first and **Quick picks** second when both shelves are available. Other shelves keep their feed order.
 - Shared YouTube videos can open the uploader's channel from the player. Channel profiles show uploaded videos, which play as audio; artist profiles keep their music catalog.
+- On Yandex Music Home, clicking a song or its Play button starts that song and keeps the rest of the shelf in the queue, including tracks beyond the first 20 cards.
 - Crossfade playback with dual audio engine
 - Live spectrum and EQ response, with built-in Flat, Bass Boost, Rock, Vocal Focus and Warm presets. Saved presets remain separate from the built-ins.
 - Discord Rich Presence integration
-- Playlist management, liked songs, history
+- Playlist management, liked songs, history. If a YouTube likes sync is interrupted, the next sync can resume at the last saved page. An incomplete response does not replace the previous list.
 - Lyrics view
 - Search with suggestions
 - Deck desktop layout: centered playback controls, full-width seek bar, and optional Nyan Cat on the progress bar. Switch in **Settings → Appearance → new Experement Layout** without restarting. Right-click the current track for track actions.
