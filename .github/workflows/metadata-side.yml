@@ -25,7 +25,6 @@ jobs:
           $stable=Fetch-Setup '7.1.16' 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA=='
           $dir="$env:RUNNER_TEMP\Current GoyMusic"
           if ((Start-Process $stable -ArgumentList '/S',"/D=$dir" -Wait -PassThru).ExitCode) { throw 'Cannot install stable control in disposable VM.' }
-          7z e $stable -r app-64.7z -otools | Out-Null
           $installedHash=(Get-FileHash "$dir/GoyMusic.exe").Hash
           $p=Start-Process "$dir/GoyMusic.exe" -PassThru
           Start-Sleep -Seconds 15

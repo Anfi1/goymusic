@@ -42,7 +42,10 @@ $baseline=@(Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object { 
 $result=[ordered]@{version='7.1.16';status='incomplete';runs=@();originalWindows=$baseline.Count;originalsStillRunning=$null;cleanupComplete=$false}
 $user=$null; $launcher=$null; $pw=$null; $app=$null
 try {
-    Copy-Item -LiteralPath "$PSScriptRoot/app-64.7z" -Destination "$stage/app-64.7z"
+    Write-Host 'Downloading the official 7.1.16 test payload (185 MiB). No installer is run.'
+    $url='https://github.com/Anfi1/goymusic/releases/download/v7.1.16/GoyMusic-Setup-7.1.16.exe'
+    & "$env:SystemRoot\System32\curl.exe" -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 600 --range '525785-194096880' --output "$stage/app-64.7z" $url
+    if ($LASTEXITCODE) { throw 'Cannot download the test payload. The installed player was not changed.' }
     if ((Get-FileHash "$stage/app-64.7z").Hash -ne 'a7dbe1c2cff1605d4936241e3429025092575eb410c1f9f2e8f4d7a61d523a2c') { throw 'Unexpected official payload.' }
     & "$env:WINDIR\System32\tar.exe" -xf "$stage/app-64.7z" -C $dir; if ($LASTEXITCODE) { throw 'Cannot unpack official payload.' }
     $stock="$stage/stock.exe"; $variant="$stage/variant.exe"
