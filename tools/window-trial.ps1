@@ -7,6 +7,10 @@ if (!$Hosted -and ([Security.Principal.WindowsPrincipal]::new([Security.Principa
 if (Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object Path -eq $exe) { throw 'Close the previous test window first.' }
 $report=Join-Path $PSScriptRoot 'window-trial-result.json'
 $records=@(); $labels='A','B','A2'; $os=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+trap {
+    if ($Hosted) { Write-Host "::error::${label}: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" }
+    break
+}
 Write-Host 'Open Task Manager > Processes. Keep your usual sorting. Three short runs; only the test player is closed.'
 foreach ($label in $labels) {
     $launch=@{FilePath=$exe;WorkingDirectory=(Split-Path $exe);PassThru=$true}
@@ -14,7 +18,7 @@ foreach ($label in $labels) {
     $p=Start-Process @launch
     try {
         Start-Sleep -Seconds 30
-        $p.Refresh(); if ($p.HasExited -or !$p.MainWindowHandle) { throw "No visible test player in $label" }
+        $p.Refresh(); if ($p.HasExited -or $p.MainWindowHandle -eq [IntPtr]::Zero) { throw "No visible test player in $label" }
         $session=$p.SessionId
         $family=@(Get-CimInstance Win32_Process -Filter "Name='GoyMusic.exe' AND SessionId=$session" | Where-Object { $_.ExecutablePath -eq $exe })
         if ($family.Count -lt 2 -or $family.ProcessId -notcontains $p.Id -or !($family | Where-Object ParentProcessId -eq $p.Id)) { throw 'Electron process tree not available.' }
@@ -24,13 +28,18 @@ foreach ($label in $labels) {
             & "$PSHOME/powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot/check-goymusic-group.ps1" -OutFile $out
             if ($LASTEXITCODE) { throw 'Cannot read Task Manager.' }
             $snapshot=Get-Content $out -Raw | ConvertFrom-Json
+            $signatures=@()
             $observed=@(foreach ($s in $snapshot.samples) {
                 if ($s.uiError) { throw $s.uiError }
-                $seen=@($s.processes | Where-Object { $_.pid -in $family.ProcessId -and $_.taskManagerRows.Count })
-                if ($seen.Count -ne $family.Count) { throw 'Task Manager did not expose every test PID.' }
+                $root=@($s.processes | Where-Object { $_.pid -eq $p.Id -and $_.role -eq 'main' })
+                if ($root.Count -ne 1 -or $root[0].install -eq 'unknown') { throw 'Unverified player root.' }
+                $seen=@($s.processes | Where-Object { $_.install -eq $root[0].install })
+                if ($seen.role -notcontains 'renderer' -or @($seen | Where-Object { !$_.taskManagerRows.Count -or ($_.pid -ne $p.Id -and $_.parent -ne $p.Id) }).Count) { throw 'Incomplete Task Manager process tree.' }
+                $signatures+=@(($seen.pid -join ','))
                 $groups=@(foreach ($r in $seen) { $entry=$r.taskManagerRows[0]; if ($entry.parentGoyMusicRow) {$entry.parentGoyMusicRow} else {$entry.row} })
                 if (@($groups | Select-Object -Unique).Count -eq 1) {'grouped'} else {'split'}
             })
+            if (@($signatures | Select-Object -Unique).Count -ne 1) { throw 'Process membership changed between samples.' }
             $state=if (@($observed | Select-Object -Unique).Count -eq 1) {$observed[0]} else {'unclear'}
         } catch {
             if ($Hosted) { throw }
@@ -44,6 +53,11 @@ foreach ($label in $labels) {
     } finally {
         if (!$p.HasExited) { $p.Refresh(); if (!$p.CloseMainWindow() -or !$p.WaitForExit(20000)) { throw 'Test player did not close normally; no process was killed.' } }
         $p.Dispose()
+    }
+    $deadline=[datetime]::UtcNow.AddSeconds(20)
+    while (Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object Path -eq $exe) {
+        if ([datetime]::UtcNow -gt $deadline) { throw 'Test helpers did not exit, no second launch attempted.' }
+        Start-Sleep -Milliseconds 250
     }
 }
 Write-Host "Result: $verdict. Report: $report"
