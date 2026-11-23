@@ -40,7 +40,7 @@ $null=New-Item -ItemType Directory $dir
 $session=(Get-Process -Id $PID).SessionId
 $baseline=@(Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [pscustomobject]@{pid=$_.Id;time=$_.StartTime} })
 $result=[ordered]@{version='7.0.14';status='unmeasured';samples=@();originalWindows=$baseline.Count;originalsStillRunning=$null;cleanupComplete=$false}
-$user=$null; $worker=$null; $pw=$null; $app=$null
+$user=$null; $launcher=$null; $pw=$null; $app=$null
 try {
     Copy-Item -LiteralPath "$PSScriptRoot/app-64.7z" -Destination "$stage/app-64.7z"
     if ((Get-FileHash "$stage/app-64.7z").Hash -ne 'F0CD37C1F84616162F1BE65DDEA21FA7685395EED474096F31E05AD2B440D16D') { throw 'Unexpected official payload.' }
@@ -63,10 +63,10 @@ $exe=Join-Path $PSScriptRoot 'player\GoyMusic.exe'; $app=Start-Process -FilePath
 '@
     [IO.File]::WriteAllText("$stage/launch.ps1",$child.Replace('__SID__',$user.SID.Value),$utf8)
     $cred=[Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$name",$pw)
-    $worker=Start-Process $ps -Credential $cred -LoadUserProfile -WorkingDirectory $dir -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$stage/launch.ps1`"" -PassThru
+    $launcher=Start-Process $ps -Credential $cred -LoadUserProfile -WorkingDirectory $dir -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$stage/launch.ps1`"" -PassThru
     for ($i=0;$i -lt 60;$i++) {
         $app=Get-Process GoyMusic -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe -and $_.SessionId -eq $session -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-        if ($app) {break}; if ($worker.HasExited) {throw 'Temporary account could not start the player.'}; Start-Sleep -Seconds 1
+        if ($app) {break}; if ($launcher.HasExited) {throw 'Temporary account could not start the player.'}; Start-Sleep -Seconds 1
     }
     if (!$app) { throw 'No 7.0.14 window on the interactive desktop.' }
     $result.mainPid=$app.Id; Write-Host "Official 7.0.14 PID: $($app.Id). Do not sign in or click Update. Open Task Manager > Processes."
@@ -95,6 +95,7 @@ finally {
         if ($app -and !$app.HasExited) { $null=$app.CloseMainWindow(); $null=$app.WaitForExit(8000) }
         if ($user) {
             # Только процессы SID, созданного этим запуском, включая оставшиеся скрытые окна старой версии.
+            if ($launcher -and !$launcher.HasExited) { $null=$launcher.WaitForExit(3000) }
             $owned=@(Get-Process -IncludeUserName -ErrorAction SilentlyContinue | Where-Object UserName -eq "$env:COMPUTERNAME\$name")
             foreach ($proc in $owned) { if (!$proc.HasExited) { $proc.Kill(); $null=$proc.WaitForExit(5000) } }
             $sid=$user.SID.Value; Remove-LocalUser -SID $user.SID
