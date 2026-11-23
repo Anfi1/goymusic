@@ -90,7 +90,16 @@ $exe=Join-Path $PSScriptRoot 'player\GoyMusic.exe'; $app=Start-Process -FilePath
     $isStock=$mode[0] -eq 'A'
     $source=if ($isStock) {$stock} else {$variant}
     $expected=if ($isStock) {$stockHash} else {$variantHash}
-    Copy-Item -LiteralPath $source -Destination $exe -Force
+    # После выхода Диспетчер может еще держать отображение EXE. Не пишем поверх него.
+    if ($mode -ne 'A1') {
+        $retired=Join-Path $dir ("retired-$mode.exe")
+        $deadline=[datetime]::UtcNow.AddSeconds(30)
+        while ($true) {
+            try { [IO.File]::Move($exe,$retired); break }
+            catch [IO.IOException] { if ([datetime]::UtcNow -ge $deadline) { throw }; Start-Sleep -Milliseconds 500 }
+        }
+        [IO.File]::Copy($source,$exe)
+    }
     $vi=[Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
     if ((Get-FileHash $exe).Hash -ne $expected -or $vi.ProductVersion -ne '7.1.16.0' -or ($isStock -and ($vi.CompanyName -ne 'GitHub, Inc.' -or $vi.OriginalFilename)) -or (!$isStock -and ($vi.CompanyName -ne 'GoyMusic' -or $vi.OriginalFilename -ne 'GoyMusic.exe'))) { throw "Wrong executable metadata in $mode" }
     $run=[ordered]@{mode=$mode;company=$vi.CompanyName;originalFilename=$vi.OriginalFilename;status='unmeasured';samples=@()}
