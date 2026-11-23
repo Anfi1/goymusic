@@ -1,0 +1,48 @@
+name: Unmodified 7.0.14 beside installed 7.1.16
+on:
+  push:
+    branches: [qa/official-group-716]
+    paths: ['.github/workflows/official-7014-side.yml','tools/official-7014.*']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify official old payload and preserve a live current installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; $PSNativeCommandUseErrorActionPreference=$true
+          function Fetch-Setup($v,$sha) {
+            $setup="$env:RUNNER_TEMP\setup-$v.exe"
+            Invoke-WebRequest "https://github.com/Anfi1/goymusic/releases/download/v$v/GoyMusic-Setup-$v.exe" -OutFile $setup
+            if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup -Algorithm SHA512).Hash)) -cne $sha) { throw "Hash mismatch $v" }; $setup
+          }
+          $stable=Fetch-Setup '7.1.16' 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA=='
+          $dir="$env:RUNNER_TEMP\Current GoyMusic"
+          if ((Start-Process $stable -ArgumentList '/S',"/D=$dir" -Wait -PassThru).ExitCode) { throw 'Cannot install stable control in disposable VM.' }
+          $old=Fetch-Setup '7.0.14' 'RV3WUpTybex+5x2ghdR/RmGr2lkmaKTzoyZ221uJLu9n7qqMoh1sqTTdOAKitNjjVQ7Jzo1l9m86onpEFswTaQ=='
+          7z e $old -r app-64.7z -otools | Out-Null
+          $p=Start-Process "$dir/GoyMusic.exe" -PassThru
+          Start-Sleep -Seconds 15
+          function Protocol { (Get-Item 'HKCU:\Software\Classes\goymusic\shell\open\command').GetValue('') }
+          $before=Protocol; if (!$before.Contains($dir)) { throw 'Current user protocol not registered to current player.' }
+          $marker=Join-Path $env:APPDATA 'GoyMusic\qa-side-by-side'; $unique=[guid]::NewGuid().ToString(); Set-Content $marker -Value $unique -NoNewline
+          Start-Process "$env:WINDIR\System32\Taskmgr.exe"; Start-Sleep -Seconds 4
+          . ./.github/workflows/memory-sort.ps1
+          $tm=Get-Process Taskmgr | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+          if (!$tm -or !(Select-MemoryDescending $tm.MainWindowHandle)) { throw 'Cannot open Processes view.' }
+          & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./tools/official-7014.ps1 -Hosted
+          $r=Get-Content tools/official-7014-result.json -Raw | ConvertFrom-Json
+          if ($p.HasExited -or !(Test-Path "$dir/GoyMusic.exe") -or (Protocol) -cne $before -or (Get-Content $marker -Raw) -cne $unique) { throw 'Current player, handler or profile changed.' }
+          if (!$r.cleanupComplete -or $r.originalWindows -lt 1 -or $r.originalsStillRunning -ne $r.originalWindows -or $r.status -eq 'unmeasured') { throw 'Invalid side-by-side run.' }
+          $r | ConvertTo-Json -Depth 4 >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-7014-observations
+          path: tools/official-7014-result.json
