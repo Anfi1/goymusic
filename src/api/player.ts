@@ -1021,7 +1021,10 @@ class PlayerStore {
         }
     }
 
-    private async startPlayback(track: YTMTrack, isRetry: boolean = false, startTime: number = 0) {
+    private async startPlayback(
+        track: YTMTrack, isRetry = false, startTime = 0,
+        alternate?: { track: YTMTrack; entry: CacheEntry },
+    ) {
         const currentPlaybackId = ++this.playbackId;
 
         // Свежий (не ретрай) запуск трека снова даёт право на SC/Yandex-фолбэк.
@@ -1050,6 +1053,7 @@ class PlayerStore {
         if (!isRetry) this.yaFinish('skip');
 
         await this.initAudioContext();
+        if (currentPlaybackId !== this.playbackId) return;
         this.currentTime = startTime;
         this.duration = this.parseDuration(track.duration);
         this.buffered = [];
@@ -1058,11 +1062,31 @@ class PlayerStore {
         if (!isRetry) this.wtPlaybackSent = false;
         if (track.source === 'yandex' && track.yandexId) this.yaStart(track);
         this.saveState();
-        this.notify('state'); 
-        
+        this.notify('state');
+
         if (this.recommendations.length < 5 && !this.isRecommendationsLoading) {
             this.fetchRecommendations(track.id);
         }
+
+        const recover = async () => {
+            if (currentPlaybackId !== this.playbackId) return;
+            if (!isRetry) {
+                void this.startPlayback(track, true, startTime);
+                return;
+            }
+            if (!alternate) {
+                const replacement = await this.findYouTubeFallback(track, currentPlaybackId);
+                if (currentPlaybackId !== this.playbackId) return;
+                if (replacement) {
+                    void this.startPlayback(track, true, startTime, replacement);
+                    return;
+                }
+            }
+            if (await this.tryScFallback(track, startTime, currentPlaybackId)) return;
+            if (currentPlaybackId !== this.playbackId) return;
+            if (await this.tryYandexFallback(track, startTime, currentPlaybackId)) return;
+            if (currentPlaybackId === this.playbackId) this.handleFinalError();
+        };
 
         try {
             // Гарантируем маршрутизацию SC/Yandex-стрима даже для треков из восстановленной очереди
@@ -1074,78 +1098,124 @@ class PlayerStore {
             const tUrl = performance.now();
             // длительность из строки трека -- эталон, по которому бэкенд отличает клип
             // с чужой записью от нормального и при расхождении ищет версию нужной длины
-            const entry = await getStreamUrl(track.id, isRetry, this.parseDuration(track.duration) || undefined);
-            
+            const entry = alternate?.entry ?? await getStreamUrl(track.id, isRetry, this.parseDuration(track.duration) || undefined);
+
             if (currentPlaybackId !== this.playbackId) return;
 
             if (entry) {
                 const tUrlDone = performance.now();
                 this.isCurrentTrackLocal = entry.url.startsWith('file:///');
-                this.audioA.src = entry.url;
+                const streamTrack = alternate?.track ?? track;
                 this.audioA.volume = this.volume / 100;
                 this.audioB.volume = this.volume / 100;
 
                 this.applyNormalization(entry.loudness ?? null);
-                this.ensureLoudnessFor(track.id, entry);
+                this.ensureLoudnessFor(streamTrack.id, entry);
 
                 const onMediaError = async () => {
                     this.audioA.removeEventListener('error', onMediaError);
                     this.audioA.removeEventListener('canplay', onCanPlay);
                     if (currentPlaybackId !== this.playbackId) return;
-                    if (this.isCurrentTrackLocal) {
+                    if (this.isCurrentTrackLocal && !alternate) {
                         // File missing — remove override and retry with YTM stream
                         this.isCurrentTrackLocal = false;
                         await deleteOverride(track.id);
                         this.startPlayback(track, true, startTime);
                         return;
                     }
-                    if (!isRetry) this.startPlayback(track, true, startTime);
-                    else if (!(await this.tryScFallback(track, startTime)) && !(await this.tryYandexFallback(track, startTime))) this.handleFinalError();
+                    await recover();
                 };
 
                 const onCanPlay = async () => {
                     this.audioA.removeEventListener('canplay', onCanPlay);
                     this.audioA.removeEventListener('error', onMediaError);
                     if (currentPlaybackId !== this.playbackId) return;
-                    this.isStreamLoading = false;
-                    this.consecutiveErrors = 0;
-                    this.errorSkipCount = 0;
-                    console.log(`[perf] ${track.id}: ссылка ${(tUrlDone - tUrl).toFixed(0)}мс, аудио до canplay ${(performance.now() - tUrlDone).toFixed(0)}мс`);
-                    console.log(`[watchtime] onCanPlay: isPlaying=${this.isPlaying} watchtimeUrl=${entry.watchtimeUrl ? 'YES' : 'NO'} playbackUrl=${entry.playbackUrl ? 'YES' : 'NO'}`);
-                    if (!this.isPlaying) { this.notify('state'); return; }
+                    if (!this.isPlaying) {
+                        this.isStreamLoading = false;
+                        this.notify('state');
+                        return;
+                    }
                     try {
                         if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
+                        if (currentPlaybackId !== this.playbackId) return;
+                        if (!this.isPlaying) {
+                            this.isStreamLoading = false;
+                            this.notify('state');
+                            return;
+                        }
                         if (startTime > 0) {
                             this.audioA.currentTime = startTime;
                             this.currentTime = startTime;
                         }
                         await this.audioA.play();
+                        if (currentPlaybackId !== this.playbackId) return;
+                        this.isStreamLoading = false;
+                        this.consecutiveErrors = 0;
+                        this.errorSkipCount = 0;
+                        console.log(`[perf] ${streamTrack.id}: ссылка ${(tUrlDone - tUrl).toFixed(0)}мс, аудио до canplay ${(performance.now() - tUrlDone).toFixed(0)}мс`);
+                        this.notify('state');
+                        if (!this.isPlaying) return;
+                        if (alternate && this.currentTrack?.id === track.id && this.currentTrack.likeStatus === 'LIKE' &&
+                            (!streamTrack.likeStatus || streamTrack.likeStatus === 'INDIFFERENT')) {
+                            void likedManager.toggleLike(streamTrack, 'INDIFFERENT')
+                                .catch(error => console.warn('[player] Could not like YouTube fallback', error));
+                        }
                         this.initWatchtime(entry);
                         this.prefetchBuffer();
-                    } catch (e: any) {
-                        if (e.name === 'NotSupportedError' && this.isPlaying) this.next();
+                    } catch (error) {
+                        if (currentPlaybackId !== this.playbackId) return;
+                        if (error instanceof DOMException && error.name === 'NotSupportedError') await recover();
+                        else {
+                            this.isStreamLoading = false;
+                            this.notify('state');
+                        }
                     }
                 };
-                
+
                 this.audioA.addEventListener('error', onMediaError);
                 this.audioA.addEventListener('canplay', onCanPlay);
-            } else {
-                if (!isRetry) this.startPlayback(track, true, startTime);
-                else if (!(await this.tryScFallback(track, startTime)) && !(await this.tryYandexFallback(track, startTime))) this.handleFinalError();
+                this.audioA.src = entry.url;
+                return;
             }
-        } catch (e) {
-            if (currentPlaybackId === this.playbackId) {
-                if (!isRetry) this.startPlayback(track, true, startTime);
-                else if (!(await this.tryScFallback(track, startTime)) && !(await this.tryYandexFallback(track, startTime))) this.handleFinalError();
-            }
+        } catch (error) {
+            console.warn('[player] Could not load stream', error);
         }
+        await recover();
     }
 
+    private async findYouTubeFallback(track: YTMTrack, playbackId: number) {
+        const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase();
+        const artist = track.artists?.[0];
+        const title = normalize(track.title);
+        const duration = this.parseDuration(track.duration);
+        if ((track.source && track.source !== 'youtube') || !artist || !title || !(duration > 0)) return null;
+
+        try {
+            const songs: YTMTrack[] = await searchMore(`${artist} ${track.title}`, 0, 'songs');
+            const artistName = normalize(artist);
+            const seen = new Set([track.id]);
+            let attempted = 0;
+            for (const song of songs) {
+                if (playbackId !== this.playbackId) return null;
+                if (!song.id || seen.has(song.id) || song.isAvailable === false || normalize(song.title) !== title ||
+                    !song.artists?.some(name => normalize(name) === artistName)) continue;
+                const seconds = this.parseDuration(song.duration);
+                if (!(seconds > 0) || Math.abs(seconds - duration) > 5) continue;
+                seen.add(song.id);
+                const entry = await getStreamUrl(song.id, false, seconds);
+                if (entry && /^https:\/\/(?:[\w-]+\.)*googlevideo\.com\//i.test(entry.url)) return { track: song, entry };
+                if (++attempted === 3) break;
+            }
+        } catch (error) {
+            console.warn('[player] Could not find YouTube fallback', error);
+        }
+        return null;
+    }
     /**
      * YT-стрим не доступен → ищем трек в SoundCloud по «artist title», матчим по длительности
      * и играем из SC, регистрируя SC-URL на исходный track.id. Возвращает true, если фолбэк запущен.
      */
-    private async tryScFallback(track: YTMTrack, startTime: number): Promise<boolean> {
+    private async tryScFallback(track: YTMTrack, startTime: number, playbackId: number): Promise<boolean> {
         if (!isSoundCloudEnabled() || track.source === 'soundcloud') return false;
         if (this.scFallbackTried.has(track.id)) return false;
         this.scFallbackTried.add(track.id);
@@ -1155,6 +1225,7 @@ class PlayerStore {
         console.log(`[player] YT unavailable for ${track.id}, trying SoundCloud fallback: "${query}"`);
 
         const results = await searchSoundCloud(query);
+        if (playbackId !== this.playbackId) return false;
         const match = pickBestScMatch(results, this.parseDuration(track.duration));
         if (!match?.scUrl) {
             console.warn(`[player] SoundCloud fallback found no match for "${query}"`);
@@ -1179,7 +1250,7 @@ class PlayerStore {
      * Аналог tryScFallback для Yandex Music: если YT (и SC) недоступны, ищем трек
      * в Yandex по «artist title» и играем оттуда.
      */
-    private async tryYandexFallback(track: YTMTrack, startTime: number): Promise<boolean> {
+    private async tryYandexFallback(track: YTMTrack, startTime: number, playbackId: number): Promise<boolean> {
         if (!isYandexEnabled() || track.source === 'yandex') return false;
         if (this.yandexFallbackTried.has(track.id)) return false;
         this.yandexFallbackTried.add(track.id);
@@ -1189,6 +1260,7 @@ class PlayerStore {
         console.log(`[player] YT/SC unavailable for ${track.id}, trying Yandex fallback: "${query}"`);
 
         const results = await searchYandex(query);
+        if (playbackId !== this.playbackId) return false;
         const match = pickBestScMatch(results, this.parseDuration(track.duration));
         if (!match?.yandexId) {
             console.warn(`[player] Yandex fallback found no match for "${query}"`);

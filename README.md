@@ -5,6 +5,7 @@ Desktop YouTube Music player built with Electron + React + Python.
 ## Features
 
 - YouTube Music streaming with account authentication
+- When a YouTube Music stream is unavailable, the player looks for another YouTube Music version before trying SoundCloud. It only likes the replacement after playback starts and only if the original was liked.
 - YouTube Music Home keeps **Listen again** first and **Quick picks** second when both shelves are available. Other shelves keep their feed order.
 - Shared YouTube videos can open the uploader's channel from the player. Channel profiles show uploaded videos, which play as audio; artist profiles keep their music catalog.
 - On Yandex Music Home, clicking a song or its Play button starts that song and keeps the rest of the shelf in the queue, including tracks beyond the first 20 cards.
