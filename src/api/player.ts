@@ -65,6 +65,7 @@ class PlayerStore {
     private bufferListeners: Set<PlayerCallback> = new Set();
     private updateInterval: any = null;
     private playbackId: number = 0;
+    private playingYouTubeAlternate = false;
     private consecutiveErrors: number = 0;
     private _seekedToEnd: boolean = false;
 
@@ -525,6 +526,10 @@ class PlayerStore {
             
             audio.addEventListener('play', () => {
                 if (this.activePlayer !== playerLabel) return;
+                if (this.isStreamLoading && !this.isPlaying) {
+                    audio.pause();
+                    return;
+                }
                 this.isPlaying = true;
                 if (this.audioContext?.state === 'suspended') this.audioContext.resume();
                 this.startTimer();
@@ -1023,9 +1028,10 @@ class PlayerStore {
 
     private async startPlayback(
         track: YTMTrack, isRetry = false, startTime = 0,
-        alternate?: { track: YTMTrack; entry: CacheEntry },
+        alternate?: { track: YTMTrack; entry: CacheEntry }, skipYouTubeFallback = false,
     ) {
         const currentPlaybackId = ++this.playbackId;
+        this.playingYouTubeAlternate = false;
 
         // Свежий (не ретрай) запуск трека снова даёт право на SC/Yandex-фолбэк.
         if (!isRetry) { this.scFallbackTried.delete(track.id); this.yandexFallbackTried.delete(track.id); }
@@ -1070,13 +1076,23 @@ class PlayerStore {
 
         const recover = async () => {
             if (currentPlaybackId !== this.playbackId) return;
+            if (!this.isPlaying) {
+                this.isStreamLoading = false;
+                this.notify('state');
+                return;
+            }
             if (!isRetry) {
                 void this.startPlayback(track, true, startTime);
                 return;
             }
-            if (!alternate) {
+            if (!alternate && !skipYouTubeFallback) {
                 const replacement = await this.findYouTubeFallback(track, currentPlaybackId);
                 if (currentPlaybackId !== this.playbackId) return;
+                if (!this.isPlaying) {
+                    this.isStreamLoading = false;
+                    this.notify('state');
+                    return;
+                }
                 if (replacement) {
                     void this.startPlayback(track, true, startTime, replacement);
                     return;
@@ -1120,6 +1136,7 @@ class PlayerStore {
                         // File missing — remove override and retry with YTM stream
                         this.isCurrentTrackLocal = false;
                         await deleteOverride(track.id);
+                        if (currentPlaybackId !== this.playbackId) return;
                         this.startPlayback(track, true, startTime);
                         return;
                     }
@@ -1150,11 +1167,16 @@ class PlayerStore {
                         await this.audioA.play();
                         if (currentPlaybackId !== this.playbackId) return;
                         this.isStreamLoading = false;
+                        if (!this.isPlaying) {
+                            this.audioA.pause();
+                            this.notify('state');
+                            return;
+                        }
+                        this.playingYouTubeAlternate = !!alternate;
                         this.consecutiveErrors = 0;
                         this.errorSkipCount = 0;
                         console.log(`[perf] ${streamTrack.id}: ссылка ${(tUrlDone - tUrl).toFixed(0)}мс, аудио до canplay ${(performance.now() - tUrlDone).toFixed(0)}мс`);
                         this.notify('state');
-                        if (!this.isPlaying) return;
                         if (alternate && this.currentTrack?.id === track.id && this.currentTrack.likeStatus === 'LIKE' &&
                             (!streamTrack.likeStatus || streamTrack.likeStatus === 'INDIFFERENT')) {
                             void likedManager.toggleLike(streamTrack, 'INDIFFERENT')
@@ -1198,7 +1220,7 @@ class PlayerStore {
             for (const song of songs) {
                 if (playbackId !== this.playbackId) return null;
                 if (!song.id || seen.has(song.id) || song.isAvailable === false || normalize(song.title) !== title ||
-                    !song.artists?.some(name => normalize(name) === artistName)) continue;
+                    normalize(song.artists?.[0] ?? '') !== artistName) continue;
                 const seconds = this.parseDuration(song.duration);
                 if (!(seconds > 0) || Math.abs(seconds - duration) > 5) continue;
                 seen.add(song.id);
@@ -1211,6 +1233,7 @@ class PlayerStore {
         }
         return null;
     }
+
     /**
      * YT-стрим не доступен → ищем трек в SoundCloud по «artist title», матчим по длительности
      * и играем из SC, регистрируя SC-URL на исходный track.id. Возвращает true, если фолбэк запущен.
@@ -1225,7 +1248,7 @@ class PlayerStore {
         console.log(`[player] YT unavailable for ${track.id}, trying SoundCloud fallback: "${query}"`);
 
         const results = await searchSoundCloud(query);
-        if (playbackId !== this.playbackId) return false;
+        if (playbackId !== this.playbackId || !this.isPlaying) return false;
         const match = pickBestScMatch(results, this.parseDuration(track.duration));
         if (!match?.scUrl) {
             console.warn(`[player] SoundCloud fallback found no match for "${query}"`);
@@ -1260,7 +1283,7 @@ class PlayerStore {
         console.log(`[player] YT/SC unavailable for ${track.id}, trying Yandex fallback: "${query}"`);
 
         const results = await searchYandex(query);
-        if (playbackId !== this.playbackId) return false;
+        if (playbackId !== this.playbackId || !this.isPlaying) return false;
         const match = pickBestScMatch(results, this.parseDuration(track.duration));
         if (!match?.yandexId) {
             console.warn(`[player] Yandex fallback found no match for "${query}"`);
@@ -1608,6 +1631,7 @@ class PlayerStore {
         await this.initAudioContext();
         if (this.isStreamLoading) {
             this.isPlaying = !this.isPlaying;
+            if (!this.isPlaying) this.activeAudio.pause();
             this.notify('state');
             return;
         }
@@ -1644,7 +1668,7 @@ class PlayerStore {
         // Signed URL у SoundCloud может истечь уже после успешной загрузки трека.
         // isRetry принудительно обходит кэш и не позволяет зациклить восстановление.
         const savedTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-        void this.startPlayback(track, true, savedTime);
+        void this.startPlayback(track, true, savedTime, undefined, this.playingYouTubeAlternate);
     }
 
     async next(fromError: boolean = false) {
@@ -1671,6 +1695,7 @@ class PlayerStore {
 
         if (!this.shuffle && this.preloadedTrackId === nextTrack.id) {
             const prevAudio = this.activeAudio;
+            this.playingYouTubeAlternate = false;
             this.wtFlush('paused');
             this.wtUrl = null;
             this.wtPlaybackSent = false;
@@ -1854,6 +1879,9 @@ class PlayerStore {
     }
 
     reset() {
+        this.playbackId++;
+        this.playingYouTubeAlternate = false;
+        this.isStreamLoading = false;
         this.audioA.pause();
         this.audioB.pause();
         this.audioA.removeAttribute('src');

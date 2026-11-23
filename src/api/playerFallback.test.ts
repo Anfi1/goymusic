@@ -18,7 +18,7 @@ class TestAudio extends EventTarget {
     src = '';
     play = vi.fn().mockResolvedValue(undefined);
     constructor() { super(); audio.push(this); }
-    pause() {}
+    pause = vi.fn();
     load() {}
     removeAttribute() { this.src = ''; }
 }
@@ -53,7 +53,11 @@ afterEach(() => {
 });
 
 it('plays the matching YouTube version before SoundCloud and likes it only after playback starts', async () => {
-    searchMore.mockResolvedValue([{ ...alternative, id: 'wrong', duration: '2:15' }, alternative]);
+    searchMore.mockResolvedValue([
+        { ...alternative, id: 'wrong-duration', duration: '2:15' },
+        { ...alternative, id: 'wrong-artist', artists: ['another artist', 'dmtboy'] },
+        alternative,
+    ]);
     getStreamUrl.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ url: youtubeUrl, loudness: 0 });
     await player.playSingle({ ...original });
@@ -88,4 +92,51 @@ it('does not like an alternate version if the original was not liked', async () 
     audio[0].dispatchEvent(new Event('canplay'));
     await vi.waitFor(() => expect(player.isStreamLoading).toBe(false));
     expect(toggleLike).not.toHaveBeenCalled();
+});
+
+it('leaves playback paused when the replacement search finishes after a pause', async () => {
+    let finishSearch!: (tracks: YTMTrack[]) => void;
+    searchMore.mockReturnValue(new Promise<YTMTrack[]>(resolve => { finishSearch = resolve; }));
+    getStreamUrl.mockResolvedValue(null);
+    await player.playSingle({ ...original });
+    await vi.waitFor(() => expect(searchMore).toHaveBeenCalledOnce());
+    await player.togglePlay();
+    finishSearch([alternative]);
+    await vi.waitFor(() => expect(player.isStreamLoading).toBe(false));
+    expect(player.isPlaying).toBe(false);
+    expect(audio[0].src).toBe('');
+    expect(toggleLike).not.toHaveBeenCalled();
+});
+
+it('does not resume or like the replacement when paused with play pending', async () => {
+    let finishPlay!: () => void;
+    audio[0].play.mockReturnValueOnce(new Promise<void>(resolve => { finishPlay = resolve; }));
+    searchMore.mockResolvedValue([alternative]);
+    getStreamUrl.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ url: youtubeUrl, loudness: 0 });
+    await player.playSingle({ ...original });
+    await vi.waitFor(() => expect(audio[0].src).toBe(youtubeUrl));
+    audio[0].dispatchEvent(new Event('canplay'));
+    await player.togglePlay();
+    audio[0].dispatchEvent(new Event('play'));
+    finishPlay();
+    await vi.waitFor(() => expect(player.isStreamLoading).toBe(false));
+    expect(player.isPlaying).toBe(false);
+    expect(toggleLike).not.toHaveBeenCalled();
+});
+
+it('tries SoundCloud instead of looping on a replacement that fails during playback', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    searchMore.mockResolvedValue([alternative]);
+    getStreamUrl.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ url: youtubeUrl, loudness: 0 })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ url: scUrl, loudness: 0 });
+    await player.playSingle({ ...original });
+    await vi.waitFor(() => expect(audio[0].src).toBe(youtubeUrl));
+    audio[0].dispatchEvent(new Event('canplay'));
+    await vi.waitFor(() => expect(player.isStreamLoading).toBe(false));
+    audio[0].dispatchEvent(new Event('error'));
+    await vi.waitFor(() => expect(audio[0].src).toBe(scUrl));
+    expect(getStreamUrl.mock.calls.map(([id]) => id)).toEqual(['original', 'original', 'alternate', 'original', 'original']);
 });
