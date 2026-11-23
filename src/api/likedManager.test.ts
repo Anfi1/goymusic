@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { likedStore, type LikedEntry, type YtImportState, YT_IMPORT_VERSION } from './likedStore';
+import { likedStore, type LikedEntry, type YtImportSnapshot, type YtImportState, YT_IMPORT_VERSION } from './likedStore';
 import { tracksStore } from './tracks';
 import { likedManager, likedSyncLabel } from './likedManager';
 import type { YTMTrack } from './yt';
@@ -25,18 +25,23 @@ beforeEach(() => {
   vi.spyOn(likedStore, 'getAllTracks').mockImplementation(async () => committed);
   vi.spyOn(likedStore, 'getVirtualCount').mockResolvedValue(3);
   let checkpoint: YtImportState | null = null;
+  let snapshot: YtImportSnapshot | null = null;
   const staged: LikedEntry[] = [];
   vi.spyOn(likedStore, 'getYtImportState').mockImplementation(async () => checkpoint);
   vi.spyOn(likedStore, 'getYtImportTracks').mockImplementation(async () => [...staged]);
-  vi.spyOn(likedStore, 'getYtImportCompletedVersion').mockResolvedValue(1);
+  let completedVersion = 1;
+  vi.spyOn(likedStore, 'getYtImportCompletedVersion').mockImplementation(async () => completedVersion);
+  vi.spyOn(likedStore, 'getYtImportSnapshot').mockImplementation(async () => snapshot);
   vi.spyOn(likedStore, 'saveYtImportPage').mockImplementation(async (entries, state) => {
     staged.push(...entries);
     checkpoint = state;
   });
   vi.spyOn(likedStore, 'setYtImportState').mockImplementation(async state => { checkpoint = state; });
   vi.spyOn(likedStore, 'clearYtImport').mockImplementation(async () => { staged.length = 0; checkpoint = null; });
-  vi.spyOn(likedStore, 'commitYtImport').mockImplementation(async entries => {
+  vi.spyOn(likedStore, 'commitYtImport').mockImplementation(async (entries, _, nextSnapshot) => {
     committed = entries;
+    completedVersion = YT_IMPORT_VERSION;
+    snapshot = nextSnapshot;
     staged.length = 0;
     checkpoint = null;
   });
@@ -63,15 +68,40 @@ async function refresh() {
 
 describe('Liked Songs mirror', () => {
   it('checks an up-to-date mirror without reporting the cached rows as newly imported', async () => {
-    vi.mocked(likedStore.getYtImportCompletedVersion).mockResolvedValue(YT_IMPORT_VERSION);
-    pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [a, b], trackCount: 3, continuation: 'next' });
+    const head = { status: 'ok', tracks: [a, b], trackCount: 3, continuation: 'next' };
+    pyCall.mockResolvedValueOnce(head).mockResolvedValueOnce({ status: 'ok', tracks: [c] });
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    pyCall.mockResolvedValueOnce(head);
     const phases: string[] = [];
     const stop = likedManager.subscribeProgress(() => phases.push(likedManager.getProgress().phase));
     try {
       await refresh();
       expect(phases).toEqual(['checking', 'idle']);
-      expect(likedStore.saveYtImportPage).not.toHaveBeenCalled();
+      expect(pyCall).toHaveBeenCalledTimes(3);
     } finally { stop(); }
+  });
+
+  it('checks only the first page on reopen after a completed short import, then refreshes on change or expiry', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(100);
+    const head = { status: 'ok', tracks: [a], trackCount: 9, continuation: 'next' };
+    const tail = { status: 'ok', tracks: [b] };
+    pyCall.mockResolvedValueOnce(head).mockResolvedValueOnce(tail);
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+
+    clock.mockReturnValue(100 + 5 * 60 * 1000);
+    pyCall.mockResolvedValueOnce({ ...head, continuation: 'rotated' });
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
+    expect(pyCall.mock.calls.map(([command]) => command)).toEqual([
+      'get_playlist_tracks', 'get_continuation', 'get_playlist_tracks',
+    ]);
+
+    const changed = { ...head, tracks: [song('new'), a] };
+    pyCall.mockResolvedValueOnce(changed).mockResolvedValueOnce(tail);
+    expect((await refresh()).visible).toEqual(['new', 'a', 'b', 'c']);
+
+    clock.mockReturnValue(100 + 21 * 60 * 1000);
+    pyCall.mockResolvedValueOnce(changed).mockResolvedValueOnce({ status: 'ok', tracks: [c, b] });
+    expect((await refresh()).visible).toEqual(['new', 'a', 'c', 'b']);
   });
 
   it('reports saved YouTube pages during a refresh without counting the visible cache', async () => {
@@ -191,7 +221,7 @@ describe('Liked Songs mirror', () => {
         ? { status: 'ok', tracks: [b], continuation: 'last' }
         : { status: 'ok', tracks: [c], continuation: null })
       .mockResolvedValueOnce({ status: 'ok', tracks: [c], continuation: null });
-    expect((await refresh()).visible).toEqual(['b', 'a', 'c']);
+    expect((await refresh()).visible).toEqual(['a', 'b', 'c']);
     expect(committed.map(entry => entry.likedAt)).toEqual([123, committed[1].syncedAt, undefined]);
   });
 
@@ -223,7 +253,7 @@ describe('Liked Songs mirror', () => {
     const { visible } = await refresh();
     expect(visible).toEqual(cached ? ['a', 'b', 'new', 'c'] : ['a', 'b', 'new']);
     expect(likedManager.getProgress().phase).toBe('idle');
-    expect(likedStore.commitYtImport).toHaveBeenCalledWith(expect.any(Array), 3);
+    expect(likedStore.commitYtImport).toHaveBeenCalledWith(expect.any(Array), 3, expect.any(Object));
   });
 
   it.each([{ tail: [] }, { tail: [b] }])('keeps cached likes after a short empty or overlapping last page (%#)', async ({ tail }) => {
@@ -280,6 +310,21 @@ describe('Liked Songs mirror', () => {
     expect((await refresh()).visible).toEqual(['c']);
     pyCall.mockResolvedValueOnce({ status: 'ok', tracks: [], trackCount: 0 });
     expect((await refresh()).visible).toEqual([]);
+  });
+
+  it('keeps YouTube order and inserts dated SC likes before the undated tail', () => {
+    const youtube = [a, b, c, song('batch'), song('undated')].map((track, originalIndex) => ({
+      track, trackId: track.id, originalIndex, syncedAt: 1100,
+      likedAt: [1000, 1000, 800, 1100, undefined][originalIndex],
+    }));
+    const soundCloud = [0, 700, 900].map(likedAt => {
+      const track = { ...song(`sc-${likedAt}`), source: 'soundcloud' as const };
+      return { track, trackId: track.id, scId: track.id, likedAt };
+    });
+    expect(likedPlaylistTracks(youtube, undefined, soundCloud).map(t => t.id))
+      .toEqual(['a', 'b', 'sc-900', 'c', 'sc-700', 'batch', 'undated', 'sc-0']);
+    expect(likedPlaylistTracks(youtube, undefined, []).map(t => t.id))
+      .toEqual(['a', 'b', 'c', 'batch', 'undated']);
   });
 
   it('one SC like does not hide paged YouTube results without a usable mirror', () => {

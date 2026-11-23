@@ -5,6 +5,8 @@ import { likedStore, LikedEntry, YtImportState, YT_IMPORT_VERSION } from './like
 import { tracksStore } from './tracks';
 import { scLikedManager } from './scLikedManager';
 
+const YT_IMPORT_RECHECK_MS = 15 * 60 * 1000;
+
 export type LikedSyncProgress =
   | { phase: 'idle' | 'checking' | 'saving' | 'failed' }
   | { phase: 'importing'; processed: number; total: number | null };
@@ -33,7 +35,7 @@ class LikedManager {
   constructor() {
     this._isEnabled = localStorage.getItem('liked-mirror-enabled') !== 'false';
     if (typeof window !== 'undefined') {
-      (window as any).likedSync = () => this.sync();
+      (window as Window & { likedSync?: () => Promise<void> }).likedSync = () => this.sync(true);
     }
   }
 
@@ -53,7 +55,7 @@ class LikedManager {
     this._isEnabled = value;
     localStorage.setItem('liked-mirror-enabled', value.toString());
     if (value) {
-      this.sync();
+      this.sync(true);
     } else {
       this.ytRevision++;
       clearTimeout(this.syncTimer);
@@ -75,10 +77,10 @@ class LikedManager {
 
   private scheduleSync() {
     clearTimeout(this.syncTimer);
-    this.syncTimer = window.setTimeout(() => this.sync(), 5000);
+    this.syncTimer = window.setTimeout(() => this.sync(true), 5000);
   }
 
-  async sync() {
+  async sync(force = false) {
     if (this._isSyncing || !this._isEnabled) return;
     this._isSyncing = true;
     const revision = this.ytRevision;
@@ -98,12 +100,15 @@ class LikedManager {
         throw new Error('Liked Songs response has no rows or confirmed empty count');
       }
       const headIds = firstPage.tracks.map(track => track.id);
-      const savedImport = await likedStore.getYtImportState();
-      if (!savedImport && ytTotal !== null && currentLocal.length === ytTotal && firstPage.unavailableCount === 0 &&
-          (firstPage.continuation ? currentLocal.length > headIds.length : currentLocal.length === headIds.length) &&
-          headIds.every((id, i) => currentLocal[i]?.trackId === id) &&
-          await likedStore.getVirtualCount() === ytTotal &&
-          completedVersion === YT_IMPORT_VERSION) return;
+      const [savedImport, snapshot] = await Promise.all([
+        likedStore.getYtImportState(), likedStore.getYtImportSnapshot(),
+      ]);
+      if (revision !== this.ytRevision) return;
+      const fingerprint = JSON.stringify([ytTotal, firstPage.unavailableCount, !!firstPage.continuation, headIds]);
+      const age = snapshot ? Date.now() - snapshot.checkedAt : Infinity;
+      if (!force && !savedImport && completedVersion === YT_IMPORT_VERSION &&
+          snapshot?.fingerprint === fingerprint && snapshot.localCount === currentLocal.length &&
+          age >= 0 && age < YT_IMPORT_RECHECK_MS) return;
 
       const canResume = savedImport?.version === YT_IMPORT_VERSION &&
         (savedImport.status === 'importing' || savedImport.status === 'failed') && !!firstPage.continuation &&
@@ -196,7 +201,9 @@ class LikedManager {
         likedAt: likedAtMap.get(entry.trackId) ?? (completedVersion >= 2 && !likedAtMap.has(entry.trackId) ? syncedAt : undefined),
       }));
       this.setProgress({ phase: 'saving' });
-      await likedStore.commitYtImport(finalEntries, observedCount);
+      await likedStore.commitYtImport(finalEntries, observedCount, {
+        fingerprint, checkedAt: syncedAt, localCount: finalEntries.length,
+      });
     } catch (error) {
       failed = true;
       console.error('[liked] sync failed:', error);

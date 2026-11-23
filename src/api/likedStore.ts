@@ -48,6 +48,12 @@ export interface YtImportState {
   updatedAt: number;
 }
 
+export interface YtImportSnapshot {
+  fingerprint: string;
+  checkedAt: number;
+  localCount: number;
+}
+
 function ensureFinalStores(db: IDBDatabase) {
   if (!db.objectStoreNames.contains('yt_liked')) {
     const store = db.createObjectStore('yt_liked', { keyPath: 'trackId' });
@@ -288,6 +294,7 @@ class LikedStore {
   getScVirtualCount() { return this.getState('scVirtualCount', 0); }
   setScVirtualCount(count: number) { return this.setState('scVirtualCount', count); }
   getYtImportCompletedVersion() { return this.getState('ytImportCompletedVersion', 0); }
+  getYtImportSnapshot() { return this.getState<YtImportSnapshot | null>('ytImportSnapshot', null); }
 
   getYtImportState() { return this.getState<YtImportState | null>('ytImport', null); }
   setYtImportState(state: YtImportState) { return this.setState('ytImport', state); }
@@ -323,7 +330,7 @@ class LikedStore {
     });
   }
 
-  async commitYtImport(entries: LikedEntry[], virtualCount: number) {
+  async commitYtImport(entries: LikedEntry[], virtualCount: number, snapshot: YtImportSnapshot) {
     await this.init();
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
@@ -335,6 +342,7 @@ class LikedStore {
       const state = tx.objectStore('state');
       state.put(virtualCount, 'virtualCount');
       state.put(YT_IMPORT_VERSION, 'ytImportCompletedVersion');
+      state.put(snapshot, 'ytImportSnapshot');
       state.delete('ytImport');
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -440,8 +448,11 @@ class LikedStore {
   async clearAllTracks() {
     await this.init();
     if (!this.db) return;
-    const tx = this.db!.transaction('yt_liked', 'readwrite');
+    const tx = this.db!.transaction(['yt_liked', 'state'], 'readwrite');
     tx.objectStore('yt_liked').clear();
+    const state = tx.objectStore('state');
+    state.delete('ytImportSnapshot');
+    state.delete('ytImportCompletedVersion');
   }
 
   // ─── SoundCloud tracks ───────────────────────────────────────────────────
