@@ -33,6 +33,10 @@ $actionScript=@'
 $ErrorActionPreference='Stop'
 $env:RUNNER_ENVIRONMENT='github-hosted'
 try {
+    $env:TEMP=$env:TMP=(New-Item -ItemType Directory '__FOLDER__\user-temp').FullName
+    $env:USERPROFILE=[Environment]::GetFolderPath('UserProfile')
+    $env:APPDATA=[Environment]::GetFolderPath('ApplicationData')
+    $env:LOCALAPPDATA=[Environment]::GetFolderPath('LocalApplicationData')
     $app=Start-Process '__EXE__' -PassThru
     Start-Sleep -Seconds 32
     $observerNumber=Get-Content '__FOLDER__\observer.pid'
