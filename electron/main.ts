@@ -5,16 +5,22 @@ import { spawn, exec, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
-import { autoUpdater, NsisUpdater } from 'electron-updater'
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
 
 app.name = 'GoyMusic'
+// Только отдельная диагностическая сборка. Не использовать профиль установленного плеера.
+const trialProfile = join(app.getPath('temp'), 'GoyMusic-window-identity-trial')
+mkdirSync(trialProfile, { recursive: true })
+app.setPath('userData', trialProfile)
+app.setPath('sessionData', trialProfile)
 const windowsAppId = 'com.goymusic.app'
 if (process.platform === 'win32') {
   app.setAppUserModelId(windowsAppId)
-  app.on('browser-window-created', (_event, window) => window.setAppDetails({ appId: windowsAppId }))
+  if (!process.argv.includes('--trial-process-id-only')) {
+    app.on('browser-window-created', (_event, window) => window.setAppDetails({ appId: windowsAppId }))
+  }
 }
 
 let isShuttingDown = false
@@ -75,21 +81,9 @@ if (!gotTheLock) {
     logToFile(`Packaged: ${app.isPackaged}`);
     logToFile(`AppData: ${app.getPath('userData')}`);
 
-    migrateUserData()
-
-    // В dev-режиме нужно явно передать путь к скрипту, иначе Electron
-    // получит URL как первый аргумент и попытается загрузить его как модуль
-    // Регистрация протокола только в packaged-сборке.
-    // В dev-режиме (vite) setAsDefaultProtocolClient работает некорректно —
-    // протокол тестируется через npm run dist.
-    if (app.isPackaged) {
-      app.setAsDefaultProtocolClient('goymusic')
-    }
-
     createPyProc()
     createWindow()
     initRPC()
-    initAutoUpdater()
 
     if (process.argv.some(arg => arg.startsWith('goymusic://'))) {
       win?.webContents.once('did-finish-load', () => activatePrimary(process.argv))
@@ -118,27 +112,6 @@ function getAppRoot() {
 
 function getUserDataDir() {
   return app.getPath('userData');
-}
-
-function migrateUserData() {
-  if (!app.isPackaged) return;
-  const oldRoot = getAppRoot();
-  const newRoot = getUserDataDir();
-  const filesToMigrate = ['browser.json', 'window-config.json'];
-
-  for (const file of filesToMigrate) {
-    const oldPath = join(oldRoot, file);
-    const newPath = join(newRoot, file);
-    if (existsSync(oldPath) && !existsSync(newPath)) {
-      try {
-        copyFileSync(oldPath, newPath);
-        unlinkSync(oldPath);
-        logToFile(`Migrated ${file} to ${newRoot}`);
-      } catch (e) {
-        logToFile(`Failed to migrate ${file}: ${e}`);
-      }
-    }
-  }
 }
 
 // Discord RPC
@@ -310,8 +283,6 @@ function setupPyHandlers(proc: ChildProcess, usedPath: string) {
 
 let firstPoTokenCheck: NodeJS.Timeout | undefined
 let periodicPoTokenCheck: NodeJS.Timeout | undefined
-let firstUpdateCheck: NodeJS.Timeout | undefined
-let periodicUpdateCheck: NodeJS.Timeout | undefined
 
 function stopPoTokenTimers() {
   clearTimeout(firstPoTokenCheck)
@@ -320,8 +291,6 @@ function stopPoTokenTimers() {
 
 function stopWindowTimers() {
   stopPoTokenTimers()
-  clearTimeout(firstUpdateCheck)
-  clearInterval(periodicUpdateCheck)
 }
 
 function exitPyProc() {
@@ -339,59 +308,6 @@ function killScChrome() {
     `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\\"name='chrome.exe'\\\" | Where-Object { $_.CommandLine -like '*${escaped}*' } | Stop-Process -Force"`,
     () => {} // silence errors
   )
-}
-
-function initAutoUpdater() {
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-  // NSIS-апдейтер по умолчанию не знает, что юзер ставил приложение в кастомную
-  // папку (allowToChangeInstallationDirectory), и тихий инсталлятор без /D=...
-  // падает в дефолтный путь — рядом появляется вторая, отдельная установка.
-  // installDirectory явно указывает обновляться поверх текущей директории.
-  if (autoUpdater instanceof NsisUpdater) {
-    autoUpdater.installDirectory = dirname(app.getPath('exe'))
-  }
-
-  autoUpdater.on('update-available', (info) => {
-    logToFile(`Update available: ${info.version}`)
-    getLiveMainWindow()?.webContents.send('update:available', {
-      version: info.version,
-      releaseNotes: info.releaseNotes
-    })
-  })
-
-  autoUpdater.on('update-not-available', () => {
-    logToFile('No update available')
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    getLiveMainWindow()?.webContents.send('update:progress', {
-      percent: progress.percent,
-      speed: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total
-    })
-  })
-
-  autoUpdater.on('update-downloaded', () => {
-    logToFile('Update downloaded, ready to install')
-    getLiveMainWindow()?.webContents.send('update:downloaded')
-  })
-
-  autoUpdater.on('error', (err) => {
-    logToFile(`Auto-updater error: ${err.message}`)
-    getLiveMainWindow()?.webContents.send('update:error', { message: err.message })
-  })
-
-  const safeCheck = () => {
-    if (isShuttingDown) return
-    autoUpdater.checkForUpdates().catch((err: any) => {
-      logToFile(`Update check failed: ${err.message}`)
-    })
-  }
-
-  firstUpdateCheck = setTimeout(safeCheck, 5000)
-  periodicUpdateCheck = setInterval(safeCheck, 60 * 60 * 1000)
 }
 
 function getWindowConfigPath() {
@@ -567,27 +483,10 @@ app.once('before-quit', () => {
   exitPyProc()
 })
 
-// Auto-updater IPC handlers
-ipcMain.handle('update:check', async () => {
-  try {
-    const result = await autoUpdater.checkForUpdates()
-    return result ? { version: result.updateInfo.version } : null
-  } catch (e: any) {
-    logToFile(`Manual update check error: ${e.message}`)
-    return null
-  }
-})
-
-ipcMain.handle('update:download', async () => {
-  await autoUpdater.downloadUpdate()
-})
-
-ipcMain.handle('update:install', async () => {
-  if (installRequested || isShuttingDown) return
-  installRequested = true
-  autoUpdater.once('error', () => { installRequested = false })
-  autoUpdater.quitAndInstall(true, true)
-})
+// Диагностическая копия никогда не проверяет, не скачивает и не устанавливает обновления.
+for (const channel of ['update:check', 'update:download', 'update:install']) {
+  ipcMain.handle(channel, () => null)
+}
 
 // RPC Update handler
 ipcMain.on('rpc:set', (event, data) => {

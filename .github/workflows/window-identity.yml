@@ -1,0 +1,72 @@
+name: Window identity A-B-A
+on:
+  push:
+    branches: [qa/official-group-716]
+    paths: ['.github/workflows/window-identity.yml','tools/window-trial.*','electron/main.ts']
+permissions:
+  contents: read
+jobs:
+  pack:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx --no-install electron-builder --win dir --x64 --publish never
+      - name: Assemble isolated player with the released Python runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; $PSNativeCommandUseErrorActionPreference=$true
+          $setup="$env:RUNNER_TEMP\official.exe"; $data="$env:RUNNER_TEMP\payload"
+          Invoke-WebRequest 'https://github.com/Anfi1/goymusic/releases/download/v7.1.16/GoyMusic-Setup-7.1.16.exe' -OutFile $setup
+          if ([Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $setup -Algorithm SHA512).Hash)) -cne 'RbArMzXANd0Aa34in6uzza4HNzngw0mdLEj7fXkluNbLmwaZxLAtw5KzIczrI10CI0MTCECIOX2v/dYOPrBegA==') { throw 'Unexpected release payload' }
+          7z e $setup -r app-64.7z "-o$data" | Out-Null
+          New-Item -ItemType Directory kit | Out-Null
+          Move-Item release/win-unpacked kit/player
+          7z x "$data/app-64.7z" 'resources\python\*' -aoa '-okit/player' | Out-Null
+          if (!(Test-Path 'kit/player/resources/python/bin/python.exe')) { throw 'No packaged backend' }
+          Copy-Item tools/window-trial.*,tools/check-goymusic-group.ps1 kit
+          7z a -tzip -mx=3 window-identity.zip ./kit/* | Out-Null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: window-identity-player
+          path: window-identity.zip
+          compression-level: 0
+          retention-days: 5
+  observe:
+    needs: pack
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: window-identity-player
+      - name: Observe three real Task Manager views
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          7z x window-identity.zip -okit | Out-Null
+          if ($LASTEXITCODE) { throw 'Invalid test archive' }
+          Start-Process "$env:WINDIR\System32\Taskmgr.exe"
+          Start-Sleep -Seconds 4
+          . ./.github/workflows/memory-sort.ps1
+          $tm=Get-Process Taskmgr | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+          if (!$tm -or !(Select-MemoryDescending $tm.MainWindowHandle)) { throw 'No Task Manager Processes view' }
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./kit/window-trial.ps1 -Hosted
+          if ($LASTEXITCODE) { throw 'A/B/A measurement failed' }
+          Get-Content kit/window-trial-result.json >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: window-identity-results
+          path: kit/*.json
