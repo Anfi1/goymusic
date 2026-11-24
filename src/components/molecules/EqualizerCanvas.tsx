@@ -9,7 +9,6 @@ interface Props {
     className: string;
     bands: readonly Band[];
     selectedBand: number | null;
-    hoveredBandIndex?: number | null;
     onBandSelect: (index: number) => void;
     onBandDrag: (index: number, hz: number, db: number) => void;
     onBandAdd: (hz: number, db: number) => void;
@@ -24,7 +23,7 @@ const INNER_WIDTH = (width: number) => Math.max(1, width - LEFT - RIGHT);
 const INNER_HEIGHT = (height: number) => Math.max(1, height - TOP - BOTTOM);
 
 function drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number, maxHz: number,
-                     response: Float32Array, { bands, selectedBand, hoveredBandIndex }: Props) {
+                     response: Float32Array, { bands, selectedBand }: Props, hovered: number) {
     const right = LEFT + w, bottom = TOP + h;
     ctx.clearRect(0, 0, right + RIGHT, bottom + BOTTOM);
     ctx.font = '10px system-ui, sans-serif';
@@ -47,12 +46,15 @@ function drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number, maxHz:
     }
     ctx.textAlign = 'center';
     ctx.fillStyle = '#b3b5b9';
+    const activeIndex = hovered >= 0 ? hovered : selectedBand;
+    const active = activeIndex === null ? undefined : bands[activeIndex];
+    const activeX = active ? LEFT + frequencyX(active.frequency, maxHz) * w : -Infinity;
     let previousLabelX = -Infinity;
     const freqTick = (hz: number) => {
         const x = LEFT + frequencyX(hz, maxHz) * w;
         ctx.strokeStyle = 'rgba(180,190,195,0.11)';
         ctx.beginPath(); ctx.moveTo(x, TOP); ctx.lineTo(x, bottom); ctx.stroke();
-        if (hz === maxHz || (x - previousLabelX >= 32 && right - x >= 32)) {
+        if (Math.abs(x - activeX) >= 32 && (hz === maxHz || (x - previousLabelX >= 32 && right - x >= 32))) {
             ctx.fillText(hz >= 1000 ? `${hz / 1000}k` : String(hz), x, bottom + 13);
             previousLabelX = x;
         }
@@ -60,6 +62,11 @@ function drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number, maxHz:
     for (const hz of FREQ_LABELS) if (hz < maxHz) freqTick(hz);
     freqTick(maxHz);
     ctx.fillText('Hz', right + 21, bottom + 13);
+    if (active && activeIndex !== null) {
+        ctx.fillStyle = BAND_COLORS[activeIndex % BAND_COLORS.length];
+        ctx.fillRect(activeX - 1, bottom, 2, 5);
+        ctx.fillText(String(Math.round(active.frequency)), activeX, bottom + 13);
+    }
 
     // Clip, don't clamp: adjacent samples outside the displayed range are not a shelf plateau.
     ctx.save();
@@ -84,7 +91,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number, maxHz:
             ctx.beginPath(); ctx.arc(x, y, 12, 0, 2 * Math.PI); ctx.stroke();
         }
         ctx.fillStyle = color; ctx.strokeStyle = '#202124'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(x, y, selected || i === hoveredBandIndex ? 7 : 6, 0, 2 * Math.PI);
+        ctx.beginPath(); ctx.arc(x, y, selected || i === hovered ? 7 : 6, 0, 2 * Math.PI);
         ctx.fill(); ctx.stroke();
     }
 }
@@ -94,6 +101,7 @@ export function EqualizerCanvas(props: Props) {
     const current = useRef(props);
     current.current = props;
     const drag = useRef<{ index: number; dx: number; dy: number; pointerId: number } | null>(null);
+    const hover = useRef(-1);
 
     useEffect(() => {
         const canvas = canvasRef.current!;
@@ -110,7 +118,7 @@ export function EqualizerCanvas(props: Props) {
         observer.observe(canvas);
         let frame = 0, sampleRate = -1, maxHz = 0, revision = -1, binCount = 0, dpr = 0;
         let lastBands: readonly Band[] | undefined, lastSelected: Props['selectedBand'] | undefined;
-        let lastHovered: Props['hoveredBandIndex'];
+        let lastHovered = -1;
         let frequencies = new Float32Array(0), response = new Float32Array(0);
         let magnitude = new Float32Array(0), phase = new Float32Array(0);
         let columns: SpectrumColumns | undefined;
@@ -144,10 +152,11 @@ export function EqualizerCanvas(props: Props) {
                 revision = nextRevision;
             }
             const p = current.current;
-            const dirty = changed || lastBands !== p.bands || lastSelected !== p.selectedBand || lastHovered !== p.hoveredBandIndex;
+            const hovered = drag.current?.index ?? hover.current;
+            const dirty = changed || lastBands !== p.bands || lastSelected !== p.selectedBand || lastHovered !== hovered;
             if (dirty) {
-                drawOverlay(grid, w, h, maxHz, response, p);
-                lastBands = p.bands; lastSelected = p.selectedBand; lastHovered = p.hoveredBandIndex;
+                drawOverlay(grid, w, h, maxHz, response, p, hovered);
+                lastBands = p.bands; lastSelected = p.selectedBand; lastHovered = hovered;
             }
             const bins = player.getAnalyzerData();
             if (bins && (!columns || binCount !== bins.length)) {
@@ -187,8 +196,10 @@ export function EqualizerCanvas(props: Props) {
 
     const point = (e: ReactMouseEvent<HTMLCanvasElement>) => {
         const rect = e.currentTarget.getBoundingClientRect();
-        const w = INNER_WIDTH(rect.width), h = INNER_HEIGHT(rect.height);
-        const x = e.clientX - rect.left - LEFT, y = e.clientY - rect.top - TOP;
+        const width = e.currentTarget.clientWidth, height = e.currentTarget.clientHeight;
+        const w = INNER_WIDTH(width), h = INNER_HEIGHT(height);
+        const x = (e.clientX - rect.left) * width / rect.width - LEFT;
+        const y = (e.clientY - rect.top) * height / rect.height - TOP;
         const maxHz = maxPlotFrequency(player.getAnalyzerSampleRate());
         return { x, y, w, h, maxHz, hit: hitBand(props.bands, x, y, w, h, maxHz) };
     };
@@ -197,8 +208,10 @@ export function EqualizerCanvas(props: Props) {
         canvas.style.cursor = value;
         props.onCursorChange?.(value);
     };
+    const selected = props.selectedBand === null ? undefined : props.bands[props.selectedBand];
     return <canvas ref={canvasRef} className={props.className} style={{ touchAction: 'none' }}
-        aria-label="Equalizer: filter response in dB and live output spectrum in dBFS"
+        aria-label={'Equalizer: filter response in dB and live output spectrum in dBFS' +
+            (selected ? `; selected frequency ${Math.round(selected.frequency)} Hz` : '')}
         onPointerDown={e => {
             if (e.button !== 0 || !e.isPrimary) return;
             const { x, y, w, h, maxHz, hit } = point(e);
@@ -214,14 +227,27 @@ export function EqualizerCanvas(props: Props) {
             const d = drag.current;
             if (d && d.pointerId === e.pointerId) {
                 props.onBandDrag(d.index, frequencyAt((x + d.dx) / w, maxHz), gainAt((y + d.dy) / h));
-            } else if (!d) cursor(e.currentTarget, hit >= 0 ? 'grab' : 'crosshair');
+            } else if (!d) {
+                hover.current = hit;
+                cursor(e.currentTarget, hit >= 0 ? 'grab' : 'crosshair');
+            }
         }}
-        onLostPointerCapture={e => { drag.current = null; cursor(e.currentTarget, point(e).hit >= 0 ? 'grab' : 'crosshair'); }}
+        onPointerLeave={() => { hover.current = -1; }}
+        onLostPointerCapture={e => {
+            drag.current = null;
+            hover.current = e.pointerType === 'mouse' ? point(e).hit : -1;
+            cursor(e.currentTarget, hover.current >= 0 ? 'grab' : 'crosshair');
+        }}
         onDoubleClick={e => {
             const { x, y, w, h, maxHz, hit } = point(e);
             if (hit < 0 && x >= 0 && x <= w && y >= 0 && y <= h)
                 props.onBandAdd(frequencyAt(x / w, maxHz), Math.round(gainAt(y / h) * 2) / 2);
         }}
-        onContextMenu={e => { e.preventDefault(); const { hit } = point(e); if (hit >= 0) props.onBandDelete(hit); }}
+        onContextMenu={e => {
+            e.preventDefault();
+            const { hit } = point(e);
+            hover.current = -1;
+            if (hit >= 0) props.onBandDelete(hit);
+        }}
     />;
 }

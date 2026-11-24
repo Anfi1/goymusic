@@ -2,6 +2,7 @@
   position: relative;
   height: 100%;
   overflow: hidden;
+  --wave-panel-width: clamp(300px, 34%, 440px);
   --text-main: var(--text-main);
   --text-sub: var(--text-sub);
   --text-muted: rgba(255, 255, 255, 0.4);
@@ -639,12 +640,11 @@
 
 .stageLyrics {
   padding-left: 0;
-  justify-content: flex-start;
-  padding-right: clamp(320px, 34%, 460px);
+  padding-right: var(--wave-panel-width);
 }
 
 .lyricsMode .filterStrip {
-  right: clamp(260px, 32%, 340px);
+  right: var(--wave-panel-width);
 }
 
 .lyricsPanel {
@@ -652,7 +652,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  width: clamp(300px, 34%, 440px);
+  width: var(--wave-panel-width);
   z-index: 3;
   transform: translateX(100%);
   opacity: 0;
@@ -679,7 +679,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  width: clamp(300px, 34%, 440px);
+  width: var(--wave-panel-width);
   z-index: 3;
   transform: translateX(100%);
   opacity: 0;
@@ -702,9 +702,8 @@
 }
 
 @media (max-width: 1150px) {
-  .stageLyrics { padding-right: clamp(260px, 32%, 340px); }
-  .lyricsPanel { width: clamp(260px, 32%, 340px); }
-  .queuePanel { width: clamp(260px, 32%, 340px); }
+  .container { --wave-panel-width: clamp(260px, 32%, 340px); }
+  .stageLyrics { justify-content: flex-start; }
 }
 
 /* ─── Empty / start state ──────────────────────────────────────────────── */

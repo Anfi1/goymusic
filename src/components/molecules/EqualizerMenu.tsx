@@ -32,7 +32,6 @@ const EqualizerPanel: React.FC = () => {
                 <EqualizerCanvas className={styles.canvas}
                     bands={bands}
                     selectedBand={selectedBand}
-                    hoveredBandIndex={null}
                     onBandSelect={handleBandSelect}
                     onBandDrag={handleBandDrag}
                     onBandAdd={handleBandAdd}
@@ -48,7 +47,7 @@ const EqualizerPanel: React.FC = () => {
                     <div className={styles.bandEditor}>
                         <div className={styles.info}>
                             <span>Band {selectedBand + 1}</span>
-                            <span>{Math.round(bands[selectedBand].frequency)}Hz / {bands[selectedBand].gain.toFixed(1)}dB</span>
+                            <span>{bands[selectedBand].gain.toFixed(1)}dB</span>
                         </div>
                         <div className={styles.qControl}>
                             <span>Q</span>

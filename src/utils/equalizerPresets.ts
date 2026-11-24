@@ -17,17 +17,17 @@ const band = (frequency: number, gain: number, type: BiquadFilterType = 'peaking
 
 export const FLAT_PRESET: EqualizerPreset = {
     id: 'builtin:flat', name: 'Flat', bands: [
-        band(60, 0, 'lowshelf'), band(250, 0), band(1000, 0),
-        band(4000, 0), band(8000, 0), band(16000, 0, 'highshelf'),
+        band(120, 0, 'lowshelf'), band(300, 0), band(1000, 0),
+        band(3000, 0), band(6000, 0), band(10000, 0, 'highshelf'),
     ],
 };
 
 export const BUILTIN_PRESETS: EqualizerPreset[] = [
     FLAT_PRESET,
-    { id: 'builtin:bass', name: 'Bass Boost', bands: [band(105, 4, 'lowshelf'), band(290, -1.5, 'peaking', 0.9)] },
-    { id: 'builtin:rock', name: 'Rock', bands: [band(95, 2.5, 'lowshelf'), band(450, -2, 'peaking', 0.85), band(2600, 1.5), band(7200, 2, 'highshelf')] },
-    { id: 'builtin:vocals', name: 'Vocal Focus', bands: [band(140, -3, 'lowshelf'), band(450, -1), band(2100, 2.5, 'peaking', 0.75)] },
-    { id: 'builtin:warm', name: 'Warm', bands: [band(210, 1.5, 'peaking', 0.7), band(4900, -2.5, 'highshelf')] },
+    { id: 'builtin:bass', name: 'Bass Boost', bands: [band(120, 3.5, 'lowshelf'), band(300, -1, 'peaking', 0.9)] },
+    { id: 'builtin:rock', name: 'Rock', bands: [band(110, 2, 'lowshelf'), band(350, -1.5, 'peaking', 0.85), band(3000, 1.5), band(9000, 1.5, 'highshelf')] },
+    { id: 'builtin:vocals', name: 'Vocal Focus', bands: [band(120, -2, 'lowshelf'), band(300, -1), band(2500, 2, 'peaking', 0.8)] },
+    { id: 'builtin:warm', name: 'Warm', bands: [band(220, 1.5, 'peaking', 0.7), band(6000, -2, 'highshelf')] },
 ];
 
 export const SAVED_EQ_KEY = 'ytm-eq-presets';

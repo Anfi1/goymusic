@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_PRESETS, EQ_SELECTION_KEY, FLAT_PRESET, readEqualizerState, SAVED_EQ_KEY } from './equalizerPresets';
 
-const oldBand = { frequency: 140, gain: -2.5, type: 'lowshelf' };
+const oldBand = { frequency: 60, gain: -2.5, type: 'lowshelf' };
 const records = JSON.stringify([{ name: 'Flat', bands: [] }, { name: 'Rock', bands: [oldBand] }]);
 function restore(values: Record<string, string>) {
     return readEqualizerState({ getItem: key => values[key] ?? null });
 }
 
 describe('equalizer restore', () => {
+    it('starts with six neutral controls from a bass shelf to a treble shelf', () => {
+        const { activeId, bands } = restore({});
+        expect(activeId).toBe('builtin:flat');
+        expect(bands.map(b => [b.frequency, b.type, b.gain])).toEqual([
+            [120, 'lowshelf', 0], [300, 'peaking', 0], [1000, 'peaking', 0],
+            [3000, 'peaking', 0], [6000, 'peaking', 0], [10000, 'highshelf', 0],
+        ]);
+    });
+
     it('keeps an older custom Rock distinct from the built-in and fills missing Q', () => {
         const storage = { [SAVED_EQ_KEY]: records, 'ytm-eq-active': 'Rock' };
         const legacy = restore(storage);
