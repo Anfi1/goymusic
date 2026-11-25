@@ -958,13 +958,17 @@ def _cipher_for(js, js_url):
     cipher = _PtfCipher(js=js, js_url=js_url)
 
     def via_ejs(kind, ptf_solve):
-        # pytubefix зовёт get_sig(ciphered_signature=...), а get_nsig позиционно
+        # pytubefix зовет get_sig(ciphered_signature=...), а get_nsig позиционно
         def solve(challenge=None, ciphered_signature=None):
+            global _ejs_failed_js_url
             challenge = challenge or ciphered_signature
+            if _ejs_failed_js_url == js_url:
+                return ptf_solve(challenge)
             try:
                 return _ejs_solve(js, js_url, kind, challenge)
             except Exception as e:
-                print(f"[warn] ejs {kind}: {e}, fallback to pytubefix", file=sys.stderr)
+                _ejs_failed_js_url = js_url
+                print(f"[warn] ejs {kind}: {e}, fallback to pytubefix for this player", file=sys.stderr)
                 return ptf_solve(challenge)
         return solve
 
@@ -976,6 +980,19 @@ def _cipher_for(js, js_url):
 
 ptf_extract.Cipher = lambda js, js_url: _cipher_for(js, js_url)
 _PtfNodeRunner.close = lambda self: None
+
+# На плеере b485e332 YouTube перенес условие if(...) на новую строку (if((a+7&55)>=\na...)),
+# из-за чего pytubefix падает с SyntaxError в eval(expr) внутри _extract_xor_branch_nsig_params.
+if hasattr(_PtfCipher, '_extract_xor_branch_nsig_params'):
+    _ptf_extract_xor_branch = _PtfCipher._extract_xor_branch_nsig_params
+
+    def _extract_xor_branch_no_newlines(js, n_func, varname, global_obj, body, xor_var, arg_var, w8_xor_b=None):
+        clean_body = body.replace('\r', ' ').replace('\n', ' ') if isinstance(body, str) else body
+        return _ptf_extract_xor_branch(
+            js, n_func, varname, global_obj, clean_body, xor_var, arg_var, w8_xor_b=w8_xor_b
+        )
+
+    _PtfCipher._extract_xor_branch_nsig_params = staticmethod(_extract_xor_branch_no_newlines)
 
 
 def _pytubefix_state(video_id):
@@ -1016,6 +1033,7 @@ def _bg_pump(proc, lines):
 
 
 _ejs_proc = None  # [Popen, очередь строк stdout, js_url загруженного плеера]
+_ejs_failed_js_url = None  # js_url, на котором yt-dlp-ejs уже упал
 _ejs_lock = threading.Lock()
 _EJS_SERVER_JS = os.path.join(USER_DATA_DIR, 'ejs_server.js')
 # Решатель yt-dlp-ejs в цикле по stdin: плеер разбирается один раз, дальше n за ~0.03с
@@ -1719,8 +1737,9 @@ def get_stream_url(request, ctx):
                 'logger': MyLogger(),
                 'youtube_include_dash_manifest': False, 'cachedir': False,
                 'extractor_args': {'youtube': {
-                    'player_client': ['visionos'], 'skip': ['hls', 'dash'],
-                    'player_skip': ['webpage', 'configs'],
+                    # Без player_skip=['webpage', 'configs']: пропуск страницы оставляет
+                    # клиент без visitor_data, и YouTube стал отвечать bot-check.
+                    'player_client': ['visionos', 'android_sdkless'], 'skip': ['hls', 'dash'],
                 }},
                 'extractor_timeout': 15, 'socket_timeout': 15,
                 **_yt_dlp_js_runtime_opts(),
