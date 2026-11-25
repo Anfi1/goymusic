@@ -133,11 +133,74 @@ input:disabled:checked + .slider:before {
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-weight: 500;
-    transition: background 0.2s;
+    transition: background 0.2s, opacity 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.btnSecondary:hover {
+.btnSecondary:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.2);
+}
+
+.btnSecondary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btnPrimary {
+    background: var(--accent);
+    border: none;
+    color: var(--on-accent);
+    padding: 0.6rem 1.2rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s, opacity 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.btnPrimary:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.btnPrimary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btnPrimary:focus-visible,
+.btnSecondary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.updateStatusSuccess {
+    color: var(--success);
+}
+
+.updateStatusError {
+    color: var(--danger);
+}
+
+.updateProgressCol {
+    width: 100%;
+}
+
+.updateProgressBar {
+    width: 100%;
+    height: 6px;
+    margin-top: 0.5rem;
+    background: var(--accent-soft);
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+}
+
+.updateProgressFill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-xs);
+    transition: width 0.25s ease;
 }
 
 .btnDanger {

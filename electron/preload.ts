@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('bridge', {
   },
 
   // Auto-updater
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
@@ -67,6 +68,11 @@ contextBridge.exposeInMainWorld('bridge', {
     const listener = (_e: any, info: any) => callback(info);
     ipcRenderer.on('update:available', listener);
     return () => ipcRenderer.removeListener('update:available', listener);
+  },
+  onUpdateNotAvailable: (callback: (info: any) => void) => {
+    const listener = (_e: any, info: any) => callback(info);
+    ipcRenderer.on('update:not-available', listener);
+    return () => ipcRenderer.removeListener('update:not-available', listener);
   },
   onUpdateProgress: (callback: (progress: any) => void) => {
     const listener = (_e: any, progress: any) => callback(progress);

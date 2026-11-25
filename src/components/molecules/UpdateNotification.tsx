@@ -1,73 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Download, RefreshCw, ArrowDownCircle } from 'lucide-react';
+import { shouldShowUpdateBanner, updateStore, useUpdateState } from '../../api/updateStore';
 import styles from './UpdateNotification.module.css';
 
-type UpdateState = 'idle' | 'available' | 'downloading' | 'downloaded';
-
-interface UpdateInfo {
-  version: string;
-}
-
-interface ProgressInfo {
-  percent: number;
-  speed: number;
-  transferred: number;
-  total: number;
-}
-
 export const UpdateNotification: React.FC = () => {
-  const [state, setState] = useState<UpdateState>('idle');
-  const [version, setVersion] = useState('');
-  const [progress, setProgress] = useState(0);
+  const snapshot = useUpdateState();
 
-  useEffect(() => {
-    const bridge = (window as any).bridge;
-    if (!bridge) return;
+  if (!shouldShowUpdateBanner(snapshot)) return null;
 
-    const unsubAvailable = bridge.onUpdateAvailable?.((info: UpdateInfo) => {
-      setVersion(info.version);
-      setState('available');
-    });
-
-    const unsubProgress = bridge.onUpdateProgress?.((p: ProgressInfo) => {
-      setProgress(Math.round(p.percent));
-    });
-
-    const unsubDownloaded = bridge.onUpdateDownloaded?.(() => {
-      setState('downloaded');
-    });
-
-    return () => {
-      unsubAvailable?.();
-      unsubProgress?.();
-      unsubDownloaded?.();
-    };
-  }, []);
-
-  if (state === 'idle') return null;
+  const { status, availableVersion: version, progress } = snapshot;
 
   const handleDownload = () => {
-    setState('downloading');
-    setProgress(0);
-    (window as any).bridge?.downloadUpdate?.();
+    void updateStore.downloadUpdate();
   };
 
   const handleInstall = () => {
-    (window as any).bridge?.installUpdate?.();
+    void updateStore.installUpdate();
   };
 
   const handleDismiss = () => {
-    setState('idle');
+    updateStore.dismissBanner();
   };
 
   return (
     <div className={styles.updateBar}>
       <ArrowDownCircle size={18} className={styles.icon} />
       <div className={styles.text}>
-        {state === 'available' && (
+        {status === 'available' && (
           <>Доступна версия <span className={styles.version}>{version}</span></>
         )}
-        {state === 'downloading' && (
+        {status === 'downloading' && (
           <>
             Загрузка... {progress}%
             <div className={styles.progressWrap} role="progressbar" aria-label="Загрузка обновления" aria-valuenow={progress}>
@@ -75,12 +37,12 @@ export const UpdateNotification: React.FC = () => {
             </div>
           </>
         )}
-        {state === 'downloaded' && (
+        {status === 'downloaded' && (
           <>Обновление загружено — перезапустите</>
         )}
       </div>
-      {state !== 'downloading' && <div className={styles.actions}>
-        {state === 'available' && (
+      {status !== 'downloading' && <div className={styles.actions}>
+        {status === 'available' && (
           <>
             <button className={`${styles.btn} ${styles.btnPrimary}`} aria-label="Скачать обновление" onClick={handleDownload}>
               <Download size={14} />
@@ -90,7 +52,7 @@ export const UpdateNotification: React.FC = () => {
             </button>
           </>
         )}
-        {state === 'downloaded' && (
+        {status === 'downloaded' && (
           <button className={`${styles.btn} ${styles.btnPrimary}`} aria-label="Установить обновление" onClick={handleInstall}>
             <RefreshCw size={14} />
           </button>

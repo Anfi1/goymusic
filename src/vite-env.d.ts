@@ -50,10 +50,12 @@ interface Window {
     writeOverridesManifest: (data: unknown) => Promise<void>;
     getScProfileDir: () => Promise<string>;
     pickScBrowser: () => Promise<string | null>;
-    checkForUpdates: () => Promise<{ version: string } | null>;
+    getAppVersion: () => Promise<string>;
+    checkForUpdates: () => Promise<import('./api/updateStore').UpdateCheckResponse>;
     downloadUpdate: () => Promise<void>;
     installUpdate: () => Promise<void>;
     onUpdateAvailable: (callback: (info: { version: string; releaseNotes?: any }) => void) => () => void;
+    onUpdateNotAvailable: (callback: (info: { version: string }) => void) => () => void;
     onUpdateProgress: (callback: (progress: { percent: number; speed: number; transferred: number; total: number }) => void) => () => void;
     onUpdateDownloaded: (callback: () => void) => () => void;
     onUpdateError: (callback: (err: { message: string }) => void) => () => void;

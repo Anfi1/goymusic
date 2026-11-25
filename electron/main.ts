@@ -361,8 +361,11 @@ function initAutoUpdater() {
     })
   })
 
-  autoUpdater.on('update-not-available', () => {
+  autoUpdater.on('update-not-available', (info) => {
     logToFile('No update available')
+    getLiveMainWindow()?.webContents.send('update:not-available', {
+      version: info?.version || app.getVersion()
+    })
   })
 
   autoUpdater.on('download-progress', (progress) => {
@@ -569,14 +572,31 @@ app.once('before-quit', () => {
   exitPyProc()
 })
 
+ipcMain.handle('app:get-version', () => app.getVersion())
+
 // Auto-updater IPC handlers
 ipcMain.handle('update:check', async () => {
+  const currentVersion = app.getVersion()
+  if (!app.isPackaged) {
+    return { status: 'dev' as const, currentVersion }
+  }
   try {
     const result = await autoUpdater.checkForUpdates()
-    return result ? { version: result.updateInfo.version } : null
-  } catch (e: any) {
-    logToFile(`Manual update check error: ${e.message}`)
-    return null
+    if (!result) {
+      return { status: 'up-to-date' as const, currentVersion }
+    }
+    const latestVersion = result.updateInfo?.version
+    const available = typeof result.isUpdateAvailable === 'boolean'
+      ? result.isUpdateAvailable
+      : Boolean(latestVersion && latestVersion !== currentVersion)
+    if (available && latestVersion) {
+      return { status: 'available' as const, version: latestVersion, currentVersion }
+    }
+    return { status: 'up-to-date' as const, currentVersion }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logToFile(`Manual update check error: ${message}`)
+    return { status: 'error' as const, currentVersion, message }
   }
 })
 

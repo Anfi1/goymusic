@@ -9,6 +9,7 @@ import { scLikedManager } from '../../api/scLikedManager';
 import { clearAllOverrides, restoreOverridesFromFolder } from '../../api/localOverrides';
 import { tracksStore } from '../../api/tracks';
 import { streamCache } from '../../api/cache';
+import { updateStore, useUpdateState } from '../../api/updateStore';
 import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, scLoginViaWebview, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath, getScLikeMode, setScLikeMode, ScLikeMode } from '../../api/soundcloud';
 import { isYandexEnabled, setYandexEnabled, yandexAuthStart, yandexAuthPoll, yandexAuthStatus, yandexLogout, YandexDeviceCode } from '../../api/yandex';
 import { YandexMusicIcon } from '../atoms/YandexMusicIcon';
@@ -60,6 +61,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [songsPath, setSongsPath] = useState<string>('');
     const [pathWarning, setPathWarning] = useState(false);
     const [restoreProgress, setRestoreProgress] = useState<string | null>(null);
+    const updateState = useUpdateState();
 
     useEffect(() => {
         const unsubscribe = player.subscribe((event) => {
@@ -817,6 +819,106 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                     </button>
                 </div>
             </div>
+
+            <section className={styles.section} aria-labelledby="updates-title">
+                <h3 id="updates-title" className={styles.sectionTitle}>Updates</h3>
+                <div className={styles.row}>
+                    <div className={styles.col}>
+                        <span>Current version</span>
+                        <span className={styles.subtitle}>
+                            {updateState.currentVersion ? `Version ${updateState.currentVersion}` : 'Version unknown'}
+                        </span>
+                        {updateState.status === 'checking' && (
+                            <span className={styles.subtitle}>Checking for updates...</span>
+                        )}
+                        {updateState.isDevBuild && updateState.status !== 'checking' && (
+                            <span className={styles.subtitle}>Update checks are available in installed builds.</span>
+                        )}
+                        {updateState.status === 'up-to-date' && !updateState.isDevBuild && (
+                            <span className={`${styles.subtitle} ${styles.updateStatusSuccess}`}>Up to date</span>
+                        )}
+                        {updateState.status === 'error' && (
+                            <span className={`${styles.subtitle} ${styles.updateStatusError}`}>
+                                {updateState.errorMessage || 'Failed to check for updates.'}
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        className={styles.btnSecondary}
+                        onClick={() => { void updateStore.checkForUpdates(); }}
+                        disabled={
+                            updateState.status === 'checking' ||
+                            updateState.status === 'downloading' ||
+                            updateState.status === 'downloaded'
+                        }
+                    >
+                        {updateState.status === 'checking'
+                            ? 'Checking...'
+                            : updateState.status === 'error'
+                                ? 'Retry'
+                                : 'Check for updates'}
+                    </button>
+                </div>
+
+                {updateState.status === 'available' && (
+                    <div className={styles.row}>
+                        <div className={styles.col}>
+                            <span>Update available</span>
+                            <span className={styles.subtitle}>
+                                Version {updateState.availableVersion} is ready to download.
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            className={styles.btnPrimary}
+                            onClick={() => { void updateStore.downloadUpdate(); }}
+                        >
+                            Download update
+                        </button>
+                    </div>
+                )}
+
+                {updateState.status === 'downloading' && (
+                    <div className={styles.row}>
+                        <div className={`${styles.col} ${styles.updateProgressCol}`}>
+                            <span>Downloading update</span>
+                            <span className={styles.subtitle}>{updateState.progress}%</span>
+                            <div
+                                className={styles.updateProgressBar}
+                                role="progressbar"
+                                aria-label="Downloading update"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={updateState.progress}
+                            >
+                                <div
+                                    className={styles.updateProgressFill}
+                                    style={{ width: `${updateState.progress}%` }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {updateState.status === 'downloaded' && (
+                    <div className={styles.row}>
+                        <div className={styles.col}>
+                            <span>Update ready</span>
+                            <span className={styles.subtitle}>
+                                Version {updateState.availableVersion || 'new'} has been downloaded.
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            className={styles.btnPrimary}
+                            onClick={() => { void updateStore.installUpdate(); }}
+                        >
+                            Restart and install
+                        </button>
+                    </div>
+                )}
+            </section>
 
             <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Maintenance</h3>
