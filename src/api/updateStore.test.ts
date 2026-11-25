@@ -147,16 +147,20 @@ describe('updateStore', () => {
     expect(store.getSnapshot().status).toBe('downloading');
     expect(store.getSnapshot().progress).toBe(43);
 
-    mock.emitAvailable('6.6.0');
+    mock.emitAvailable('6.7.0');
     expect(store.getSnapshot().status).toBe('downloading');
+    expect(store.getSnapshot().availableVersion).toBe('6.6.0');
     expect(store.getSnapshot().progress).toBe(43);
 
     mock.emitDownloaded();
     expect(store.getSnapshot().status).toBe('downloaded');
+    expect(store.getSnapshot().availableVersion).toBe('6.6.0');
     expect(store.getSnapshot().progress).toBe(100);
 
-    mock.emitAvailable('6.6.0');
+    // Новая версия из почасовой проверки не подменяет версию уже скачанного релиза
+    mock.emitAvailable('6.8.0');
     expect(store.getSnapshot().status).toBe('downloaded');
+    expect(store.getSnapshot().availableVersion).toBe('6.6.0');
     expect(store.getSnapshot().progress).toBe(100);
 
     // Запоздалый прогресс тоже не откатывает downloaded
@@ -219,7 +223,6 @@ describe('updateStore', () => {
     await store.checkForUpdates();
     expect(store.getSnapshot().status).toBe('idle');
     expect(store.getSnapshot().isDevBuild).toBe(true);
-    expect(store.getSnapshot().checkedManually).toBe(true);
 
     checkMock.mockResolvedValueOnce({ status: 'up-to-date', currentVersion: '6.5.2' });
     await store.checkForUpdates();
@@ -325,7 +328,6 @@ describe('updateStore', () => {
       errorMessage: '',
       bannerDismissed: false,
       isDevBuild: false,
-      checkedManually: false,
     };
 
     const expected: Record<UpdateStatus, boolean> = {

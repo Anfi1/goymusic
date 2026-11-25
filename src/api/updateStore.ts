@@ -23,7 +23,6 @@ export interface UpdateSnapshot {
   errorMessage: string;
   bannerDismissed: boolean;
   isDevBuild: boolean;
-  checkedManually: boolean;
 }
 
 export interface UpdateBridge {
@@ -78,7 +77,6 @@ export function createUpdateStore(bridge?: UpdateBridge | null): UpdateStore {
     errorMessage: '',
     bannerDismissed: false,
     isDevBuild: false,
-    checkedManually: false,
   };
 
   const listeners = new Set<() => void>();
@@ -125,11 +123,11 @@ export function createUpdateStore(bridge?: UpdateBridge | null): UpdateStore {
     registerUnsub(
       bridge.onUpdateAvailable?.((info) => {
         const version = info?.version || snapshot.availableVersion;
-        // Не откатываем активную или завершенную загрузку назад в available
-        // и не сбрасываем bannerDismissed в текущей сессии.
+        // Не откатываем активную или завершенную загрузку назад в available,
+        // не подменяем версию уже скачиваемого/скачанного релиза и не сбрасываем bannerDismissed.
         if (snapshot.status === 'downloading' || snapshot.status === 'downloaded') {
           setState({
-            availableVersion: version,
+            availableVersion: snapshot.availableVersion || info?.version || '',
             errorMessage: '',
             isDevBuild: false,
           });
@@ -214,7 +212,6 @@ export function createUpdateStore(bridge?: UpdateBridge | null): UpdateStore {
 
     setState({
       status: 'checking',
-      checkedManually: true,
       errorMessage: '',
       isDevBuild: false,
     });
