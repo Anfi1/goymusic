@@ -18,7 +18,7 @@ import yt_dlp
 import requests
 import re
 from functools import partial
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlparse, urlunparse
 
 from ytmusicapi import YTMusic, OAuthCredentials
 from ytmusicapi.navigation import nav
@@ -1323,64 +1323,56 @@ def _fast_player_response(video_id, visitor_data, sig_ts):
     return (resp, po_token) if resp else (None, None)
 
 
-def _resolve_fast(video_id, expected_sec=None, _swapped=False):
-    """Самый быстрый путь: один innertube player-запрос + локальная расшифровка на
-    прогретом node. С куками это авторизованный WEB_REMIX без botGuard (~0.3с), без них
-    анонимный WEB_MUSIC с PO-токеном (~0.8-5с), см. _fast_player_response. Для сравнения:
-    ~1.9с у pytubefix и 4-14с у tv+cookies. Формат лучший из всех -- opus itag251 (145-168kbps) против itag140
-    (m4a 128k) у pytubefix и itag18 (склейка с видео, 96k) у tv.
-
-    Возвращает (url, loudness, video_id) -- третий элемент это ФАКТИЧЕСКИ сыгранный id:
-    у клипа он отличается от запрошенного, см. подмену на альбомную версию ниже. На любой
-    осечке (None, None, video_id) -- дальше отработает обычная гонка. Громкость берём из
-    этого же ответа: отдельный запрос за ней не нужен."""
-    # Если этот клип уже разбирали, идём сразу к найденной записи: тип лежит в
-    # player-ответе, но делать ради него лишний запрос на каждом повторе незачем.
+def _resolve_fast_with_details(video_id, expected_sec=None, _swapped=False):
+    """Как _resolve_fast, но также возвращает videoDetails из того же player-ответа."""
     if not _swapped and expected_sec:
         with _atv_twin_lock:
             known = _atv_twin_cache.get((video_id, expected_sec))
         if known:
-            url, loudness, eff = _resolve_fast(known, _swapped=True)
+            url, loudness, eff, det = _resolve_fast_with_details(known, _swapped=True)
             if url:
-                return url, loudness, eff
+                return url, loudness, eff, det
 
     if _fast_paths_on_cooldown():
-        return None, None, video_id
+        return None, None, video_id, None
     try:
         visitor_data, js, js_url, sig_ts = _pytubefix_state(video_id)
         resp, po_token = _fast_player_response(video_id, visitor_data, sig_ts)
         if resp is None:
-            return None, None, video_id
+            return None, None, video_id, None
 
-        # Клип вместо альбомной версии. Тип и длительность лежат в этом же ответе, так
-        # что проверка бесплатна. Меняем ТОЛЬКО при расхождении с ожидаемой длительностью:
-        # сам по себе OMV не признак беды -- у 'Everlasting Summer' клип и есть альбомные
-        # 2:37, и подмена там всё портила. Без expected_sec (фронт не прислал, SC-трек и
-        # т.п.) не трогаем ничего: угадывать вслепую хуже, чем не делать. _swapped
-        # страхует от петли.
         details = resp.get('videoDetails') or {}
         if not _swapped and expected_sec and details.get('musicVideoType') == 'MUSIC_VIDEO_TYPE_OMV':
             actual = int(details.get('lengthSeconds') or 0)
             if actual and abs(actual - expected_sec) > 3:
                 twin = _find_atv_twin(video_id, details, expected_sec)
                 if twin:
-                    url, loudness, eff = _resolve_fast(twin, _swapped=True)
+                    url, loudness, eff, det = _resolve_fast_with_details(twin, _swapped=True)
                     if url:
-                        return url, loudness, eff
+                        return url, loudness, eff, det
 
         manifest = ptf_extract.apply_descrambler(resp['streamingData'])
         if po_token:
             ptf_extract.apply_po_token(manifest, resp, po_token)
         audio = [f for f in manifest if str(f.get('mimeType', '')).startswith('audio/')]
         if not audio:
-            return None, None, video_id
+            return None, None, video_id, None
         best = [max(audio, key=lambda f: f.get('bitrate', 0))]
         ptf_extract.apply_signature(best, resp, js, js_url)
-        return best[0].get('url'), extract_loudness(resp), video_id
+        return best[0].get('url'), extract_loudness(resp), video_id, details
     except Exception as e:
         _invalidate_pytubefix_state()
         print(f"[debug] fast-path failed for {video_id}: {e}", file=sys.stderr)
-        return None, None, video_id
+        return None, None, video_id, None
+
+
+def _resolve_fast(video_id, expected_sec=None, _swapped=False):
+    """Самый быстрый путь: один innertube player-запрос + локальная расшифровка на
+    прогретом node. Возвращает (url, loudness, video_id)."""
+    url, loudness, eff, _ = _resolve_fast_with_details(
+        video_id, expected_sec=expected_sec, _swapped=_swapped
+    )
+    return url, loudness, eff
 
 
 def _find_key(o, key):
@@ -1519,89 +1511,14 @@ def set_po_token(request, ctx):
     safe_print({'status': 'ok', 'callId': call_id})
 
 
-def get_stream_url(request, ctx):
-    call_id = ctx.call_id
-    start_time = time.time()
-    video_id = request.get('videoId')
+def _race_youtube_stream(video_id):
+    """Приоритетная гонка запасных резолверов (visionos > pytubefix > web > tv+cookies).
+    Возвращает (stream_url, method) или (None, None)."""
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    stream_url = None
-    loudness = None  # None = не знаем; 0.0 = трек ровно на цели. Раньше это было одно и то же
-    watchtime_url = None
-    playback_url = None
-    method = "None"
-    # если трек окажется клипом с чужой длительностью, резолв подменит его на
-    # запись нужной длины -- фронту нужен фактический id
-    effective_id = video_id
-    # длительность из строки, которую видит пользователь (альбом/плейлист/поиск).
-    # Это единственный доступный эталон: сам YouTube про «правильную» версию
-    # ничего не сообщает.
-    try:
-        expected_sec = int(request.get('expectedDuration') or 0) or None
-    except (TypeError, ValueError):
-        expected_sec = None
-
-    # pytubefix и yt-dlp запускаются ПАРАЛЛЕЛЬНО (гонка), а не по очереди:
-    # pytubefix быстрый (~0.3с), когда работает, но стабильно ловит
-    # бот-детект на непопулярном контенте (проверено эмпирически — не связано
-    # с PO Token, сама форма запроса подозрительна для Google). yt-dlp медленнее
-    # (~2-2.5с), но надёжнее на таком контенте. Гонка даёт лучшее из двух: если
-    # pytubefix успел первым - используем его и не ждём yt-dlp; если он упал -
-    # время не потеряно, yt-dlp уже параллельно резолвился с самого начала.
-    # 'mweb' не используется в player_client: он всегда требует GVS PO Token,
-    # которого у нас нет, и просто съедает время на клиент, чьи форматы всё
-    # равно потом отбрасываются. player_skip=webpage,configs — не тянем HTML
-    # страницы и конфиги, только сам API-запрос форматов (~2x быстрее по замерам).
-
-    # loudnessDb и watchtimeUrl достаём через player-эндпоинт параллельно с yt-dlp —
-    # это отдельный лёгкий запрос metadata, не упирается в GVS PO Token (тот нужен
-    # только для самих URL закачки), так что не тормозит резолв. Используем сырой
-    # _send_request вместо get_song(), т.к. get_song() обрезает ответ и выкидывает
-    # responseContext, откуда мы заодно достаём account dataSyncId (см. ниже) —
-    # без него yt-dlp на авторизованной сессии не может даже попытаться получить
-    # GVS PO Token и просто пишет warning на каждый трек.
-    def _fetch_meta():
-        try:
-            api = get_api()
-            params = {
-                'playbackContext': {'contentPlaybackContext': {'signatureTimestamp': get_datestamp() - 1}},
-                'video_id': video_id,
-            }
-            song = api._send_request('player', params)
-            wt = nav(song, ['playbackTracking', 'videostatsWatchtimeUrl', 'baseUrl'], True)
-            pb = nav(song, ['playbackTracking', 'videostatsPlaybackUrl', 'baseUrl'], True)
-            dsid = nav(song, ['responseContext', 'mainAppWebResponseContext', 'datasyncId'], True)
-            if dsid:
-                global _yt_data_sync_id
-                _yt_data_sync_id = dsid
-            return extract_loudness(song), wt, pb
-        except Exception as e:
-            print(f"[warn] player meta fetch failed for {video_id}: {e}", file=sys.stderr)
-            return None, None, None
-
-    meta_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    meta_future = meta_pool.submit(_fetch_meta)
-
     def _try_pytubefix():
-        # WEB_MUSIC, а не ANDROID_VR. Замер 2026-08-22 (python/test_pytube.py, реальный
-        # домашний IP): ANDROID_VR ловит бот-детект на 100% треков за 0.3с, то есть в
-        # гонке был гарантированным балластом. WEB_MUSIC отдаёт itag140 (чистое аудио
-        # m4a 128kbps) за ~1.9с БЕЗ КУК -- вдвое быстрее tv+cookies, и без склейки с
-        # видеодорожкой, как в itag18 у tv.
-        #
-        # Почему у pytubefix web-клиенты живы, а у yt-dlp то же семейство даёт ноль
-        # форматов: pytubefix сам минтит PO-токен через botGuard (PR #209/#408), yt-dlp
-        # так не умеет. Расшифровки подписи здесь нет вообще (nsig=0.00с по замеру) --
-        # URL приходят уже подписанными, медленный jsinterp не задействован.
-        #
-        # Известный дефект: ~8% вызовов падают в RegexMatchError
-        # (get_throttling_function_name) на свежем base.js, который YouTube раздаёт по
-        # A/B, и стоят ~5с. Терпимо только потому, что это racer -- остальные бегут
-        # параллельно. Единственным путём этот клиент делать нельзя.
         try:
             pot = _pytubefix_pot(video_id)
-            # без token_file: pytubefix берёт pot из файла раньше верификатора, а там
-            # лежал токен чужого video_id, и ссылка умирала с нулевого байта
             tube = YouTube(url, client='WEB_MUSIC', use_po_token=True,
                            po_token_verifier=lambda: pot)
             stream = tube.streams.get_audio_only()
@@ -1611,28 +1528,6 @@ def get_stream_url(request, ctx):
             return None
 
     def _try_yt_dlp_web():
-        # web, а не android_vr. Замер 2026-08-22 с домашнего IP: клиент ANDROID_VR
-        # ловит бот-детект на 100% треков, так что этот racer был гарантированным
-        # балластом и лишним флагнутым запросом на каждый трек.
-        #
-        # Голый web тоже мёртв, но по другой причине: у него GVS_PO_TOKEN_POLICY
-        # required=True (yt_dlp/extractor/youtube/_base.py), без токена -- ноль
-        # форматов. Прежний вывод «yt-dlp хардкодит SABR для web» был неточен: в
-        # _video.py это лишь диагностическое сообщение о поведении YouTube.
-        #
-        # Токен у нас есть -- тот же, что минтит botGuard для pytubefix (_pytubefix_pot),
-        # и он привязан к video_id, а не к сессии: минтится заново на каждый трек,
-        # кэш там только для повторного резолва ТОГО ЖЕ трека. Здесь раньше стояло
-        # обратное утверждение («привязан к visitor_data, переиспользуется между треками») --
-        # оно неверно и противоречило коду ниже; см. докстроку _pytubefix_pot, где привязка
-        # проверена реальным воспроизведением. Прокидываем пару в yt-dlp и получаем рабочий web.
-        #
-        # Смысл держать его рядом с pytubefix-racer'ом на том же клиенте: pytubefix
-        # в ~8% вызовов давится свежим base.js (RegexMatchError), парсер yt-dlp
-        # заметно устойчивее и закрывает именно этот отказ.
-        #
-        # Куки не передаются сознательно: с ними content binding токена
-        # переключается на datasync_id, и наш токен станет невалиден.
         try:
             visitor_data, po_token = _pytubefix_pot(video_id)
 
@@ -1662,15 +1557,6 @@ def get_stream_url(request, ctx):
             return None
 
     def _try_yt_dlp_cookies():
-        # Единственный авторизованный путь - и, вопреки первоначальным ожиданиям,
-        # основной рабочий: cookie-less клиенты (visionos/android_vr/pytubefix)
-        # ловят бот-детект почти на всём реальном контенте, а этот проходит.
-        # Отдаёт progressive itag18 с c=TVHTML5, ~4с.
-        #
-        # ВАЖНО: здесь НЕ ставится player_skip=webpage. С ним tv возвращает
-        # "Requested format is not available" (0 форматов) - ему нужен ytcfg
-        # авторизованной сессии со страницы. Именно из-за player_skip в ранних
-        # замерах казалось, что tv мёртв, как и всё семейство web.
         if not (_auth_type == 'browser' and _auth_data):
             return None
         cookie = _auth_data.get('Cookie')
@@ -1716,15 +1602,6 @@ def get_stream_url(request, ctx):
             return None
 
     def _try_yt_dlp_visionos():
-        # VISIONOS - единственный клиент, отдающий настоящие adaptive-форматы
-        # (opus/251) вообще без GVS PO Token и без JS-плеера: у него
-        # REQUIRE_JS_PLAYER=False и GvsPoTokenPolicy(required=False) по всем
-        # протоколам, и он не входит в захардкоженный SABR-форс (там только
-        # web/web_safari). Появился в yt-dlp начиная с nightly - отсюда пин
-        # версии в requirements.txt. Минус: заметно медленнее (~5с против ~1.5с
-        # у android_vr), поэтому в гонке ему даётся фора, а не голая скорость.
-        # Оговорка апстрима: "made for kids" видео этому клиенту недоступны -
-        # на них он вернёт None и выиграют остальные.
         try:
             class MyLogger:
                 def debug(self, msg): pass
@@ -1737,18 +1614,11 @@ def get_stream_url(request, ctx):
                 'logger': MyLogger(),
                 'youtube_include_dash_manifest': False, 'cachedir': False,
                 'extractor_args': {'youtube': {
-                    # Без player_skip=['webpage', 'configs']: пропуск страницы оставляет
-                    # клиент без visitor_data, и YouTube стал отвечать bot-check.
                     'player_client': ['visionos', 'android_sdkless'], 'skip': ['hls', 'dash'],
                 }},
                 'extractor_timeout': 15, 'socket_timeout': 15,
                 **_yt_dlp_js_runtime_opts(),
             }
-            # КУКИ СЮДА НЕ ПЕРЕДАЮТСЯ СОЗНАТЕЛЬНО. У visionos SUPPORTS_COOKIES=False,
-            # и при наличии кук yt-dlp молча выкидывает клиент целиком
-            # ("Skipping client visionos since it does not support cookies"),
-            # после чего падает с "Failed to extract any player response".
-            # Проверено: с куками 0/4 треков, без кук тот же трек - 1.4с и opus 251.
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 return info['url']
@@ -1756,10 +1626,95 @@ def get_stream_url(request, ctx):
             print(f"[debug] yt-dlp(visionos) failed for {video_id}: {e}", file=sys.stderr)
             return None
 
+    PRIORITY = ['visionos', 'pytubefix', 'web', 'tv+cookies']
+    racer_fns = {
+        'visionos': _try_yt_dlp_visionos,
+        'pytubefix': _try_pytubefix,
+        'web': _try_yt_dlp_web,
+        'tv+cookies': _try_yt_dlp_cookies,
+    }
+
+    stream_url = None
+    method = None
+    stream_pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(racer_fns))
+    racers = {stream_pool.submit(fn): name for name, fn in racer_fns.items()}
+    pending = set(racers.keys())
+    results = {}
+    while pending:
+        done, pending = concurrent.futures.wait(
+            pending, return_when=concurrent.futures.FIRST_COMPLETED)
+        for fut in done:
+            try:
+                results[racers[fut]] = fut.result()
+            except Exception:
+                results[racers[fut]] = None
+        best_name = PRIORITY[0]
+        if results.get(best_name):
+            break
+        if best_name in results and any(results.get(n) for n in PRIORITY):
+            break
+
+    for name in PRIORITY:
+        if results.get(name):
+            stream_url = results[name]
+            method = name
+            break
+
+    stream_pool.shutdown(wait=False)
+    return stream_url, method
+
+
+def _resolve_youtube_audio_stream(video_id):
+    """Единая точка резолва прямого аудио-потока YouTube: сначала _resolve_fast_with_details,
+    при осечке - приоритетная гонка. Возвращает (stream_url, loudness, details)."""
+    stream_url, loudness, _, details = _resolve_fast_with_details(video_id)
+    if stream_url:
+        return stream_url, loudness, details
+    raced_url, _ = _race_youtube_stream(video_id)
+    if raced_url:
+        return raced_url, None, None
+    return None, None, None
+
+
+def get_stream_url(request, ctx):
+    call_id = ctx.call_id
+    start_time = time.time()
+    video_id = request.get('videoId')
+
+    stream_url = None
+    loudness = None
+    watchtime_url = None
+    playback_url = None
+    method = "None"
+    effective_id = video_id
+    try:
+        expected_sec = int(request.get('expectedDuration') or 0) or None
+    except (TypeError, ValueError):
+        expected_sec = None
+
+    def _fetch_meta():
+        try:
+            api = get_api()
+            params = {
+                'playbackContext': {'contentPlaybackContext': {'signatureTimestamp': get_datestamp() - 1}},
+                'video_id': video_id,
+            }
+            song = api._send_request('player', params)
+            wt = nav(song, ['playbackTracking', 'videostatsWatchtimeUrl', 'baseUrl'], True)
+            pb = nav(song, ['playbackTracking', 'videostatsPlaybackUrl', 'baseUrl'], True)
+            dsid = nav(song, ['responseContext', 'mainAppWebResponseContext', 'datasyncId'], True)
+            if dsid:
+                global _yt_data_sync_id
+                _yt_data_sync_id = dsid
+            return extract_loudness(song), wt, pb
+        except Exception as e:
+            print(f"[warn] player meta fetch failed for {video_id}: {e}", file=sys.stderr)
+            return None, None, None
+
+    meta_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    meta_future = meta_pool.submit(_fetch_meta)
+
     if not stream_url:
-        # Быстрый путь идёт ПЕРЕД гонкой, а не в ней: он выигрывает почти всегда
-        # (~0.3с), и запускать ради этого ещё четыре запроса значит зря светить IP
-        # флагнутыми клиентами. Осечка стоит 0.3с, после неё отрабатывает гонка.
         stream_url, fast_loudness, effective_id = _resolve_fast(video_id, expected_sec)
         if stream_url:
             method = 'fast'
@@ -1767,62 +1722,15 @@ def get_stream_url(request, ctx):
                 loudness = fast_loudness
 
     if not stream_url:
-        # Три racer'а из четырёх ходят БЕЗ КУК, и это необходимость, а не упущение:
-        # у visionos SUPPORTS_COOKIES=False (с куками yt-dlp выбрасывает клиент), а у
-        # pytubefix/web куки переключили бы content binding PO-токена на datasync_id,
-        # и наш visitor_data-токен стал бы невалиден.
-        #
-        # tv+cookies бежит В ГОНКЕ, а не после неё. Долго был единственным рабочим
-        # путём, теперь -- самый медленный (~4с) и худший по формату (itag18 = склейка
-        # видео+аудио 96k). Оставлен как страховка на age-restricted.
-        #
-        # Гонка приоритетная, а не «кто первый»: форматы у racer'ов разные, и брать
-        # первого попавшегося значит систематически терять качество. Порядок по
-        # качеству: visionos (opus 251) > pytubefix/web (itag140, чистое аудио m4a
-        # 128k, ~1.9-2.3с) > tv+cookies (itag18). pytubefix и web ходят на одном и том
-        # же клиенте разными библиотеками намеренно -- pytubefix быстрее стартует, но
-        # в ~8% случаев давится свежим base.js, yt-dlp устойчивее.
-        PRIORITY = ['visionos', 'pytubefix', 'web', 'tv+cookies']
-        racer_fns = {
-            'visionos': _try_yt_dlp_visionos,
-            'pytubefix': _try_pytubefix,
-            'web': _try_yt_dlp_web,
-            'tv+cookies': _try_yt_dlp_cookies,
-        }
-
-        stream_pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(racer_fns))
-        racers = {stream_pool.submit(fn): name for name, fn in racer_fns.items()}
-        pending = set(racers.keys())
-        results = {}
-        while pending:
-            done, pending = concurrent.futures.wait(
-                pending, return_when=concurrent.futures.FIRST_COMPLETED)
-            for fut in done:
-                try:
-                    results[racers[fut]] = fut.result()
-                except Exception:
-                    results[racers[fut]] = None
-            best_name = PRIORITY[0]
-            if results.get(best_name):
-                break  # лучший вариант готов, остальных ждать незачем
-            if best_name in results and any(results.get(n) for n in PRIORITY):
-                break  # лучший отпал, запасной уже есть
-
-        for name in PRIORITY:
-            if results.get(name):
-                stream_url = results[name]
-                method = name
-                break
-
-        # Проигравший (если ещё бежит) доигрывает в фоне и результат просто
-        # отбрасывается - поток демонический (main() стартует его так же),
-        # ждать его незачем.
-        stream_pool.shutdown(wait=False)
+        raced_url, raced_method = _race_youtube_stream(video_id)
+        if raced_url:
+            stream_url = raced_url
+            method = raced_method
 
     try:
         ld, wt, pb = meta_future.result(timeout=10)
         if loudness is None and ld is not None:
-            loudness = ld  # запасной вариант: быстрый путь не отработал
+            loudness = ld
         watchtime_url = wt
         playback_url = pb
     except Exception as e:
@@ -1986,12 +1894,432 @@ def sc_setup_profile(request, ctx):
                     'callId': call_id})
 
 
+_CHROME_UA = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+)
+_YT_VIDEO_ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
+
+
+class _DownloadCancelled(Exception):
+    pass
+
+
+def _is_youtube_video_id(value) -> bool:
+    return isinstance(value, str) and bool(_YT_VIDEO_ID_RE.match(value))
+
+
+def _extract_youtube_video_id(url: str) -> str | None:
+    """Извлекает 11-символьный videoId из ссылок YouTube/YouTube Music, иначе None."""
+    if not url or not isinstance(url, str):
+        return None
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return None
+    if parsed.scheme not in ('http', 'https'):
+        return None
+    host = (parsed.hostname or '').lower()
+    path_parts = [p for p in (parsed.path or '').split('/') if p]
+
+    vid = None
+    if host in ('youtu.be', 'www.youtu.be'):
+        if path_parts:
+            vid = path_parts[0]
+    elif host in (
+        'youtube.com', 'www.youtube.com', 'm.youtube.com',
+        'music.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com',
+    ):
+        if path_parts and path_parts[0] == 'watch':
+            params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            vid = params.get('v')
+        elif len(path_parts) >= 2 and path_parts[0] in ('shorts', 'embed', 'live', 'v'):
+            vid = path_parts[1]
+    else:
+        return None
+    return vid if _is_youtube_video_id(vid) else None
+
+
+def _set_range_query(url: str, start: int, end: int, rn: int) -> str:
+    """Устанавливает range/rn/rbuf в query без перекодирования остальных параметров (sig/n/pot)."""
+    parsed = urlparse(url)
+    kept = []
+    if parsed.query:
+        for part in parsed.query.split('&'):
+            if not part:
+                continue
+            key = part.split('=', 1)[0]
+            if key in ('range', 'rn', 'rbuf'):
+                continue
+            kept.append(part)
+    kept.append(f'range={int(start)}-{int(end)}')
+    kept.append(f'rn={int(rn)}')
+    kept.append('rbuf=0')
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        '&'.join(kept),
+        parsed.fragment,
+    ))
+
+
+def _yt_download_headers(headers=None) -> dict:
+    ua = (_auth_data or {}).get('User-Agent') if isinstance(_auth_data, dict) else None
+    default_ua = ua if (isinstance(ua, str) and 'Chrome/' in ua) else _CHROME_UA
+    merged = {
+        'User-Agent': default_ua,
+        'Referer': 'https://music.youtube.com/',
+        'Origin': 'https://music.youtube.com',
+        'Accept': '*/*',
+    }
+    if headers:
+        merged.update(headers)
+    if not merged.get('User-Agent') or 'python-requests' in str(merged.get('User-Agent', '')).lower():
+        merged['User-Agent'] = default_ua
+    return merged
+
+
+def _infer_audio_ext(url: str, content_type: str = '') -> str:
+    query = dict(parse_qsl(urlparse(url or '').query, keep_blank_values=True))
+    mime = (query.get('mime') or content_type or '').lower()
+    if 'webm' in mime or 'opus' in mime:
+        return 'webm'
+    if 'mp4' in mime or 'm4a' in mime:
+        return 'm4a'
+    if 'mpeg' in mime or 'mp3' in mime:
+        return 'mp3'
+    if 'ogg' in mime:
+        return 'ogg'
+    low_url = (url or '').lower()
+    if '.m4a' in low_url or 'mp4' in low_url:
+        return 'm4a'
+    if '.opus' in low_url or 'webm' in low_url:
+        return 'webm'
+    if '.mp3' in low_url:
+        return 'mp3'
+    if '.ogg' in low_url:
+        return 'ogg'
+    return 'm4a'
+
+
+def _http_status_code(exc: Exception):
+    resp = getattr(exc, 'response', None)
+    return getattr(resp, 'status_code', None)
+
+
+def _is_task_cancelled(call_id, check_fn=None) -> bool:
+    if check_fn is not None and check_fn():
+        return True
+    if call_id:
+        with tasks_lock:
+            ev = active_tasks.get(call_id)
+            if ev is not None and ev.is_set():
+                return True
+    return False
+
+
+def _parse_content_range_total(content_range: str) -> int:
+    if not content_range:
+        return 0
+    m = re.search(r'/(\d+)\s*$', str(content_range))
+    return int(m.group(1)) if m else 0
+
+
+def _download_googlevideo_chunked(
+    url,
+    filepath,
+    headers,
+    call_id,
+    is_cancelled,
+    chunk_size=512 * 1024,
+    max_workers=4,
+) -> int:
+    """Параллельная загрузка googlevideo по query range=start-end.
+
+    Обходит 2x realtime pacing (~30 KB/s) на открытых GET для адаптивных потоков
+    c=WEB_REMIX (gir=yes). На 403/410 падает сразу без повторов, чтобы вызывающий
+    код мог перерезолвить протухшую ссылку."""
+    req_headers = _yt_download_headers(headers)
+    cancel_check = lambda: _is_task_cancelled(call_id, is_cancelled)
+
+    if cancel_check():
+        raise _DownloadCancelled('Cancelled by client')
+
+    start_mono = time.monotonic()
+    progress_lock = threading.Lock()
+    downloaded = 0
+    last_emit = start_mono
+
+    def _emit_progress(done_bytes: int, total_bytes: int, force: bool = False):
+        nonlocal last_emit
+        now = time.monotonic()
+        if not force and (now - last_emit) < 0.15:
+            return
+        last_emit = now
+        mb_done = done_bytes / (1024 * 1024)
+        elapsed = max(now - start_mono, 0.001)
+        speed_mb = mb_done / elapsed
+        if total_bytes > 0:
+            mb_total = total_bytes / (1024 * 1024)
+            pct = max(0.0, min(100.0, (done_bytes / total_bytes) * 100.0))
+            status = f'{mb_done:.1f} / {mb_total:.1f} MB ({speed_mb:.1f} MB/s)'
+            progress_str = f'{pct:.1f}%'
+        else:
+            status = f'{mb_done:.1f} MB ({speed_mb:.1f} MB/s)'
+            progress_str = None
+        safe_print({
+            'event': 'download_progress',
+            'callId': call_id,
+            'status': status,
+            'downloadedBytes': done_bytes,
+            'totalBytes': total_bytes,
+            'progress': progress_str,
+        })
+
+    def _add_progress(delta: int, total_bytes: int, force: bool = False):
+        nonlocal downloaded
+        with progress_lock:
+            downloaded = max(0, downloaded + delta)
+            _emit_progress(downloaded, total_bytes, force=force)
+
+    # Размер берем сначала из clen в query (0 лишних запросов), иначе 1-byte зонд
+    total_size = 0
+    query_params = dict(parse_qsl(urlparse(url).query, keep_blank_values=True))
+    clen_raw = query_params.get('clen', '')
+    if clen_raw.isdigit() and int(clen_raw) > 0:
+        total_size = int(clen_raw)
+    else:
+        probe_session = requests.Session()
+        try:
+            probe_url = _set_range_query(url, 0, 0, 0)
+            with probe_session.get(probe_url, headers=req_headers, stream=True, timeout=20) as r:
+                if r.status_code in (403, 410):
+                    r.raise_for_status()
+                if r.ok:
+                    total_size = _parse_content_range_total(r.headers.get('Content-Range', ''))
+        finally:
+            try:
+                probe_session.close()
+            except Exception:
+                pass
+
+    if cancel_check():
+        raise _DownloadCancelled('Cancelled by client')
+
+    if total_size <= 0:
+        try:
+            with requests.get(url, stream=True, headers=req_headers, timeout=120) as r:
+                r.raise_for_status()
+                cl = r.headers.get('Content-Length')
+                stream_total = int(cl) if cl and str(cl).isdigit() else 0
+                with open(filepath, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=262144):
+                        if cancel_check():
+                            raise _DownloadCancelled('Cancelled by client')
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        _add_progress(len(chunk), stream_total)
+                _add_progress(0, stream_total, force=True)
+            return downloaded
+        except Exception:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except OSError:
+                pass
+            raise
+
+    ranges = []
+    rn = 1
+    offset = 0
+    while offset < total_size:
+        end = min(offset + chunk_size - 1, total_size - 1)
+        ranges.append((offset, end, rn))
+        offset = end + 1
+        rn += 1
+
+    stop_event = threading.Event()
+    file_lock = threading.Lock()
+    sessions_lock = threading.Lock()
+    worker_local = threading.local()
+    sessions = []
+    written_bytes = 0
+
+    def _get_worker_session():
+        sess = getattr(worker_local, 'session', None)
+        if sess is None:
+            sess = requests.Session()
+            worker_local.session = sess
+            with sessions_lock:
+                sessions.append(sess)
+        return sess
+
+    def _fetch_chunk(start: int, end: int, req_num: int, out_file):
+        nonlocal written_bytes
+        expected_len = end - start + 1
+        chunk_url = _set_range_query(url, start, end, req_num)
+        backoffs = (0.2, 0.5)
+        last_err = None
+
+        for attempt in range(3):
+            if stop_event.is_set() or cancel_check():
+                stop_event.set()
+                raise _DownloadCancelled('Cancelled by client')
+
+            if attempt > 0:
+                delay = backoffs[min(attempt - 1, len(backoffs) - 1)]
+                if stop_event.wait(delay):
+                    raise _DownloadCancelled('Cancelled by client')
+                if cancel_check():
+                    stop_event.set()
+                    raise _DownloadCancelled('Cancelled by client')
+
+            attempt_bytes = 0
+            buf = bytearray()
+            try:
+                sess = _get_worker_session()
+                with sess.get(chunk_url, headers=req_headers, stream=True, timeout=30) as r:
+                    if r.status_code in (403, 410):
+                        stop_event.set()
+                        r.raise_for_status()
+                    r.raise_for_status()
+                    for piece in r.iter_content(chunk_size=65536):
+                        if stop_event.is_set() or cancel_check():
+                            stop_event.set()
+                            raise _DownloadCancelled('Cancelled by client')
+                        if not piece:
+                            continue
+                        buf.extend(piece)
+                        attempt_bytes += len(piece)
+                        _add_progress(len(piece), total_size)
+                if len(buf) != expected_len:
+                    raise IOError(f'Incomplete chunk {start}-{end}: got {len(buf)}/{expected_len} bytes')
+                with file_lock:
+                    out_file.seek(start)
+                    out_file.write(buf)
+                    written_bytes += len(buf)
+                return expected_len
+            except _DownloadCancelled:
+                if attempt_bytes:
+                    _add_progress(-attempt_bytes, total_size)
+                raise
+            except Exception as e:
+                if attempt_bytes:
+                    _add_progress(-attempt_bytes, total_size)
+                if _http_status_code(e) in (403, 410):
+                    stop_event.set()
+                    raise
+                last_err = e
+
+        stop_event.set()
+        raise last_err if last_err is not None else IOError(f'Chunk {start}-{end} failed')
+
+    out_file = open(filepath, 'wb')
+    try:
+        out_file.truncate(total_size)
+        worker_count = max(1, min(int(max_workers or 4), len(ranges)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
+            futures = [pool.submit(_fetch_chunk, s, e, n, out_file) for (s, e, n) in ranges]
+            try:
+                for fut in concurrent.futures.as_completed(futures):
+                    fut.result()
+            except Exception:
+                stop_event.set()
+                for f in futures:
+                    f.cancel()
+                raise
+        out_file.flush()
+        out_file.close()
+        out_file = None
+
+        if written_bytes != total_size or os.path.getsize(filepath) != total_size:
+            raise IOError(f'Size mismatch: wrote {written_bytes}/{total_size} bytes')
+
+        _add_progress(0, total_size, force=True)
+        return total_size
+    except Exception:
+        stop_event.set()
+        if out_file is not None:
+            try:
+                out_file.close()
+            except Exception:
+                pass
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except OSError:
+            pass
+        raise
+    finally:
+        if out_file is not None:
+            try:
+                out_file.close()
+            except Exception:
+                pass
+        with sessions_lock:
+            for s in sessions:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+
+def _measure_local_gain_db(filepath: str, fallback_gain_db: float = 0.0) -> float:
+    if not filepath or not os.path.exists(filepath):
+        return fallback_gain_db
+    try:
+        res = _ffmpeg_loudness_i(filepath, ss=30, t=12)
+        if res is None:
+            res = _ffmpeg_loudness_i(filepath, ss=0, t=12)
+        if res is not None:
+            return float(res) + 14.0
+    except Exception:
+        print("[warn] loudnorm failed", file=sys.stderr)
+    return fallback_gain_db
+
+
 def get_preview_url(request, ctx):
     call_id = ctx.call_id
     url = request.get('url', '')
     try:
-        # SoundCloud: yt-dlp иногда даёт только HLS/DASH (m3u8), а не прямые MP3/AAC
-        # Fallback: если не удалось получить прямой стрим — конвертируем через yt-dlp --extract-audio
+        yt_vid = _extract_youtube_video_id(url)
+        if yt_vid:
+            try:
+                stream_url, loudness, details = _resolve_youtube_audio_stream(yt_vid)
+                if stream_url:
+                    det = details if isinstance(details, dict) else {}
+                    if not det:
+                        try:
+                            song = get_api().get_song(yt_vid) or {}
+                            det = song.get('videoDetails') or {}
+                            if loudness is None:
+                                loudness = extract_loudness(song)
+                        except Exception:
+                            det = {}
+                    thumbs = ((det.get('thumbnail') or {}).get('thumbnails') or [])
+                    thumb_url = thumbs[-1].get('url', '') if thumbs else ''
+                    try:
+                        duration = int(det['lengthSeconds']) if det.get('lengthSeconds') else None
+                    except (TypeError, ValueError):
+                        duration = None
+                    safe_print({
+                        'status': 'ok',
+                        'streamUrl': stream_url,
+                        'loudness': loudness,
+                        'title': det.get('title', ''),
+                        'artist': det.get('author', ''),
+                        'duration': duration,
+                        'thumbUrl': thumb_url,
+                        'callId': call_id,
+                    })
+                    return
+            except Exception as e:
+                print(f"[warn] get_preview_url fast path failed for {yt_vid}: {e}", file=sys.stderr)
+
+        # SoundCloud и прочие домены (а также фолбэк при отказе быстрого пути YouTube)
         is_sc = url and 'soundcloud.com' in url
 
         ydl_opts = {
@@ -2003,7 +2331,7 @@ def get_preview_url(request, ctx):
             ),
             'quiet': True,
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'user_agent': _CHROME_UA,
             **_yt_dlp_js_runtime_opts(),
         }
         if is_sc:
@@ -2018,12 +2346,10 @@ def get_preview_url(request, ctx):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        # info['url'] is set when a single format is resolved
         stream_url = info.get('url', '')
         protocol = info.get('protocol', '')
         ext = info.get('ext', '')
 
-        # Fallback: scan formats list for a playable HTTP stream
         if not stream_url or 'm3u8' in stream_url or protocol in ('m3u8', 'm3u8_native'):
             formats = info.get('formats') or []
             for fmt in reversed(formats):
@@ -2035,7 +2361,6 @@ def get_preview_url(request, ctx):
                     ext = fmt.get('ext', '')
                     break
 
-        # Critical Fix: yt-dlp sometimes omits '?' before CloudFront Policy params in SoundCloud
         if stream_url and 'Policy=' in stream_url and '?' not in stream_url:
             parsed = urlparse(stream_url)
             path = parsed.path
@@ -2054,9 +2379,6 @@ def get_preview_url(request, ctx):
         thumbs = info.get('thumbnails') or []
         thumb_url = thumbs[-1].get('url', '') if thumbs else ''
 
-        # Громкость здесь НЕ меряем: ffmpeg по сетевому стриму стоил 3-6с и стоял
-        # ровно между резолвом и выдачей ссылки. Отдаём null, рендерер догоняет
-        # фоновым measure_loudness и применяет гейн плавным рампом.
         safe_print({
             'status': 'ok',
             'streamUrl': stream_url,
@@ -2099,19 +2421,70 @@ def download_track(request, ctx):
             })
 
     try:
-        suffix = str(int(time.time() * 1000))  # numeric-ish id to avoid collisions
+        suffix = str(int(time.time() * 1000))
+        yt_vid = _extract_youtube_video_id(url)
+        safe_id = sanitize(video_id or yt_vid or '')
+
+        # Для YouTube-ссылок резолвим аудио через рабочий fast-path и качаем чанками
+        if yt_vid:
+            try:
+                stream_url, fast_loudness, _ = _resolve_youtube_audio_stream(yt_vid)
+                if stream_url:
+                    headers = _yt_download_headers()
+                    ext = _infer_audio_ext(stream_url)
+                    filename = f'{safe_id}_{suffix}.{ext}'
+                    filepath = os.path.join(songs_path, filename)
+                    try:
+                        _download_googlevideo_chunked(
+                            stream_url, filepath, headers, call_id, ctx.is_cancelled
+                        )
+                    except _DownloadCancelled:
+                        raise
+                    except Exception as dl_err:
+                        if _http_status_code(dl_err) in (403, 410):
+                            with _ptf_pot_lock:
+                                _ptf_pot_cache.pop(yt_vid, None)
+                            fresh_url, fresh_loudness, _ = _resolve_youtube_audio_stream(yt_vid)
+                            if not fresh_url:
+                                raise
+                            if fresh_loudness is not None:
+                                fast_loudness = fresh_loudness
+                            ext = _infer_audio_ext(fresh_url)
+                            filename = f'{safe_id}_{suffix}.{ext}'
+                            filepath = os.path.join(songs_path, filename)
+                            _download_googlevideo_chunked(
+                                fresh_url, filepath, headers, call_id, ctx.is_cancelled
+                            )
+                        else:
+                            raise
+
+                    safe_print({
+                        'event': 'download_progress',
+                        'callId': call_id,
+                        'status': "Download complete, analyzing loudness...",
+                        'progress': '100%',
+                    })
+                    fallback_gain = float(fast_loudness) if fast_loudness is not None else 0.0
+                    gain_db = _measure_local_gain_db(filepath, fallback_gain_db=fallback_gain)
+                    safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
+                    return
+            except _DownloadCancelled as e:
+                safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+                return
+            except Exception as e:
+                if _is_task_cancelled(call_id, ctx.is_cancelled):
+                    safe_print({'status': 'error', 'message': 'Cancelled by client', 'callId': call_id})
+                    return
+                print(f"[warn] download_track fast path failed for {yt_vid}, falling back to yt-dlp: {e}", file=sys.stderr)
 
         is_sc = url and 'soundcloud.com' in url
-        # id трека в имени файла: по нему привязку можно восстановить без базы приложения.
-        # У SC-трека id это URL, без sanitize слэши превращаются в подпапки.
-        safe_id = sanitize(video_id)
         output_template = os.path.join(songs_path, f"{safe_id.replace('%', '%%')}_{suffix}.%(ext)s")
 
         ydl_opts = {
             'format': 'bestaudio/best',
             'quiet': True,
             'no_warnings': True,
-            'noprogress': True, # Crucial: prevent yt-dlp from polluting stdout
+            'noprogress': True,
             'outtmpl': output_template,
             'noplaylist': True,
             'progress_hooks': [progress_hook],
@@ -2130,7 +2503,6 @@ def download_track(request, ctx):
         filename = f'{safe_id}_{suffix}.{ext}'
         filepath = os.path.join(songs_path, filename)
 
-        # Resolve actual file (yt-dlp may rename extension)
         if not os.path.exists(filepath):
             for f in os.listdir(songs_path):
                 if f.startswith(safe_id + '_' + suffix + '.'):
@@ -2138,17 +2510,14 @@ def download_track(request, ctx):
                     filepath = os.path.join(songs_path, f)
                     break
 
-        # Loudness analysis via ffmpeg
         gain_db = 0.0
         if os.path.exists(filepath):
             try:
                 import subprocess
-                # Give Windows a moment to release file handles / flush metadata.
-                # Also wait for file size to stabilize (best-effort).
                 try:
                     last_size = -1
                     stable_ticks = 0
-                    for _ in range(10):  # up to ~1s
+                    for _ in range(10):
                         try:
                             size = os.path.getsize(filepath)
                         except:
@@ -2170,18 +2539,14 @@ def download_track(request, ctx):
                     'status': "Analyzing loudness (quick pass)...",
                     'progress': '100%'
                 })
-                # Use subprocess.PIPE to avoid deadlocks on Windows and hide stdout
                 ffmpeg_proc = subprocess.run(
                     [
                         get_ffmpeg_exe(),
                         '-hide_banner',
                         '-nostats',
-                        # Speed up input probing to reduce "hang before processing"
                         '-probesize', '32k',
                         '-analyzeduration', '0',
                         '-vn', '-sn', '-dn',
-                        # Analyze a short slice to avoid stalls on some codecs.
-                        # `-ss` before `-i` is a fast seek (when supported by demuxer).
                         '-ss', '30',
                         '-t', '12',
                         '-i', filepath,
@@ -2201,18 +2566,10 @@ def download_track(request, ctx):
                 if json_start != -1 and json_end > json_start:
                     loudnorm_data = json.loads(stderr_text[json_start:json_end])
                     input_i = float(loudnorm_data.get('input_i', -14.0))
-                    # Player normalization expects a "loudness-like" dB value, where
-                    # negative values increase gain and positive values reduce gain:
-                    # gain = 10^(-loudness/20).
-                    #
-                    # If `input_i` is below -14 LUFS (e.g. -20), we want a negative
-                    # value to boost (+6dB). If it's above (e.g. -10), we want a
-                    # positive value to attenuate (-4dB).
                     gain_db = input_i + 14.0
             except Exception as e:
                 print(f"[warn] ffmpeg loudnorm failed: {e}", file=sys.stderr)
 
-                # Fast fallback: volumedetect (usually much quicker than loudnorm).
                 try:
                     safe_print({
                         'event': 'download_progress',
@@ -2263,82 +2620,123 @@ def download_direct(request, ctx):
     suffix = str(int(time.time() * 1000))
     output_template = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.%(ext)s')
 
-    download_url = request.get('url', '') or (raw_video_id if any(x in raw_video_id for x in ['soundcloud.com','youtube.com','youtu.be']) else None) or stream_url
+    download_url = (
+        request.get('url', '')
+        or (raw_video_id if any(x in raw_video_id for x in ['soundcloud.com', 'youtube.com', 'youtu.be']) else None)
+        or stream_url
+    )
     is_sc = download_url and 'soundcloud.com' in download_url
-    is_yt_direct = download_url and ('googlevideo.com' in download_url or 'youtube.com/api' in download_url)
+    is_googlevideo = bool(download_url and 'googlevideo.com' in download_url)
+    is_yt_api = bool(download_url and 'youtube.com/api' in download_url)
 
-    # Для прямых YouTube stream URL (googlevideo.com) используем requests — в 5-10x быстрее yt-dlp
-    if is_yt_direct:
+    # Для googlevideo.com качаем параллельными range-чанками с Chrome UA
+    if is_googlevideo:
         try:
-            headers = {
-                'Referer': 'https://music.youtube.com/',
-                'Origin': 'https://music.youtube.com',
-            }
-            # Определяем формат по URL
-            content_type = ''
-            total_size = 0
-            ext = 'm4a'
-            if '.m4a' in download_url or 'mp4' in download_url:
-                ext = 'm4a'
-            elif '.opus' in download_url or 'webm' in download_url:
-                ext = 'webm'
-            elif '.mp3' in download_url:
-                ext = 'mp3'
-            elif '.ogg' in download_url:
-                ext = 'ogg'
+            headers = _yt_download_headers()
+            ext = _infer_audio_ext(download_url)
+            filepath = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.{ext}')
 
+            try:
+                _download_googlevideo_chunked(
+                    download_url, filepath, headers, call_id, ctx.is_cancelled
+                )
+            except _DownloadCancelled:
+                raise
+            except Exception as dl_err:
+                yt_vid = (
+                    raw_video_id
+                    if _is_youtube_video_id(raw_video_id)
+                    else _extract_youtube_video_id(request.get('url', ''))
+                )
+                if _http_status_code(dl_err) in (403, 410) and yt_vid:
+                    print(f"[warn] download_direct 403/410 for {yt_vid}, re-resolving stream URL", file=sys.stderr)
+                    with _ptf_pot_lock:
+                        _ptf_pot_cache.pop(yt_vid, None)
+                    fresh_url, _, _ = _resolve_youtube_audio_stream(yt_vid)
+                    if not fresh_url:
+                        raise
+                    ext = _infer_audio_ext(fresh_url)
+                    filepath = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.{ext}')
+                    _download_googlevideo_chunked(
+                        fresh_url, filepath, headers, call_id, ctx.is_cancelled
+                    )
+                else:
+                    raise
+
+            safe_print({
+                'event': 'download_progress',
+                'callId': call_id,
+                'status': "Download complete, analyzing loudness...",
+                'progress': '100%',
+            })
+            gain_db = _measure_local_gain_db(filepath)
+            safe_print({'status': 'ok', 'filename': os.path.basename(filepath), 'gainDb': gain_db, 'callId': call_id})
+            return
+        except _DownloadCancelled as e:
+            safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+            return
+        except Exception as e:
+            if _is_task_cancelled(call_id, ctx.is_cancelled):
+                safe_print({'status': 'error', 'message': 'Cancelled by client', 'callId': call_id})
+                return
+            print(f"[error] download_direct chunked failed for {video_id_sanitized}: {e}", file=sys.stderr)
+
+    elif is_yt_api:
+        try:
+            headers = _yt_download_headers()
+            ext = _infer_audio_ext(download_url)
             filepath = os.path.join(songs_path, f'dl_direct_{video_id_sanitized}_{suffix}.{ext}')
             downloaded = 0
-            last_emit = 0.0
+            start_mono = time.monotonic()
+            last_emit = start_mono
 
             with requests.get(download_url, stream=True, headers=headers, timeout=120) as r:
                 r.raise_for_status()
-                content_type = r.headers.get('Content-Type', '')
                 total = r.headers.get('Content-Length')
-                total_size = int(total) if total and total.isdigit() else 0
+                total_size = int(total) if total and str(total).isdigit() else 0
 
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=262144):
-                        if is_cancelled():
-                            raise Exception("Cancelled by client")
+                        if _is_task_cancelled(call_id, ctx.is_cancelled):
+                            raise _DownloadCancelled("Cancelled by client")
                         if not chunk:
                             continue
                         f.write(chunk)
                         downloaded += len(chunk)
-                        now = time.time()
-                        if now - last_emit >= 0.25:
+                        now = time.monotonic()
+                        if now - last_emit >= 0.15:
                             last_emit = now
-                            pct = None
-                            if total_size and total_size > 0:
+                            mb_done = downloaded / (1024 * 1024)
+                            speed_mb = mb_done / max(now - start_mono, 0.001)
+                            if total_size > 0:
+                                mb_total = total_size / (1024 * 1024)
                                 pct = max(0.0, min(100.0, (downloaded / total_size) * 100.0))
-                            status = f"Downloading: {downloaded / (1024 * 1024):.1f} MB"
-                            if total_size:
-                                status += f" / {total_size / (1024 * 1024):.1f} MB"
-                            if pct is not None:
-                                status = f"Downloading: {pct:.1f}% ({status})"
+                                status = f'{mb_done:.1f} / {mb_total:.1f} MB ({speed_mb:.1f} MB/s)'
+                                progress_str = f'{pct:.1f}%'
+                            else:
+                                status = f'{mb_done:.1f} MB ({speed_mb:.1f} MB/s)'
+                                progress_str = None
                             safe_print({
                                 'event': 'download_progress',
                                 'callId': call_id,
                                 'status': status,
                                 'downloadedBytes': downloaded,
                                 'totalBytes': total_size,
-                                'progress': f"{pct:.1f}%" if pct is not None else None,
+                                'progress': progress_str,
                             })
 
             safe_print({'event': 'download_progress', 'callId': call_id, 'status': "Download complete, analyzing loudness...", 'progress': '100%'})
-
-            gain_db = 0.0
-            if os.path.exists(filepath):
-                try:
-                    res = _ffmpeg_loudness_i(filepath, ss=30, t=12)
-                    if res is not None:
-                        gain_db = float(res) + 14.0
-                except Exception:
-                    print(f"[warn] loudnorm failed", file=sys.stderr)
-
+            gain_db = _measure_local_gain_db(filepath)
             safe_print({'status': 'ok', 'filename': os.path.basename(filepath), 'gainDb': gain_db, 'callId': call_id})
             return
-
+        except _DownloadCancelled as e:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except OSError:
+                pass
+            safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
+            return
         except Exception as e:
             print(f"[error] download_direct requests failed for {video_id_sanitized}: {e}", file=sys.stderr)
 
@@ -2348,7 +2746,7 @@ def download_direct(request, ctx):
         **_yt_dlp_js_runtime_opts(),
     }
     if is_sc:
-        ydl_opts['http_headers'] = {'Referer': 'https://soundcloud.com/', 'Origin': 'https://soundcloud.com', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'}
+        ydl_opts['http_headers'] = {'Referer': 'https://soundcloud.com/', 'Origin': 'https://soundcloud.com', 'User-Agent': _CHROME_UA}
 
     def progress_hook(d):
         if d['status'] == 'downloading':
@@ -2364,21 +2762,14 @@ def download_direct(request, ctx):
             ydl.extract_info(download_url if download_url else stream_url, download=True)
 
         filename = ""
+        filepath = ""
         for f in os.listdir(songs_path):
             if f.startswith(f'dl_direct_{video_id_sanitized}_{suffix}.'):
                 filename = f
                 filepath = os.path.join(songs_path, f)
                 break
 
-        gain_db = 0.0
-        if os.path.exists(filepath):
-            try:
-                res = _ffmpeg_loudness_i(filepath, ss=30, t=12)
-                if res is not None:
-                    gain_db = float(res) + 14.0
-            except Exception:
-                print(f"[warn] loudnorm failed", file=sys.stderr)
-
+        gain_db = _measure_local_gain_db(filepath)
         safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
     except Exception as e:
         print(f"[error] download_direct: {e}", file=sys.stderr)
