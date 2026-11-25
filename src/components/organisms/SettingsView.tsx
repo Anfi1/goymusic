@@ -5,10 +5,11 @@ import { historyStore } from '../../api/history';
 import { historyManager } from '../../api/historyManager';
 import { likedStore } from '../../api/likedStore';
 import { likedManager } from '../../api/likedManager';
+import { scLikedManager } from '../../api/scLikedManager';
 import { clearAllOverrides, restoreOverridesFromFolder } from '../../api/localOverrides';
 import { tracksStore } from '../../api/tracks';
 import { streamCache } from '../../api/cache';
-import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath } from '../../api/soundcloud';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, scLoginViaWebview, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath, getScLikeMode, setScLikeMode, ScLikeMode } from '../../api/soundcloud';
 import { isYandexEnabled, setYandexEnabled, yandexAuthStart, yandexAuthPoll, yandexAuthStatus, yandexLogout, YandexDeviceCode } from '../../api/yandex';
 import { YandexMusicIcon } from '../atoms/YandexMusicIcon';
 import { YandexImportModal } from './YandexImportModal';
@@ -44,6 +45,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [scUploading, setScUploading] = useState(false);
     const [scEnableModalOpen, setScEnableModalOpen] = useState(false);
     const [scBrowserPath, setScBrowserPathState] = useState<string>(getScBrowserPath());
+    const [scLikeMode, setScLikeModeState] = useState<ScLikeMode>(() => getScLikeMode());
     const [yandexEnabled, setYandexEnabledState] = useState(isYandexEnabled());
     const [yandexConnected, setYandexConnected] = useState(false);
     const [yandexLogin, setYandexLogin] = useState('');
@@ -156,14 +158,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         if (scConnecting) return;
         setScConnecting(true);
         setScError(false);
-        const ok = await scEnsureProfile();
-        if (ok) {
-            const acc = await getScAccount();
-            setScAccount(acc);
+        if (scLikeMode === 'electron') {
+            const acc = await scLoginViaWebview();
+            if (acc) {
+                setScAccount(acc);
+                setScError(false);
+                void scLikedManager.sync();
+                setScLocalCount(getScLocalOnlyCount());
+            } else {
+                setScError(true);
+            }
         } else {
-            setScError(true);
+            const ok = await scEnsureProfile();
+            if (ok) {
+                const acc = await getScAccount();
+                setScAccount(acc);
+            } else {
+                setScError(true);
+            }
         }
         setScConnecting(false);
+    };
+
+    const handleToggleScLikeMode = (checked: boolean) => {
+        const next: ScLikeMode = checked ? 'electron' : 'legacy';
+        setScLikeMode(next);
+        setScLikeModeState(next);
     };
 
     const handlePickScBrowser = async () => {
@@ -537,6 +557,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                     </div>
                 )}
                 {scEnabled && (
+                    <div className={styles.row}>
+                        <div className={styles.col}>
+                            <span>Fast SoundCloud likes</span>
+                            <span className={styles.subtitle}>Use built-in Electron session without opening an external browser</span>
+                        </div>
+                        <label className={styles.switch}>
+                            <input
+                                type="checkbox"
+                                checked={scLikeMode === 'electron'}
+                                onChange={(e) => handleToggleScLikeMode(e.target.checked)}
+                            />
+                            <span className={styles.slider}></span>
+                        </label>
+                    </div>
+                )}
+                {scEnabled && scLikeMode === 'legacy' && (
                     <div className={styles.row}>
                         <div className={styles.col}>
                             <span>Browser for SC likes</span>
