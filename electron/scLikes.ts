@@ -307,6 +307,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
   let logoutGuardActive = false;
   let activeVerifyTargetUrl: string | null = null;
   let disposed = false;
+  let logoutGeneration = 0;
 
   let activeLoginPromise: Promise<ScLoginResult> | null = null;
   let activeLoginWin: ScWindowLike<TSession> | null = null;
@@ -418,6 +419,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
     win.webContents.on('did-create-window', (childWin) => {
       childWindows.add(childWin);
       childWin.webContents.setUserAgent(winUa);
+      attachPopupHandling(childWin, sess, childWindows);
       childWin.once('closed', () => {
         childWindows.delete(childWin);
       });
@@ -526,6 +528,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
         if (isCancelledEnvironment() || cancelledExternally) {
           return { status: 'cancelled', message: 'Verification cancelled' };
         }
+        let lastTriedDatadome = initialDatadome;
 
         const targetUrl = buildVerifyPageUrl(ownerReq);
         const mainBounds = deps.getMainBounds();
@@ -581,7 +584,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
             pollingBusy = true;
             try {
               const currentDatadome = await readCookieValue(sess, 'datadome');
-              if (settled || completing || !currentDatadome || currentDatadome === initialDatadome) {
+              if (settled || completing || !currentDatadome || currentDatadome === lastTriedDatadome) {
                 return;
               }
               const retry = await executeDirectLike(sess, ownerReq);
@@ -589,10 +592,16 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
               if (retry.kind === 'done') {
                 if (retry.result.status === 'ok') {
                   finish({ status: 'verified', ownerCompleted: true });
-                } else if (retry.result.status === 'unauthorized') {
+                  return;
+                }
+                if (retry.result.status === 'unauthorized') {
                   finish({ status: 'unauthorized', message: retry.result.message || 'HTTP 401' });
+                  return;
                 }
               }
+              // Фиксируем уже проверенную куку (с учетом возможного Set-Cookie от 403),
+              // чтобы не дергать api-v2 на каждом тике опроса с нерешенной капчей.
+              lastTriedDatadome = (await readCookieValue(sess, 'datadome')) || currentDatadome;
             } finally {
               pollingBusy = false;
             }
@@ -608,6 +617,11 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
 
           onClosed = () => {
             if (settled || completing) return;
+            completing = true;
+            if (pollTimer) {
+              clearInterval(pollTimer);
+              pollTimer = undefined;
+            }
             if (cancelledExternally || isCancelledEnvironment()) {
               finish({ status: 'cancelled', message: 'Verification cancelled' });
               return;
@@ -615,11 +629,25 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
             // Если пользователь прошел капчу и закрыл окно до тика опроса, делаем одну тихую проверку sess.fetch.
             void (async () => {
               const currentDatadome = await readCookieValue(sess, 'datadome');
-              if (currentDatadome && currentDatadome !== initialDatadome) {
+              if (settled || cancelledExternally || isCancelledEnvironment()) {
+                finish({ status: 'cancelled', message: 'Verification cancelled' });
+                return;
+              }
+              if (currentDatadome && currentDatadome !== lastTriedDatadome) {
                 const finalTry = await executeDirectLike(sess, ownerReq);
-                if (finalTry.kind === 'done' && finalTry.result.status === 'ok') {
-                  finish({ status: 'verified', ownerCompleted: true });
+                if (settled || cancelledExternally || isCancelledEnvironment()) {
+                  finish({ status: 'cancelled', message: 'Verification cancelled' });
                   return;
+                }
+                if (finalTry.kind === 'done') {
+                  if (finalTry.result.status === 'ok') {
+                    finish({ status: 'verified', ownerCompleted: true });
+                    return;
+                  }
+                  if (finalTry.result.status === 'unauthorized') {
+                    finish({ status: 'unauthorized', message: finalTry.result.message || 'HTTP 401' });
+                    return;
+                  }
                 }
               }
               finish({ status: 'cancelled', message: 'Verification cancelled' });
@@ -666,6 +694,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
   }
 
   async function like(req: ScLikeRequest): Promise<ScLikeResult> {
+    const startLogoutGen = logoutGeneration;
     if (isCancelledEnvironment()) {
       return { status: 'cancelled', message: 'App is shutting down' };
     }
@@ -684,7 +713,14 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
       return { status: 'error', message: `Failed to sync oauth_token cookie: ${message}` };
     }
 
+    if (logoutGeneration !== startLogoutGen) {
+      return { status: 'cancelled', message: 'Logged out' };
+    }
+
     const first = await executeDirectLike(sess, req);
+    if (logoutGeneration !== startLogoutGen) {
+      return { status: 'cancelled', message: 'Logged out' };
+    }
     if (first.kind === 'done') {
       return first.result;
     }
@@ -699,6 +735,9 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
     }
 
     const outcome = await activeVerify;
+    if (logoutGeneration !== startLogoutGen) {
+      return { status: 'cancelled', message: 'Logged out' };
+    }
     const likedLabel: 'liked' | 'unliked' = req.liked ? 'liked' : 'unliked';
 
     if (outcome.status === 'cancelled') {
@@ -716,6 +755,9 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
     }
 
     const retry = await executeDirectLike(sess, req);
+    if (logoutGeneration !== startLogoutGen) {
+      return { status: 'cancelled', message: 'Logged out' };
+    }
     if (retry.kind === 'done') {
       if (retry.result.status === 'ok') {
         return { ...retry.result, verified: true };
@@ -860,6 +902,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
   }
 
   async function logout(): Promise<{ status: 'ok' }> {
+    logoutGeneration += 1;
     const pendingLogin = activeLoginPromise;
     const pendingVerify = verifyPromise;
 

@@ -677,4 +677,161 @@ describe('createScLikesController', () => {
     expect(loginRes).toEqual({ status: 'cancelled' });
     expect(hLogin.clearStorageCalls).toEqual([{ storages: ['serviceworkers'] }]);
   });
+
+  it('polls api-v2 at most once per distinct datadome cookie value until solved', async () => {
+    let solved = false;
+    let callCount = 0;
+    const h = createHarness({
+      initialCookies: [{ name: 'oauth_token', value: 'tok-abc-123', domain: '.soundcloud.com' }],
+      fetchImpl: async () => {
+        callCount += 1;
+        if (solved) {
+          return createMockResponse(200, 'true');
+        }
+        // Simulate a 403 response overwriting the datadome cookie on the second unsolved attempt
+        if (callCount === 3) {
+          h.setCookieDirect({ name: 'datadome', value: 'dd-403-overwritten', domain: '.soundcloud.com' });
+        }
+        return createMockResponse(403, 'datadome', { 'x-datadome': 'protected' });
+      },
+    });
+
+    const promise = h.controller.like(makeLikeRequest({ scId: '777' }));
+    await waitForCondition(() => h.createdWindows.length === 1);
+    expect(h.fetchCalls).toHaveLength(1);
+
+    // Modal loads and DataDome writes an unsolved cookie -> poll must try it once, not every tick
+    h.setCookieDirect({ name: 'datadome', value: 'dd-unsolved', domain: '.soundcloud.com' });
+    await waitForCondition(() => h.fetchCalls.length >= 2);
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    expect(h.fetchCalls).toHaveLength(2);
+
+    // A second distinct unsolved cookie whose 403 overwrites datadome must also only fire once
+    h.setCookieDirect({ name: 'datadome', value: 'dd-unsolved-2', domain: '.soundcloud.com' });
+    await waitForCondition(() => h.fetchCalls.length >= 3);
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    expect(h.fetchCalls).toHaveLength(3);
+
+    // Only when the cookie changes to a solved value does poll retry and succeed
+    solved = true;
+    h.setCookieDirect({ name: 'datadome', value: 'dd-solved', domain: '.soundcloud.com' });
+
+    const res = await promise;
+    expect(res).toEqual({ status: 'ok', liked: 'liked', verified: true });
+    expect(h.fetchCalls).toHaveLength(4);
+    expect(h.createdWindows[0].destroyed).toBe(true);
+  });
+
+  it('does not open verification modal when logout runs while direct like is in flight returning 403 DataDome', async () => {
+    let resolveFetch!: (resp: ScFetchResponse) => void;
+    const h = createHarness({
+      initialCookies: [{ name: 'oauth_token', value: 'tok-abc-123', domain: '.soundcloud.com' }],
+      fetchImpl: () =>
+        new Promise<ScFetchResponse>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    });
+
+    const likePromise = h.controller.like(makeLikeRequest({ scId: '888' }));
+    await waitForCondition(() => h.fetchCalls.length === 1);
+
+    const logoutRes = await h.controller.logout();
+    expect(logoutRes).toEqual({ status: 'ok' });
+
+    resolveFetch(createMockResponse(403, 'datadome', { 'x-datadome': 'protected' }));
+    const likeRes = await likePromise;
+
+    expect(likeRes).toEqual({ status: 'cancelled', message: 'Logged out' });
+    expect(h.createdWindows).toHaveLength(0);
+  });
+
+  it('stops polling on manual verification close and propagates unauthorized from final check', async () => {
+    let callCount = 0;
+    let resolveFinalCheck!: (resp: ScFetchResponse) => void;
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: 'tok-abc-123', domain: '.soundcloud.com' },
+        { name: 'datadome', value: 'dd-old', domain: '.soundcloud.com' },
+      ],
+      fetchImpl: () => {
+        callCount += 1;
+        if (callCount === 1) {
+          return Promise.resolve(createMockResponse(403, 'datadome', { 'x-datadome': 'protected' }));
+        }
+        return new Promise<ScFetchResponse>((resolve) => {
+          resolveFinalCheck = resolve;
+        });
+      },
+    });
+
+    const likePromise = h.controller.like(makeLikeRequest({ scId: '999' }));
+    await waitForCondition(() => h.createdWindows.length === 1);
+    expect(h.fetchCalls).toHaveLength(1);
+
+    // User solves captcha and closes modal before poll tick runs
+    h.setCookieDirect({ name: 'datadome', value: 'dd-solved', domain: '.soundcloud.com' });
+    h.createdWindows[0].emitClosed();
+
+    // Wait across multiple poll intervals while final check is still in flight
+    await waitForCondition(() => h.fetchCalls.length >= 2);
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    expect(h.fetchCalls).toHaveLength(2);
+
+    resolveFinalCheck(createMockResponse(401, 'Unauthorized'));
+    const res = await likePromise;
+
+    expect(res).toEqual({ status: 'unauthorized', message: 'HTTP 401' });
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    expect(h.fetchCalls).toHaveLength(2);
+  });
+
+  it('attaches popup handling recursively to nested OAuth child windows', async () => {
+    const h = createHarness();
+    const loginPromise = h.controller.login();
+    await waitForCondition(() => h.createdWindows.length === 1);
+
+    const loginWin = h.createdWindows[0];
+    const childPopup = createMockWindow({
+      x: 0,
+      y: 0,
+      width: 560,
+      height: 680,
+      show: true,
+      title: 'OAuth Child',
+      autoHideMenuBar: true,
+      session: h.sess,
+      userAgent: h.getSessionUserAgent(),
+    });
+    loginWin.emitChildWindow(childPopup);
+
+    expect(childPopup.windowOpenHandler).not.toBeNull();
+    const nestedAllow = childPopup.windowOpenHandler!({ url: 'https://accounts.google.com/signin/v2' });
+    expect(nestedAllow.action).toBe('allow');
+    expect((nestedAllow.overrideBrowserWindowOptions as any)?.webPreferences?.session).toBe(h.sess);
+    expect(childPopup.windowOpenHandler!({ url: 'javascript:alert(1)' }).action).toBe('deny');
+
+    const grandChildPopup = createMockWindow({
+      x: 0,
+      y: 0,
+      width: 560,
+      height: 680,
+      show: true,
+      title: 'OAuth Grandchild',
+      autoHideMenuBar: true,
+      session: h.sess,
+      userAgent: h.getSessionUserAgent(),
+    });
+    childPopup.emitChildWindow(grandChildPopup);
+
+    expect(grandChildPopup.userAgents[0]).toContain('Chrome/138.0.7204.50');
+    expect(grandChildPopup.windowOpenHandler).not.toBeNull();
+
+    h.setCookieDirect({ name: 'oauth_token', value: 'nested-oauth-token', domain: '.soundcloud.com' });
+    const res = await loginPromise;
+
+    expect(res).toEqual({ status: 'ok', token: 'nested-oauth-token' });
+    expect(loginWin.destroyed).toBe(true);
+    expect(childPopup.destroyed).toBe(true);
+    expect(grandChildPopup.destroyed).toBe(true);
+  });
 });
