@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildVerifyHintScript,
   computeCenteredBounds,
   createScLikesController,
+  getVerifyWindowTitle,
   isDataDomeChallenge,
   type Rect,
   type ScCookie,
@@ -34,13 +36,17 @@ interface MockWindow extends ScWindowLike {
   windowOpenHandler:
     | ((details: { url: string }) => { action: 'allow' | 'deny'; overrideBrowserWindowOptions?: Record<string, unknown> })
     | null;
+  executedScripts: string[];
   emitClosed: () => void;
   emitChildWindow: (child: MockWindow) => void;
+  emitWebEvent: (event: 'dom-ready' | 'did-finish-load') => void;
 }
 
 function createMockWindow(options: ScWindowOptions): MockWindow {
   const closedListeners = new Set<() => void>();
   const childListeners = new Set<(child: ScWindowLike) => void>();
+  const domReadyListeners = new Set<() => void>();
+  const finishLoadListeners = new Set<() => void>();
 
   const win: MockWindow = {
     options,
@@ -50,6 +56,7 @@ function createMockWindow(options: ScWindowOptions): MockWindow {
     shownCount: 0,
     destroyed: false,
     windowOpenHandler: null,
+    executedScripts: [],
     isDestroyed: () => win.destroyed,
     destroy: () => {
       if (win.destroyed) return;
@@ -80,8 +87,13 @@ function createMockWindow(options: ScWindowOptions): MockWindow {
       setWindowOpenHandler: (handler) => {
         win.windowOpenHandler = handler as MockWindow['windowOpenHandler'];
       },
-      on: (_event: 'did-create-window', listener: (child: ScWindowLike) => void) => {
-        childListeners.add(listener);
+      on: ((event: string, listener: (...args: any[]) => void) => {
+        if (event === 'did-create-window') childListeners.add(listener);
+        else if (event === 'dom-ready') domReadyListeners.add(listener);
+        else if (event === 'did-finish-load') finishLoadListeners.add(listener);
+      }) as MockWindow['webContents']['on'],
+      executeJavaScript: async (code: string) => {
+        win.executedScripts.push(code);
       },
     },
     emitClosed: () => {
@@ -91,6 +103,10 @@ function createMockWindow(options: ScWindowOptions): MockWindow {
     },
     emitChildWindow: (child: MockWindow) => {
       for (const fn of childListeners) fn(child);
+    },
+    emitWebEvent: (event: 'dom-ready' | 'did-finish-load') => {
+      const target = event === 'dom-ready' ? domReadyListeners : finishLoadListeners;
+      for (const fn of target) fn();
     },
   };
 
@@ -833,5 +849,33 @@ describe('createScLikesController', () => {
     expect(loginWin.destroyed).toBe(true);
     expect(childPopup.destroyed).toBe(true);
     expect(grandChildPopup.destroyed).toBe(true);
+  });
+
+  it('injects inline verification hint banner into SoundCloud modal on load events', async () => {
+    const h = createHarness({
+      fetchImpl: async () => createMockResponse(403, '{"url":"https://geo.captcha-delivery.com"}', { 'x-datadome': 'protected' }),
+    });
+
+    const likePromise = h.controller.like(makeLikeRequest({ scId: '777', liked: true }));
+    await waitForCondition(() => h.createdWindows.length === 1);
+
+    const win = h.createdWindows[0];
+    expect(win.options.title).toBe(getVerifyWindowTitle(true));
+    expect(win.options.title).not.toMatch(/[\u2014\u00b7\u0451\u0401]/);
+
+    win.emitWebEvent('dom-ready');
+    win.emitWebEvent('did-finish-load');
+    expect(win.executedScripts).toHaveLength(2);
+    expect(win.executedScripts[0]).toContain('__goymusic-sc-verify-hint');
+    expect(win.executedScripts[0]).toContain('Нажмите лайк на треке вручную');
+    expect(win.executedScripts[0]).toContain('без этого окна');
+    expect(win.executedScripts[0]).not.toMatch(/[\u2014\u00b7\u0451\u0401]/);
+
+    const unlikeScript = buildVerifyHintScript(false);
+    expect(unlikeScript).toContain('Снимите лайк с трека вручную');
+    expect(unlikeScript).not.toMatch(/[\u2014\u00b7\u0451\u0401]/);
+
+    win.emitClosed();
+    await expect(likePromise).resolves.toEqual({ status: 'cancelled', message: 'Verification cancelled' });
   });
 });

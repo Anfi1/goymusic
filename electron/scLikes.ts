@@ -138,6 +138,8 @@ export interface ScWindowLike<TSession extends ScSessionLike = ScSessionLike> {
       handler: (details: { url: string }) => ScWindowOpenHandlerResponse<TSession>
     ): void;
     on(event: 'did-create-window', listener: (childWindow: ScWindowLike<TSession>) => void): unknown;
+    on(event: 'dom-ready' | 'did-finish-load', listener: () => void): unknown;
+    executeJavaScript?: (code: string, userGesture?: boolean) => Promise<unknown>;
   };
 }
 
@@ -279,6 +281,104 @@ function buildTrackLikeUrl(req: ScLikeRequest): string {
     `&app_version=${encodeURIComponent(req.appVersion)}` +
     `&app_locale=en`
   );
+}
+
+export function getVerifyWindowTitle(liked: boolean): string {
+  return liked
+    ? 'SoundCloud: нажмите лайк вручную (разовая проверка)'
+    : 'SoundCloud: снимите лайк вручную (разовая проверка)';
+}
+
+// Скрипт ненавязчивого баннера в окне проверки: использует Shadow DOM, чтобы стили SoundCloud не ломали верстку.
+export function buildVerifyHintScript(liked: boolean): string {
+  const title = 'Разовая проверка SoundCloud';
+  const actionText = liked
+    ? 'Нажмите лайк на треке вручную и пройдите проверку, если она появится.'
+    : 'Снимите лайк с трека вручную и пройдите проверку, если она появится.';
+  const body =
+    `Окно открылось из-за защитной проверки SoundCloud. ${actionText} ` +
+    'После подтверждения окно закроется само, а в следующие разы лайки будут срабатывать быстро и без этого окна.';
+
+  return `(() => {
+    try {
+      if (window.__goymusicScVerifyHintDismissed) return;
+      if (document.getElementById('__goymusic-sc-verify-hint')) return;
+      const rootParent = document.documentElement || document.body;
+      if (!rootParent) return;
+      const host = document.createElement('div');
+      host.id = '__goymusic-sc-verify-hint';
+      host.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:2147483647;max-width:calc(100vw - 32px);width:580px;pointer-events:auto;';
+      const shadow = host.attachShadow({ mode: 'open' });
+      const style = document.createElement('style');
+      style.textContent = \`
+        .card {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          padding: 13px 16px;
+          border-radius: 12px;
+          background: rgba(18, 18, 22, 0.94);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+          color: #f4f4f6;
+          font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+          line-height: 1.42;
+        }
+        .dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          background: #ff5500;
+          flex: 0 0 auto;
+          margin-top: 5px;
+          box-shadow: 0 0 10px rgba(255, 85, 0, 0.7);
+        }
+        .content { flex: 1 1 auto; min-width: 0; }
+        .title { font-size: 13px; font-weight: 600; color: #ffffff; margin: 0 0 3px 0; }
+        .body { font-size: 12.5px; color: rgba(244, 244, 246, 0.84); margin: 0; }
+        .close {
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          color: rgba(244, 244, 246, 0.85);
+          border-radius: 8px;
+          padding: 4px 9px;
+          font-size: 12px;
+          cursor: pointer;
+          flex: 0 0 auto;
+        }
+        .close:hover { background: rgba(255, 255, 255, 0.16); color: #ffffff; }
+      \`;
+      const card = document.createElement('div');
+      card.className = 'card';
+      const dot = document.createElement('div');
+      dot.className = 'dot';
+      const content = document.createElement('div');
+      content.className = 'content';
+      const h = document.createElement('div');
+      h.className = 'title';
+      h.textContent = ${JSON.stringify(title)};
+      const p = document.createElement('div');
+      p.className = 'body';
+      p.textContent = ${JSON.stringify(body)};
+      content.appendChild(h);
+      content.appendChild(p);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'close';
+      btn.textContent = 'Скрыть';
+      btn.addEventListener('click', () => {
+        window.__goymusicScVerifyHintDismissed = true;
+        host.remove();
+      });
+      card.appendChild(dot);
+      card.appendChild(content);
+      card.appendChild(btn);
+      shadow.appendChild(style);
+      shadow.appendChild(card);
+      rootParent.appendChild(host);
+    } catch {}
+  })()`;
 }
 
 function buildVerifyPageUrl(req: ScLikeRequest): string {
@@ -541,7 +641,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
         verifyWin = deps.createWindow({
           ...bounds,
           show: true,
-          title: 'SoundCloud - Confirm action',
+          title: getVerifyWindowTitle(ownerReq.liked),
           autoHideMenuBar: true,
           session: sess,
           userAgent: winUa,
@@ -549,6 +649,15 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
         verifyWin.webContents.setUserAgent(winUa);
         verifyWin.webContents.setAudioMuted(true);
         attachPopupHandling(verifyWin, sess, childWindows);
+        const hintScript = buildVerifyHintScript(ownerReq.liked);
+        const injectVerifyHint = () => {
+          if (!verifyWin || verifyWin.isDestroyed()) return;
+          verifyWin.webContents.executeJavaScript?.(hintScript)?.catch(() => {
+            // Окно могло закрыться во время загрузки страницы.
+          });
+        };
+        verifyWin.webContents.on('dom-ready', injectVerifyHint);
+        verifyWin.webContents.on('did-finish-load', injectVerifyHint);
         verifyWin.show();
         verifyWin.moveTop();
         verifyWin.focus();
