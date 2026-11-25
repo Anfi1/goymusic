@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
 import { autoUpdater, NsisUpdater } from 'electron-updater'
+import { createScLikesController, type ScLikeRequest } from './scLikes'
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
@@ -564,6 +565,7 @@ app.once('before-quit', () => {
   isShuttingDown = true
   stopWindowTimers()
   clearTimeout(rpcRetryTimeout)
+  scLikes.dispose()
   exitPyProc()
 })
 
@@ -884,136 +886,40 @@ async function refreshPoToken() {
   }
 }
 
-// --- SoundCloud webview: надёжный лайк в обход DataDome (write из реального контекста soundcloud.com) ---
-const SC_PARTITION = 'persist:soundcloud'
-// UA и client-hints строим от РЕАЛЬНОЙ версии Chromium внутри Electron.
-// Раньше был хардкод Chrome/122 при движке ~138 — рассинхрон UA↔движок↔hints
-// это классический сигнал для DataDome. Теперь всё согласовано с реальным Chromium.
-const SC_CHROME_VER = process.versions.chrome || '122.0.0.0'
-const SC_CHROME_MAJOR = SC_CHROME_VER.split('.')[0]
-const SC_WIN_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${SC_CHROME_VER} Safari/537.36`
-const SC_CH_UA = `"Chromium";v="${SC_CHROME_MAJOR}", "Google Chrome";v="${SC_CHROME_MAJOR}", "Not.A/Brand";v="24"`
-let scWin: BrowserWindow | null = null
-let scSessionReady = false
-
-// Маскируем Electron под обычный Chrome: согласованные UA + client-hints,
-// иначе DataDome (анти-бот SoundCloud) блокирует вход и лайки.
-function getScSession() {
-  const sess = session.fromPartition(SC_PARTITION)
-  if (!scSessionReady) {
-    sess.setUserAgent(SC_WIN_UA)
-    sess.webRequest.onBeforeSendHeaders((details, callback) => {
-      const h = details.requestHeaders
-      h['User-Agent'] = SC_WIN_UA
-      h['sec-ch-ua'] = SC_CH_UA
-      h['sec-ch-ua-mobile'] = '?0'
-      h['sec-ch-ua-platform'] = '"Windows"'
-      callback({ requestHeaders: h })
+// --- SoundCloud: быстрые лайки через session.fetch(), вход и выход ---
+const scLikes = createScLikesController({
+  getSession: (partition) => session.fromPartition(partition),
+  createWindow: (opts) => {
+    return new BrowserWindow({
+      x: opts.x,
+      y: opts.y,
+      width: opts.width,
+      height: opts.height,
+      show: opts.show,
+      title: opts.title,
+      autoHideMenuBar: opts.autoHideMenuBar,
+      webPreferences: {
+        session: opts.session,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
     })
-    scSessionReady = true
-  }
-  return sess
-}
-
-// Stealth-патч navigator в main-world ДО скриптов страницы (через CDP, без понижения
-// безопасности окна). Прячет признаки автоматизации, на которые смотрит DataDome.
-const SC_STEALTH_JS = `(() => {
-  try { Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false }); } catch (e) {}
-  try { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); } catch (e) {}
-  try { window.chrome = window.chrome || {}; window.chrome.runtime = window.chrome.runtime || {}; } catch (e) {}
-  try {
-    const mk = (name) => ({ name, filename: '', description: '', length: 1 });
-    const plugins = [mk('PDF Viewer'), mk('Chrome PDF Viewer'), mk('Chromium PDF Viewer')];
-    Object.defineProperty(navigator, 'plugins', { get: () => plugins });
-    Object.defineProperty(navigator, 'mimeTypes', { get: () => [{ type: 'application/pdf' }] });
-  } catch (e) {}
-  try {
-    const orig = navigator.permissions && navigator.permissions.query;
-    if (orig) navigator.permissions.query = (p) => (p && p.name === 'notifications')
-      ? Promise.resolve({ state: Notification.permission })
-      : orig.call(navigator.permissions, p);
-  } catch (e) {}
-  try {
-    const getParam = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function (p) {
-      if (p === 37445) return 'Google Inc. (Intel)';
-      if (p === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
-      return getParam.call(this, p);
-    };
-  } catch (e) {}
-})();`
-
-function installScStealth(w: BrowserWindow) {
-  try {
-    const dbg = w.webContents.debugger
-    if (!dbg.isAttached()) dbg.attach('1.3')
-    dbg.sendCommand('Page.enable').catch(() => {})
-    dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SC_STEALTH_JS }).catch(() => {})
-  } catch (e) {
-    console.warn('[soundcloud] stealth attach failed', e)
-  }
-}
-
-async function ensureScWindow(show: boolean): Promise<BrowserWindow | null> {
-  if (isShuttingDown) return null
-  if (scWin && !scWin.isDestroyed()) {
-    if (show) scWin.show()
-    return scWin
-  }
-  const sess = getScSession()
-  scWin = new BrowserWindow({
-    width: 1000,
-    height: 800,
-    show,
-    title: 'SoundCloud',
-    autoHideMenuBar: true,
-    // sandbox: true прячет Node/Electron-переменные от детекта (как в auth:start)
-    webPreferences: { session: sess, sandbox: true, contextIsolation: true, nodeIntegration: false }
-  })
-  const target = scWin
-  target.webContents.setUserAgent(SC_WIN_UA)
-  installScStealth(target)
-  target.once('closed', () => { if (scWin === target) scWin = null })
-  try {
-    await target.loadURL('https://soundcloud.com/discover')
-  } catch (err) {
-    if (!target.isDestroyed()) throw err
-    return null
-  }
-  return target
-}
-
-// Окно входа: резолвим, когда в сессии появилась кука oauth_token (пользователь залогинился).
-ipcMain.handle('sc:login', async () => {
-  const win = await ensureScWindow(true)
-  if (!win || win.isDestroyed() || isShuttingDown) return { status: 'cancelled' }
-  const sess = session.fromPartition(SC_PARTITION)
-  return new Promise((resolve) => {
-    let done = false
-    const onClosed = () => finish({ status: 'cancelled' })
-    const finish = (payload: { status: 'cancelled' } | { status: 'ok'; token: string }) => {
-      if (done) return
-      done = true
-      clearInterval(timer)
-      win.removeListener('closed', onClosed)
-      resolve(payload)
-    }
-    const check = async () => {
-      try {
-        const cookies = await sess.cookies.get({ name: 'oauth_token' })
-        if (done || isShuttingDown || win.isDestroyed()) return
-        const tok = cookies.find(c => c.domain?.includes('soundcloud.com'))?.value || cookies[0]?.value
-        if (tok) {
-          finish({ status: 'ok', token: tok })
-          setTimeout(() => { if (!isShuttingDown && !win.isDestroyed()) win.hide() }, 800)
-        }
-      } catch { /* ignore */ }
-    }
-    const timer = setInterval(check, 1500)
-    win.once('closed', onClosed)
-    check()
-  })
+  },
+  getMainBounds: () => {
+    const mw = getLiveMainWindow()
+    return mw ? mw.getBounds() : null
+  },
+  getWorkAreaForBounds: (bounds) =>
+    bounds ? screen.getDisplayMatching(bounds).workArea : screen.getPrimaryDisplay().workArea,
+  isShuttingDown: () => isShuttingDown,
+  chromeVersion: process.versions.chrome,
+  log: logToFile,
 })
+
+ipcMain.handle('sc:login', () => scLikes.login())
+ipcMain.handle('sc:logout', () => scLikes.logout())
+ipcMain.handle('sc:like', (_event, payload: ScLikeRequest) => scLikes.like(payload))
 
 // Путь к кастомному профилю Chrome для лайков SC.
 ipcMain.handle('sc:profile-path', () => {

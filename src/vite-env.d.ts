@@ -13,11 +13,17 @@ interface Window {
     onPyEvent: (callback: (event: any) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     authStart: () => Promise<any>;
+    scLogin: () => Promise<import('../electron/scLikes').ScLoginResult>;
+    scLogout: () => Promise<{ status: 'ok' }>;
+    scLike: (
+      payload: import('../electron/scLikes').ScLikeRequest
+    ) => Promise<import('../electron/scLikes').ScLikeResult>;
     winMinimize: () => void;
     winMaximize: () => void;
     winFullscreen: () => void;
     winClose: () => void;
     setInterfaceScale: (percent: import('./utils/interfaceScale').InterfaceScale) => void;
+    winGetBounds: () => Promise<import('../electron/scLikes').Rect | null>;
     onWindowState: (callback: (state: { isMaximized: boolean, isFullScreen: boolean }) => void) => () => void;
     onFocusChanged: (callback: (focused: boolean) => void) => () => void;
     setRPC: (data: {
@@ -42,6 +48,8 @@ interface Window {
     listSongFiles: () => Promise<string[]>;
     readOverridesManifest: () => Promise<unknown>;
     writeOverridesManifest: (data: unknown) => Promise<void>;
+    getScProfileDir: () => Promise<string>;
+    pickScBrowser: () => Promise<string | null>;
     checkForUpdates: () => Promise<{ version: string } | null>;
     downloadUpdate: () => Promise<void>;
     installUpdate: () => Promise<void>;
