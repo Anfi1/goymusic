@@ -458,6 +458,38 @@ describe('SoundCloud optimistic toggleLike', () => {
     expect(getPendingScLikeChanges().size).toBe(0);
   });
 
+  it('при мгновенной ошибке scSetLiked откат срабатывает ПОСЛЕ кода после await toggleLike (TrackRow/PlayerStore)', async () => {
+    scMocks.isScAuthed.mockReturnValue(true);
+    scMocks.scSetLiked.mockResolvedValueOnce(false);
+
+    const timeline: string[] = [];
+    vi.stubGlobal('window', {
+      bridge: { pyCall },
+      dispatchEvent: vi.fn((ev: Event) => {
+        const detail = (ev as CustomEvent).detail;
+        events.push({ type: ev.type, detail });
+        if (ev.type === 'track-like-updated') {
+          timeline.push(`event:${detail.status}:${detail.likeStatus}`);
+        }
+        return true;
+      }),
+      setTimeout: vi.fn(),
+    });
+
+    const ok = await likedManager.toggleLike(scTrack, 'INDIFFERENT');
+    expect(ok).toBe(true);
+    // Имитируем TrackRow.tsx / player.ts, которые обновляют состояние сразу после await toggleLike()
+    timeline.push('caller-post-await:LIKE');
+
+    await whenScLikeQueueIdle();
+
+    expect(timeline).toEqual([
+      'event:success:LIKE',
+      'caller-post-await:LIKE',
+      'event:success:INDIFFERENT',
+    ]);
+  });
+
   it('откатывает неудачный unlike обратно в LIKE со status: success', async () => {
     scMocks.isScAuthed.mockReturnValue(true);
     scMocks.scSetLiked.mockResolvedValueOnce(false);

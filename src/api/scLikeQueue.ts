@@ -149,9 +149,8 @@ export class ScLikeQueue {
           continue;
         }
 
-        entry.inFlight = false;
-
         if (ok) {
+          entry.inFlight = false;
           entry.committedLiked = sentLiked;
           if (entry.version !== sentVersion) {
             if (entry.targetLiked !== entry.committedLiked) {
@@ -165,6 +164,7 @@ export class ScLikeQueue {
             this.entries.delete(scId);
           }
         } else if (entry.version !== sentVersion) {
+          entry.inFlight = false;
           if (entry.targetLiked !== entry.committedLiked) {
             if (!this.order.includes(scId)) {
               this.order.push(scId);
@@ -173,11 +173,31 @@ export class ScLikeQueue {
             this.entries.delete(scId);
           }
         } else {
-          this.entries.delete(scId);
-          try {
-            await this.callbacks.onRollback(entry.track, entry.committedLiked);
-          } catch {
-            // Ошибка в onRollback не должна блокировать обработку оставшихся задач
+          // Уступаем один макротаск перед откатом, чтобы код после await toggleLike()
+          // в TrackRow/PlayerStore завершился раньше события отката и не перетер состояние.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          if (this.generation !== myGen) {
+            return;
+          }
+          if (this.entries.get(scId) !== entry) {
+            continue;
+          }
+          entry.inFlight = false;
+          if (entry.version !== sentVersion) {
+            if (entry.targetLiked !== entry.committedLiked) {
+              if (!this.order.includes(scId)) {
+                this.order.push(scId);
+              }
+            } else {
+              this.entries.delete(scId);
+            }
+          } else {
+            this.entries.delete(scId);
+            try {
+              await this.callbacks.onRollback(entry.track, entry.committedLiked);
+            } catch {
+              // Ошибка в onRollback не должна блокировать обработку оставшихся задач
+            }
           }
         }
       }

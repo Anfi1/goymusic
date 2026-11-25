@@ -18,6 +18,7 @@ class ScLikedManager {
   private _isSyncing = false;
   private listeners: ((entries: ScLikedEntry[], syncing: boolean) => void)[] = [];
   private localOpChain: Promise<void> = Promise.resolve();
+  private mutatedDuringSync = new Set<string>();
 
   get isSyncing() { return this._isSyncing; }
 
@@ -48,23 +49,43 @@ class ScLikedManager {
     }
 
     this._isSyncing = true;
+    this.mutatedDuringSync.clear();
     try {
+      const pendingAtStart = pendingChangesProvider();
       const local = await likedStore.getAllScTracks();
-      // Фильтруем localOnly для head-match, иначе они будут вверху списка и head никогда не совпадет
-      const localWithoutLocalOnly = local.filter(e => !e.localOnly);
       this.notify(local, true);
 
       const meta = await getScLikedMeta();
-      if (!meta) { this._isSyncing = false; this.notify(local, false); return; }
-
-      const localCount = await likedStore.getScVirtualCount();
-      const headLen = Math.min(5, meta.headIds.length, localWithoutLocalOnly.length);
-      const headMatch = headLen > 0 && meta.headIds.slice(0, headLen).every((id, i) => localWithoutLocalOnly[i]?.scId === id);
-
-      // Счетчик совпал и "голова" списка та же -> зеркало актуально, без полной выгрузки (если нет pending-лайков).
-      if (pendingChangesProvider().size === 0 && meta.count === localCount && headMatch && localWithoutLocalOnly.length > 0) {
+      if (!meta) {
+        await this.localOpChain;
+        const freshLocal = await likedStore.getAllScTracks();
         this._isSyncing = false;
-        this.notify(local, false);
+        this.mutatedDuringSync.clear();
+        this.notify(freshLocal, false);
+        return;
+      }
+
+      await this.localOpChain;
+      const freshLocal = await likedStore.getAllScTracks();
+      // Фильтруем localOnly для head-match, иначе они будут вверху списка и head никогда не совпадет
+      const freshLocalWithoutLocalOnly = freshLocal.filter(e => !e.localOnly);
+      const localCount = await likedStore.getScVirtualCount();
+      const headLen = Math.min(5, meta.headIds.length, freshLocalWithoutLocalOnly.length);
+      const headMatch = headLen > 0 && meta.headIds.slice(0, headLen).every((id, i) => freshLocalWithoutLocalOnly[i]?.scId === id);
+
+      // Счетчик совпал и "голова" списка та же -> зеркало актуально, без полной выгрузки
+      // (если не было локальных мутаций во время синка и нет pending-лайков).
+      if (
+        this.mutatedDuringSync.size === 0 &&
+        pendingAtStart.size === 0 &&
+        pendingChangesProvider().size === 0 &&
+        meta.count === localCount &&
+        headMatch &&
+        freshLocalWithoutLocalOnly.length > 0
+      ) {
+        this._isSyncing = false;
+        this.mutatedDuringSync.clear();
+        this.notify(freshLocal, false);
         return;
       }
 
@@ -73,25 +94,40 @@ class ScLikedManager {
 
       await this.enqueueLocalOp(async () => {
         const currentLocal = await likedStore.getAllScTracks();
+        const currentLocalById = new Map(currentLocal.map(e => [e.scId, e]));
         const serverIds = new Set(fresh.map(e => e.scId));
         const localOnlyEntries = currentLocal.filter(e => e.localOnly && !serverIds.has(e.scId));
 
         for (const entry of fresh) {
-          const existing = currentLocal.find(e => e.scId === entry.scId);
+          const existing = currentLocalById.get(entry.scId);
           if (existing?.localOnly) {
             entry.likedAt = entry.likedAt || existing.likedAt;
           }
         }
 
         let merged: ScLikedEntry[] = [...fresh, ...localOnlyEntries];
-        const pending = pendingChangesProvider();
+        const pendingNow = pendingChangesProvider();
         let pendingDelta = 0;
 
-        if (pending.size > 0) {
+        // Треки, которые были в pending на старте или мутировали во время синка и успели подтвердиться
+        // быстрее ответа getScLikedEntries(): для них currentLocal актуальнее снимка сервера.
+        const settledIds = new Set<string>();
+        for (const scId of pendingAtStart.keys()) {
+          if (!pendingNow.has(scId)) settledIds.add(scId);
+        }
+        for (const scId of this.mutatedDuringSync) {
+          if (!pendingNow.has(scId)) settledIds.add(scId);
+        }
+
+        if (pendingNow.size > 0 || settledIds.size > 0) {
           const filtered: ScLikedEntry[] = [];
           for (const entry of merged) {
-            const change = pending.get(entry.scId);
-            if (change && !change.liked) {
+            const pendingChange = pendingNow.get(entry.scId);
+            if (pendingChange && !pendingChange.liked) {
+              if (!entry.localOnly) pendingDelta -= 1;
+              continue;
+            }
+            if (!pendingChange && settledIds.has(entry.scId) && !currentLocalById.has(entry.scId)) {
               if (!entry.localOnly) pendingDelta -= 1;
               continue;
             }
@@ -100,12 +136,13 @@ class ScLikedManager {
           merged = filtered;
 
           const presentIds = new Set(merged.map(e => e.scId));
-          const pendingAdditions: ScLikedEntry[] = [];
-          for (const [scId, change] of pending) {
+          const additions: ScLikedEntry[] = [];
+
+          for (const [scId, change] of pendingNow) {
             if (change.liked && !presentIds.has(scId)) {
               await tracksStore.upsertTrack({ ...change.track, likeStatus: 'LIKE' });
-              const existingLocal = currentLocal.find(e => e.scId === scId);
-              pendingAdditions.push({
+              const existingLocal = currentLocalById.get(scId);
+              additions.push({
                 scId,
                 trackId: change.track.id,
                 likedAt: existingLocal?.likedAt || Date.now(),
@@ -114,8 +151,19 @@ class ScLikedManager {
               pendingDelta += 1;
             }
           }
-          if (pendingAdditions.length > 0) {
-            merged = [...pendingAdditions, ...merged];
+
+          for (const scId of settledIds) {
+            if (presentIds.has(scId)) continue;
+            const localEntry = currentLocalById.get(scId);
+            if (localEntry) {
+              additions.push(localEntry);
+              presentIds.add(scId);
+              if (!localEntry.localOnly) pendingDelta += 1;
+            }
+          }
+
+          if (additions.length > 0) {
+            merged = [...additions, ...merged];
           }
         }
 
@@ -128,10 +176,12 @@ class ScLikedManager {
       // Обновляем in-memory set локальных ID
       await loadScLocalOnlyIds();
       this._isSyncing = false;
+      this.mutatedDuringSync.clear();
       this.notify(finalMerged, false);
     } catch (e) {
       console.error('[sc-liked] sync failed', e);
       this._isSyncing = false;
+      this.mutatedDuringSync.clear();
       this.notify(await likedStore.getAllScTracks(), false);
     }
   }
@@ -140,6 +190,7 @@ class ScLikedManager {
   async addLocal(track: YTMTrack, localOnly = false) {
     if (!track.scId) return;
     const scId = track.scId;
+    if (this._isSyncing) this.mutatedDuringSync.add(scId);
     return this.enqueueLocalOp(async () => {
       const existing = (await likedStore.getAllScTracks()).find(e => e.scId === scId);
       await tracksStore.upsertTrack(track);
@@ -155,6 +206,7 @@ class ScLikedManager {
   }
 
   async removeLocal(scId: string) {
+    if (this._isSyncing) this.mutatedDuringSync.add(scId);
     return this.enqueueLocalOp(async () => {
       const all = await likedStore.getAllScTracks();
       const entry = all.find(e => e.scId === scId);

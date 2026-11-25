@@ -422,4 +422,43 @@ describe('ScLikeQueue', () => {
       true,
     );
   });
+
+  it('при мгновенном сбое persistRemote уступает макротаск перед onRollback и уважает повторный клик во время этого тика', async () => {
+    const trackA = makeTrack('a');
+    const order: string[] = [];
+
+    const queue = new ScLikeQueue({
+      applyLocal: (_t, liked) => { order.push(`local:${liked}`); },
+      persistRemote: vi.fn(async () => false),
+      onRollback: (_t, reverted) => { order.push(`rollback:${reverted}`); },
+    });
+
+    queue.enqueue(trackA, false, true);
+    // Имитируем микротаски вызывающего кода (await toggleLike())
+    await Promise.resolve();
+    await Promise.resolve();
+    order.push('caller-microtask');
+
+    await queue.whenIdle();
+
+    expect(order).toEqual(['local:true', 'caller-microtask', 'rollback:false']);
+
+    // Повторный клик пользователя в том же тике до срабатывания макротаска отменяет onRollback
+    const onRollback2 = vi.fn();
+    const persistRemote2 = vi.fn(async () => false);
+    const queue2 = new ScLikeQueue({
+      applyLocal: vi.fn(),
+      persistRemote: persistRemote2,
+      onRollback: onRollback2,
+    });
+
+    queue2.enqueue(trackA, false, true);
+    await Promise.resolve();
+    queue2.enqueue(trackA, true, false);
+    await queue2.whenIdle();
+
+    expect(onRollback2).not.toHaveBeenCalled();
+    expect(persistRemote2).toHaveBeenCalledTimes(1);
+    expect(queue2.hasPending()).toBe(false);
+  });
 });

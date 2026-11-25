@@ -362,4 +362,25 @@ describe('SoundCloud fast likes mode & scSetLiked', () => {
       unregister();
     }
   });
+
+  it('in-flight scSetLiked, завершившийся ok после scDisconnect, не засоряет scLikedSet', async () => {
+    storage.set('sc-oauth-token', 'tok-123');
+    storage.set('sc-uid', '777');
+    pyCall.mockResolvedValueOnce({ status: 'ok', clientId: 'cid-1', appVersion: 'v1' });
+
+    let resolveLike!: (res: { status: 'ok'; liked: 'liked'; verified: boolean }) => void;
+    scLike.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveLike = resolve;
+    }));
+
+    const likePromise = scSetLiked('9010', 'https://soundcloud.com/artist/t10', true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await scDisconnect();
+    resolveLike({ status: 'ok', liked: 'liked', verified: false });
+    await likePromise;
+
+    expect(isScTrackLiked('9010')).toBe(false);
+  });
 });

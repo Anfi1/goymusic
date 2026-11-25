@@ -419,7 +419,9 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
     });
     if (res?.status === 'ok') {
       const actualLiked = res.liked === 'liked';
-      setScLikedInMemory(scId, actualLiked);
+      if (getScToken() === token) {
+        setScLikedInMemory(scId, actualLiked);
+      }
       return actualLiked === liked;
     }
     emitScToast(
@@ -483,7 +485,9 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
   }
 
   if (res?.status === 'ok') {
-    setScLikedInMemory(scId, liked);
+    if (getScToken() === token) {
+      setScLikedInMemory(scId, liked);
+    }
     return true;
   }
 

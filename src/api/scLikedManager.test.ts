@@ -187,4 +187,158 @@ describe('scLikedManager.sync pending overlay', () => {
     expect(storedEntries).toEqual([]);
     expect(virtualCount).toBe(0);
   });
+
+  it('не затирает быстрый лайк, который начался и успел подтвердиться пока шел getScLikedEntries', async () => {
+    const trackA = makeTrack('a');
+    const trackC = makeTrack('c');
+    storedEntries = [{ scId: 'a', trackId: trackA.id, likedAt: 200 }];
+    virtualCount = 1;
+
+    const pending = new Map<string, PendingScLikeChange>();
+    registerScPendingChangesProvider(() => new Map(pending));
+
+    scApiMocks.getScLikedMeta.mockResolvedValueOnce({ count: 2, headIds: ['x', 'a'] });
+    let resolveEntries!: (entries: ScLikedEntry[]) => void;
+    let markEntriesStarted!: () => void;
+    const entriesStarted = new Promise<void>((r) => { markEntriesStarted = r; });
+    scApiMocks.getScLikedEntries.mockImplementationOnce(() => {
+      markEntriesStarted();
+      return new Promise<ScLikedEntry[]>((resolve) => {
+        resolveEntries = resolve;
+      });
+    });
+
+    const syncPromise = scLikedManager.sync();
+    await entriesStarted;
+
+    // Во время синка пользователь ставит быстрый лайк (~150мс): addLocal + вход/выход из pending до ответа сервера
+    pending.set('c', { track: trackC, liked: true });
+    await scLikedManager.addLocal({ ...trackC, likeStatus: 'LIKE' });
+    pending.delete('c');
+
+    // Сервер возвращает устаревший снимок без 'c'
+    resolveEntries([
+      { scId: 'x', trackId: makeTrack('x').id, likedAt: 300 },
+      { scId: 'a', trackId: trackA.id, likedAt: 200 },
+    ]);
+    await syncPromise;
+
+    expect(storedEntries.map(e => e.scId)).toEqual(['c', 'x', 'a']);
+    expect(virtualCount).toBe(3);
+  });
+
+  it('не воскрешает быстрый анлайк, который подтвердился пока шел getScLikedEntries', async () => {
+    const trackA = makeTrack('a');
+    const trackB = makeTrack('b');
+    storedEntries = [
+      { scId: 'a', trackId: trackA.id, likedAt: 200 },
+      { scId: 'b', trackId: trackB.id, likedAt: 100 },
+    ];
+    virtualCount = 2;
+
+    const pending = new Map<string, PendingScLikeChange>();
+    registerScPendingChangesProvider(() => new Map(pending));
+
+    scApiMocks.getScLikedMeta.mockResolvedValueOnce({ count: 3, headIds: ['x', 'a', 'b'] });
+    let resolveEntries!: (entries: ScLikedEntry[]) => void;
+    let markEntriesStarted!: () => void;
+    const entriesStarted = new Promise<void>((r) => { markEntriesStarted = r; });
+    scApiMocks.getScLikedEntries.mockImplementationOnce(() => {
+      markEntriesStarted();
+      return new Promise<ScLikedEntry[]>((resolve) => {
+        resolveEntries = resolve;
+      });
+    });
+
+    const syncPromise = scLikedManager.sync();
+    await entriesStarted;
+
+    // Быстрый анлайк 'a' подтверждается до завершения getScLikedEntries
+    pending.set('a', { track: trackA, liked: false });
+    await scLikedManager.removeLocal('a');
+    pending.delete('a');
+
+    // Сервер возвращает устаревший снимок, где 'a' еще присутствует
+    resolveEntries([
+      { scId: 'x', trackId: makeTrack('x').id, likedAt: 300 },
+      { scId: 'a', trackId: trackA.id, likedAt: 200 },
+      { scId: 'b', trackId: trackB.id, likedAt: 100 },
+    ]);
+    await syncPromise;
+
+    expect(storedEntries.map(e => e.scId)).toEqual(['x', 'b']);
+    expect(virtualCount).toBe(2);
+  });
+
+  it('не затирает pendingAtStart лайк, который был добавлен до старта sync и подтвердился во время sync', async () => {
+    const trackA = makeTrack('a');
+    const trackC = makeTrack('c');
+    // addLocal уже прошел до sync(), а запрос еще в pending на старте sync()
+    storedEntries = [
+      { scId: 'c', trackId: trackC.id, likedAt: 500 },
+      { scId: 'a', trackId: trackA.id, likedAt: 200 },
+    ];
+    virtualCount = 2;
+
+    const pending = new Map<string, PendingScLikeChange>([
+      ['c', { track: trackC, liked: true }],
+    ]);
+    registerScPendingChangesProvider(() => new Map(pending));
+
+    scApiMocks.getScLikedMeta.mockResolvedValueOnce({ count: 1, headIds: ['a'] });
+    let resolveEntries!: (entries: ScLikedEntry[]) => void;
+    let markEntriesStarted!: () => void;
+    const entriesStarted = new Promise<void>((r) => { markEntriesStarted = r; });
+    scApiMocks.getScLikedEntries.mockImplementationOnce(() => {
+      markEntriesStarted();
+      return new Promise<ScLikedEntry[]>((resolve) => {
+        resolveEntries = resolve;
+      });
+    });
+
+    const syncPromise = scLikedManager.sync();
+    await entriesStarted;
+
+    // Запрос подтвердился до возврата fresh
+    pending.delete('c');
+
+    resolveEntries([{ scId: 'a', trackId: trackA.id, likedAt: 200 }]);
+    await syncPromise;
+
+    expect(storedEntries.map(e => e.scId)).toEqual(['c', 'a']);
+    expect(virtualCount).toBe(2);
+  });
+
+  it('при раннем выходе !meta уведомляет свежим списком, если addLocal прошел во время getScLikedMeta', async () => {
+    const trackA = makeTrack('a');
+    const trackC = makeTrack('c');
+    storedEntries = [{ scId: 'a', trackId: trackA.id, likedAt: 200 }];
+    virtualCount = 1;
+
+    let resolveMeta!: (meta: { count: number; headIds: string[] } | null) => void;
+    let markMetaStarted!: () => void;
+    const metaStarted = new Promise<void>((r) => { markMetaStarted = r; });
+    scApiMocks.getScLikedMeta.mockImplementationOnce(() => {
+      markMetaStarted();
+      return new Promise((resolve) => {
+        resolveMeta = resolve;
+      });
+    });
+
+    const notified: ScLikedEntry[][] = [];
+    const unsub = scLikedManager.subscribe((entries, syncing) => {
+      if (!syncing) notified.push(entries);
+    });
+    try {
+      const syncPromise = scLikedManager.sync();
+      await metaStarted;
+      await scLikedManager.addLocal({ ...trackC, likeStatus: 'LIKE' });
+      resolveMeta(null);
+      await syncPromise;
+    } finally {
+      unsub();
+    }
+
+    expect(notified[notified.length - 1].map(e => e.scId)).toEqual(['c', 'a']);
+  });
 });
