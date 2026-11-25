@@ -1905,6 +1905,10 @@ class _DownloadCancelled(Exception):
     pass
 
 
+class _PeerAborted(Exception):
+    pass
+
+
 def _is_youtube_video_id(value) -> bool:
     return isinstance(value, str) and bool(_YT_VIDEO_ID_RE.match(value))
 
@@ -2143,10 +2147,30 @@ def _download_googlevideo_chunked(
 
     stop_event = threading.Event()
     file_lock = threading.Lock()
+    error_lock = threading.Lock()
     sessions_lock = threading.Lock()
     worker_local = threading.local()
     sessions = []
     written_bytes = 0
+    first_error: Exception | None = None
+
+    def _record_error(exc: Exception):
+        nonlocal first_error
+        if isinstance(exc, (_DownloadCancelled, _PeerAborted, concurrent.futures.CancelledError)):
+            return
+        with error_lock:
+            # Приоритет у 403/410, чтобы вызывающий код гарантированно перерезолвил протухшую ссылку
+            if first_error is None:
+                first_error = exc
+            elif _http_status_code(exc) in (403, 410) and _http_status_code(first_error) not in (403, 410):
+                first_error = exc
+
+    def _check_stop():
+        if cancel_check():
+            stop_event.set()
+            raise _DownloadCancelled('Cancelled by client')
+        if stop_event.is_set():
+            raise _PeerAborted()
 
     def _get_worker_session():
         sess = getattr(worker_local, 'session', None)
@@ -2165,17 +2189,12 @@ def _download_googlevideo_chunked(
         last_err = None
 
         for attempt in range(3):
-            if stop_event.is_set() or cancel_check():
-                stop_event.set()
-                raise _DownloadCancelled('Cancelled by client')
+            _check_stop()
 
             if attempt > 0:
                 delay = backoffs[min(attempt - 1, len(backoffs) - 1)]
-                if stop_event.wait(delay):
-                    raise _DownloadCancelled('Cancelled by client')
-                if cancel_check():
-                    stop_event.set()
-                    raise _DownloadCancelled('Cancelled by client')
+                stop_event.wait(delay)
+                _check_stop()
 
             attempt_bytes = 0
             buf = bytearray()
@@ -2183,15 +2202,19 @@ def _download_googlevideo_chunked(
                 sess = _get_worker_session()
                 with sess.get(chunk_url, headers=req_headers, stream=True, timeout=30) as r:
                     if r.status_code in (403, 410):
-                        stop_event.set()
-                        r.raise_for_status()
+                        try:
+                            r.raise_for_status()
+                        except Exception as http_err:
+                            _record_error(http_err)
+                            stop_event.set()
+                            raise
                     r.raise_for_status()
                     for piece in r.iter_content(chunk_size=65536):
-                        if stop_event.is_set() or cancel_check():
-                            stop_event.set()
-                            raise _DownloadCancelled('Cancelled by client')
+                        _check_stop()
                         if not piece:
                             continue
+                        if len(buf) + len(piece) > expected_len:
+                            raise IOError(f'Oversized chunk {start}-{end}: exceeded {expected_len} bytes')
                         buf.extend(piece)
                         attempt_bytes += len(piece)
                         _add_progress(len(piece), total_size)
@@ -2202,7 +2225,7 @@ def _download_googlevideo_chunked(
                     out_file.write(buf)
                     written_bytes += len(buf)
                 return expected_len
-            except _DownloadCancelled:
+            except (_DownloadCancelled, _PeerAborted):
                 if attempt_bytes:
                     _add_progress(-attempt_bytes, total_size)
                 raise
@@ -2210,27 +2233,52 @@ def _download_googlevideo_chunked(
                 if attempt_bytes:
                     _add_progress(-attempt_bytes, total_size)
                 if _http_status_code(e) in (403, 410):
+                    _record_error(e)
                     stop_event.set()
                     raise
                 last_err = e
 
+        final_err = last_err if last_err is not None else IOError(f'Chunk {start}-{end} failed')
+        _record_error(final_err)
         stop_event.set()
-        raise last_err if last_err is not None else IOError(f'Chunk {start}-{end} failed')
+        raise final_err
 
     out_file = open(filepath, 'wb')
     try:
         out_file.truncate(total_size)
         worker_count = max(1, min(int(max_workers or 4), len(ranges)))
+        pool_err: Exception | None = None
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
             futures = [pool.submit(_fetch_chunk, s, e, n, out_file) for (s, e, n) in ranges]
-            try:
-                for fut in concurrent.futures.as_completed(futures):
+            for fut in concurrent.futures.as_completed(futures):
+                try:
                     fut.result()
-            except Exception:
-                stop_event.set()
-                for f in futures:
-                    f.cancel()
-                raise
+                except (_PeerAborted, concurrent.futures.CancelledError):
+                    stop_event.set()
+                    for f in futures:
+                        f.cancel()
+                except _DownloadCancelled as exc:
+                    stop_event.set()
+                    for f in futures:
+                        f.cancel()
+                    if pool_err is None:
+                        pool_err = exc
+                except Exception as exc:
+                    _record_error(exc)
+                    stop_event.set()
+                    for f in futures:
+                        f.cancel()
+                    if pool_err is None:
+                        pool_err = exc
+        # Все воркеры завершены; выбираем истинную причину отказа без гонки с прерванными потоками
+        if cancel_check():
+            raise _DownloadCancelled('Cancelled by client')
+        with error_lock:
+            recorded = first_error
+        if recorded is not None:
+            raise recorded
+        if pool_err is not None:
+            raise pool_err
         out_file.flush()
         out_file.close()
         out_file = None
@@ -2429,6 +2477,8 @@ def download_track(request, ctx):
         if yt_vid:
             try:
                 stream_url, fast_loudness, _ = _resolve_youtube_audio_stream(yt_vid)
+                if _is_task_cancelled(call_id, ctx.is_cancelled):
+                    raise _DownloadCancelled('Cancelled by client')
                 if stream_url:
                     headers = _yt_download_headers()
                     ext = _infer_audio_ext(stream_url)
@@ -2628,6 +2678,11 @@ def download_direct(request, ctx):
     is_sc = download_url and 'soundcloud.com' in download_url
     is_googlevideo = bool(download_url and 'googlevideo.com' in download_url)
     is_yt_api = bool(download_url and 'youtube.com/api' in download_url)
+    yt_vid = (
+        raw_video_id
+        if _is_youtube_video_id(raw_video_id)
+        else _extract_youtube_video_id(request.get('url', ''))
+    )
 
     # Для googlevideo.com качаем параллельными range-чанками с Chrome UA
     if is_googlevideo:
@@ -2643,11 +2698,6 @@ def download_direct(request, ctx):
             except _DownloadCancelled:
                 raise
             except Exception as dl_err:
-                yt_vid = (
-                    raw_video_id
-                    if _is_youtube_video_id(raw_video_id)
-                    else _extract_youtube_video_id(request.get('url', ''))
-                )
                 if _http_status_code(dl_err) in (403, 410) and yt_vid:
                     print(f"[warn] download_direct 403/410 for {yt_vid}, re-resolving stream URL", file=sys.stderr)
                     with _ptf_pot_lock:
@@ -2682,6 +2732,7 @@ def download_direct(request, ctx):
             print(f"[error] download_direct chunked failed for {video_id_sanitized}: {e}", file=sys.stderr)
 
     elif is_yt_api:
+        filepath = ''
         try:
             headers = _yt_download_headers()
             ext = _infer_audio_ext(download_url)
@@ -2731,13 +2782,21 @@ def download_direct(request, ctx):
             return
         except _DownloadCancelled as e:
             try:
-                if os.path.exists(filepath):
+                if filepath and os.path.exists(filepath):
                     os.remove(filepath)
             except OSError:
                 pass
             safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
             return
         except Exception as e:
+            try:
+                if filepath and os.path.exists(filepath):
+                    os.remove(filepath)
+            except OSError:
+                pass
+            if _is_task_cancelled(call_id, ctx.is_cancelled):
+                safe_print({'status': 'error', 'message': 'Cancelled by client', 'callId': call_id})
+                return
             print(f"[error] download_direct requests failed for {video_id_sanitized}: {e}", file=sys.stderr)
 
     ydl_opts = {
@@ -2758,8 +2817,9 @@ def download_direct(request, ctx):
     ydl_opts['progress_hooks'] = [progress_hook]
 
     try:
+        ytdlp_target = f'https://www.youtube.com/watch?v={yt_vid}' if (is_googlevideo and yt_vid) else (download_url if download_url else stream_url)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(download_url if download_url else stream_url, download=True)
+            ydl.extract_info(ytdlp_target, download=True)
 
         filename = ""
         filepath = ""

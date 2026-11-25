@@ -4,7 +4,7 @@ import io
 import json
 import os
 import tempfile
-from threading import Event, Lock, Thread
+from threading import Barrier, Event, Lock, Thread
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
@@ -522,6 +522,199 @@ class YouTubeDownloadContract(unittest.TestCase):
             'thumbUrl': 'https://i1.sndcdn.com/art.jpg',
             'callId': 'prev-sc',
         }])
+
+    def test_chunked_download_403_with_4_workers_never_misclassified_as_cancel(self):
+        # 4 потока одновременно: чанк 0 получает 403, соседние чанки активно стримят
+        # и прерываются по stop_event раньше, чем поток 0 успеет выйти из контекста.
+        chunk_size = 4096
+        total_size = chunk_size * 8
+        url = f'https://rr1---sn-test.googlevideo.com/videoplayback?clen={total_size}'
+        all_started = Barrier(4, timeout=5)
+        sibling_aborted = Event()
+
+        class SlowSiblingResponse(_FakeResponse):
+            def iter_content(self, chunk_size=65536):
+                yield b'x' * 512
+                # Ждем, пока соседний поток выставит stop_event на 403, и продолжаем итерацию
+                sibling_aborted.wait(timeout=2)
+                yield b'y' * 512
+
+        class Delayed403Response(_FakeResponse):
+            def __exit__(self, exc_type, exc, tb):
+                # Даем соседним потокам первыми увидеть stop_event и завершиться
+                sibling_aborted.set()
+                api.time.sleep(0.05)
+                return False
+
+        class FakeSession:
+            def get(self, req_url, headers=None, stream=True, timeout=30):
+                params = dict(parse_qsl(urlparse(req_url).query))
+                s, _ = map(int, params['range'].split('-'))
+                try:
+                    all_started.wait()
+                except Exception:
+                    pass
+                if s == 0:
+                    return Delayed403Response(b'', 403)
+                return SlowSiblingResponse(b'z' * chunk_size, 200)
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest = os.path.join(tmpdir, 'race403.webm')
+            with patch.object(api.requests, 'Session', side_effect=FakeSession), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(requests.HTTPError) as ctx:
+                    api._download_googlevideo_chunked(
+                        url, dest, {}, 'dl-race-403', lambda: False,
+                        chunk_size=chunk_size, max_workers=4,
+                    )
+            self.assertEqual(ctx.exception.response.status_code, 403)
+            self.assertFalse(os.path.exists(dest))
+
+    def test_chunked_download_fails_fast_on_oversized_chunk(self):
+        expected_len = 8192
+        url = f'https://rr1---sn-test.googlevideo.com/videoplayback?clen={expected_len}'
+        pieces_yielded = 0
+
+        class OversizedResponse(_FakeResponse):
+            def iter_content(self, chunk_size=65536):
+                nonlocal pieces_yielded
+                for _ in range(20):
+                    pieces_yielded += 1
+                    yield b'A' * 4096
+
+        class FakeSession:
+            def get(self, req_url, headers=None, stream=True, timeout=30):
+                return OversizedResponse(b'', 200)
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest = os.path.join(tmpdir, 'oversized.webm')
+            with patch.object(api.requests, 'Session', side_effect=FakeSession), \
+                    patch.object(api.time, 'sleep'), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(IOError):
+                    api._download_googlevideo_chunked(
+                        url, dest, {}, 'dl-oversize', lambda: False,
+                        chunk_size=expected_len, max_workers=1,
+                    )
+            # 3 попытки * по 3 куска (4096 + 4096 + 4096 > 8192 -> обрыв), далеко не 3 * 20
+            self.assertLessEqual(pieces_yielded, 9)
+            self.assertFalse(os.path.exists(dest))
+
+    def test_download_direct_yt_api_cleans_partial_file_and_honors_cancel(self):
+        yt_api_url = 'https://www.youtube.com/api/timedtext?foo=1'
+
+        class MidStreamFailResponse(_FakeResponse):
+            def iter_content(self, chunk_size=262144):
+                yield b'partial-bytes'
+                raise requests.ConnectionError('dropped mid-stream')
+
+        # 1) Обычная ошибка сети: частичный файл должен быть удален ДО фолбэка в yt-dlp
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seen_files_on_fallback = []
+
+            def fake_ydl_factory(opts):
+                ydl = MagicMock()
+                def extract(u, download=True):
+                    seen_files_on_fallback.extend(os.listdir(tmpdir))
+                    out_path = opts['outtmpl'].replace('%(ext)s', 'webm')
+                    with open(out_path, 'wb') as f:
+                        f.write(b'ytdlp-good')
+                    return {'ext': 'webm'}
+                ydl.__enter__.return_value.extract_info.side_effect = extract
+                return ydl
+
+            with patch.object(api.requests, 'get', return_value=MidStreamFailResponse()), \
+                    patch.object(api.yt_dlp, 'YoutubeDL', side_effect=fake_ydl_factory), \
+                    patch.object(api, '_ffmpeg_loudness_i', return_value=-14.0), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                api.handle_request({
+                    'command': 'download_direct',
+                    'url': yt_api_url,
+                    'videoId': 'dQw4w9WgXcQ',
+                    'songsPath': tmpdir,
+                    'callId': 'ytapi-fail',
+                })
+            self.assertEqual(seen_files_on_fallback, [])
+            replies = [json.loads(line) for line in out.getvalue().splitlines()]
+            final = [r for r in replies if r.get('status') == 'ok'][-1]
+            self.assertTrue(final['filename'].endswith('.webm'))
+
+        # 2) Отмена при ошибке в yt_api: частичный файл удален, yt-dlp не запускается
+        with tempfile.TemporaryDirectory() as tmpdir:
+            class CancelThenErrorResponse(_FakeResponse):
+                def iter_content(self, chunk_size=262144):
+                    yield b'partial-before-cancel'
+                    api.handle_request({'command': 'cancel', 'callId': 'ytapi-cancel'})
+                    raise requests.ConnectionError('socket aborted on cancel')
+
+            with patch.object(api.requests, 'get', return_value=CancelThenErrorResponse()), \
+                    patch.object(api.yt_dlp, 'YoutubeDL') as mock_ydl, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                api.handle_request({
+                    'command': 'download_direct',
+                    'url': yt_api_url,
+                    'videoId': 'dQw4w9WgXcQ',
+                    'songsPath': tmpdir,
+                    'callId': 'ytapi-cancel',
+                })
+            mock_ydl.assert_not_called()
+            self.assertEqual(os.listdir(tmpdir), [])
+
+    def test_download_direct_googlevideo_fallback_passes_watch_url_to_ytdlp(self):
+        dead_gv_url = 'https://rr1---sn-dead.googlevideo.com/videoplayback?clen=4096&mime=audio%2Fwebm'
+        captured_urls = []
+
+        def fake_ydl_factory(opts):
+            ydl = MagicMock()
+            def extract(u, download=True):
+                captured_urls.append(u)
+                out_path = opts['outtmpl'].replace('%(ext)s', 'webm')
+                with open(out_path, 'wb') as f:
+                    f.write(b'fallback-audio')
+                return {'ext': 'webm'}
+            ydl.__enter__.return_value.extract_info.side_effect = extract
+            return ydl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(api, '_download_googlevideo_chunked', side_effect=IOError('chunk failed')), \
+                    patch.object(api.yt_dlp, 'YoutubeDL', side_effect=fake_ydl_factory), \
+                    patch.object(api, '_ffmpeg_loudness_i', return_value=-14.0), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                api.handle_request({
+                    'command': 'download_direct',
+                    'streamUrl': dead_gv_url,
+                    'videoId': 'dQw4w9WgXcQ',
+                    'songsPath': tmpdir,
+                    'callId': 'gv-fallback',
+                })
+            self.assertEqual(captured_urls, ['https://www.youtube.com/watch?v=dQw4w9WgXcQ'])
+            replies = [json.loads(line) for line in out.getvalue().splitlines()]
+            final = [r for r in replies if r.get('status') == 'ok'][-1]
+            self.assertTrue(final['filename'].startswith('dl_direct_dQw4w9WgXcQ_'))
+
+    def test_download_track_cancelled_during_fast_resolve_skips_ytdlp(self):
+        def fake_resolve_and_cancel(vid):
+            api.handle_request({'command': 'cancel', 'callId': 'dt-cancel-resolve'})
+            return None, None, None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(api, '_resolve_youtube_audio_stream', side_effect=fake_resolve_and_cancel), \
+                    patch.object(api.yt_dlp, 'YoutubeDL') as mock_ydl, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                api.handle_request({
+                    'command': 'download_track',
+                    'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                    'videoId': 'dQw4w9WgXcQ',
+                    'songsPath': tmpdir,
+                    'callId': 'dt-cancel-resolve',
+                })
+            mock_ydl.assert_not_called()
 
 
 if __name__ == '__main__':
