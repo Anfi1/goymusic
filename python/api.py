@@ -1932,9 +1932,13 @@ def get_soundcloud_album(request, ctx):
 
 def sc_client_id(request, ctx):
     call_id = ctx.call_id
-    # client_id для webview-лайка на стороне renderer.
+    force = bool(request.get('force'))
     try:
-        safe_print({'status': 'ok', 'clientId': get_sc_client_id() or '', 'appVersion': get_sc_app_version(), 'callId': call_id})
+        client_id = get_sc_client_id(force=force)
+        if not client_id:
+            safe_print({'status': 'error', 'message': 'client_id not found', 'callId': call_id})
+            return
+        safe_print({'status': 'ok', 'clientId': client_id, 'appVersion': get_sc_app_version(), 'callId': call_id})
     except Exception as e:
         safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
 
