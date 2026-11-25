@@ -193,6 +193,21 @@ export function setSoundCloudEnabled(value: boolean): void {
 const SC_TOKEN_KEY = 'sc-oauth-token';
 const SC_UID_KEY = 'sc-uid';
 const SC_BROWSER_PATH_KEY = 'sc-browser-path';
+const SC_LIKE_MODE_KEY = 'sc-like-mode';
+
+export type ScLikeMode = 'electron' | 'legacy';
+
+export function getScLikeMode(): ScLikeMode {
+  try {
+    return localStorage.getItem(SC_LIKE_MODE_KEY) === 'legacy' ? 'legacy' : 'electron';
+  } catch {
+    return 'electron';
+  }
+}
+
+export function setScLikeMode(mode: ScLikeMode): void {
+  localStorage.setItem(SC_LIKE_MODE_KEY, mode);
+}
 
 // Путь к Chromium-браузеру для клика лайка (nodriver). Пусто = автоопределение (дефолтный браузер системы / Chrome).
 export function getScBrowserPath(): string {
@@ -206,6 +221,12 @@ export function setScBrowserPath(path: string): void {
 
 let scClientId = '';
 let scAppVersion = '';
+const scDisconnectHooks = new Set<() => void>();
+
+export function registerScDisconnectHook(hook: () => void): () => void {
+  scDisconnectHooks.add(hook);
+  return () => { scDisconnectHooks.delete(hook); };
+}
 
 export interface ScAccount { id: number; username: string; avatarUrl: string; permalinkUrl: string; }
 
@@ -217,17 +238,45 @@ export function getScUid(): string {
   return localStorage.getItem(SC_UID_KEY) || '';
 }
 
-// client_id + app_version нужны для webview-лайка; берём с бэкенда и кэшируем.
-async function ensureScClientId(): Promise<{ cid: string; appVersion: string }> {
-  if (scClientId && scAppVersion) return { cid: scClientId, appVersion: scAppVersion };
+function emitScToast(message: string, type: 'error' | 'info' | 'success' = 'error'): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, type } }));
+}
+
+// client_id + app_version нужны для API-запросов лайков; берем с бэкенда и кэшируем.
+export async function ensureScClientId(force = false): Promise<{ cid: string; appVersion: string }> {
+  if (force) {
+    scClientId = '';
+    scAppVersion = '';
+  } else if (scClientId && scAppVersion) {
+    return { cid: scClientId, appVersion: scAppVersion };
+  }
   try {
-    const res = await (window as any).bridge.pyCall('sc_client_id', {});
+    const res = await (window as any).bridge.pyCall('sc_client_id', force ? { force: true } : {});
     if (res?.status === 'ok') { scClientId = res.clientId || ''; scAppVersion = res.appVersion || ''; }
   } catch { /* ignore */ }
   return { cid: scClientId, appVersion: scAppVersion };
 }
 
-// Надёжный вход: окно SoundCloud (логин + DataDome), забираем oauth_token и валидируем.
+async function ensureScUid(token: string): Promise<string> {
+  const existing = getScUid();
+  if (existing) return existing;
+  try {
+    const res = await (window as any).bridge.pyCall('sc_me', { token });
+    if (res?.status === 'ok' && res.connected && res.id !== undefined && res.id !== null) {
+      const uid = String(res.id);
+      if (uid) {
+        localStorage.setItem(SC_UID_KEY, uid);
+        return uid;
+      }
+    }
+  } catch (e) {
+    console.warn('[soundcloud] ensureScUid failed', e);
+  }
+  return '';
+}
+
+// Надежный вход: окно SoundCloud (логин + DataDome), забираем oauth_token и валидируем.
 export async function scLoginViaWebview(): Promise<ScAccount | null> {
   try {
     const res = await (window as any).bridge.scLogin();
@@ -245,6 +294,10 @@ export function isScAuthed(): boolean {
 }
 
 export async function scDisconnect(): Promise<void> {
+  // Сначала сбрасываем in-flight очередь лайков, чтобы отмененные запросы не делали откат поверх выхода.
+  for (const hook of scDisconnectHooks) {
+    try { hook(); } catch { /* ignore */ }
+  }
   // Удаляем серверные SC-лайки, но сохраняем localOnly
   const all = await likedStore.getAllScTracks();
   const toKeep = all.filter(e => e.localOnly);
@@ -254,8 +307,10 @@ export async function scDisconnect(): Promise<void> {
 
   localStorage.removeItem(SC_TOKEN_KEY);
   localStorage.removeItem(SC_UID_KEY);
+  scClientId = '';
+  scAppVersion = '';
   scLikedSet = new Set();
-  try { (window as any).bridge?.scLogout?.(); } catch { /* ignore */ }
+  try { await (window as any).bridge?.scLogout?.(); } catch { /* ignore */ }
 }
 
 // Проверяет токен через api-v2 /me. При успехе сохраняет его и возвращает аккаунт.
@@ -321,6 +376,12 @@ export function getScLocalOnlyCount(): number {
   return scLocalOnlySet.size;
 }
 
+export function setScLikedInMemory(scId: string, liked: boolean): void {
+  if (!scId) return;
+  if (liked) scLikedSet.add(scId);
+  else scLikedSet.delete(scId);
+}
+
 // Для использования из scLikedManager (разные модули)
 export function addScLocalOnlyId(scId: string): void {
   scLocalOnlySet.add(scId);
@@ -330,8 +391,7 @@ export function removeScLocalOnlyId(scId: string): void {
   scLocalOnlySet.delete(scId);
 }
 
-// Ставит/снимает лайк на SoundCloud через кастомный профиль Chrome + CDP.
-// Если профиль ещё не настроен — пробует настроить (открыть Chrome для логина) и ретраит.
+// Ставит/снимает лайк на SoundCloud через Electron session.fetch() или legacy nodriver.
 export async function scSetLiked(scId: string | undefined, scUrl: string | undefined, liked: boolean): Promise<boolean> {
   const token = getScToken();
   if (!token || !scId) return false;
@@ -341,32 +401,107 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
     : `https://soundcloud.com/tracks/${scId}`;
 
   const bridge = (window as any).bridge;
-  let profileDir: string;
-  try {
-    profileDir = await bridge.getScProfileDir();
-  } catch {
-    return false;
-  }
+  const useLegacy = getScLikeMode() === 'legacy' || typeof bridge?.scLike !== 'function';
 
-  const doLike = async (): Promise<boolean> => {
+  if (useLegacy) {
+    let profileDir: string;
+    try {
+      profileDir = await bridge.getScProfileDir();
+    } catch {
+      return false;
+    }
+
     let appBounds: { x: number; y: number; width: number; height: number } | null = null;
-    try { appBounds = await bridge.winGetBounds(); } catch {}
+    try { appBounds = await bridge.winGetBounds(); } catch { /* ignore */ }
     const res = await bridge.pyCall('sc_like_nodriver', {
       scId, url: trackUrl, liked, profileDir, oauthToken: token, appBounds,
       browserPath: getScBrowserPath() || undefined,
     });
     if (res?.status === 'ok') {
       const actualLiked = res.liked === 'liked';
-      if (actualLiked) scLikedSet.add(scId); else scLikedSet.delete(scId);
+      setScLikedInMemory(scId, actualLiked);
       return actualLiked === liked;
     }
-    window.dispatchEvent(new CustomEvent('app-toast', {
-      detail: { message: res?.message ? `Не удалось поставить лайк SoundCloud: ${res.message}` : 'Не удалось поставить лайк SoundCloud', type: 'error' },
-    }));
+    emitScToast(
+      res?.message ? `Не удалось поставить лайк SoundCloud: ${res.message}` : 'Не удалось поставить лайк SoundCloud',
+      'error',
+    );
     return false;
-  };
+  }
 
-  return doLike();
+  const uid = await ensureScUid(token);
+  if (!uid) {
+    emitScToast('Не удалось определить аккаунт SoundCloud. Войдите заново в Настройках', 'error');
+    return false;
+  }
+
+  let { cid, appVersion } = await ensureScClientId(false);
+  if (!cid) {
+    emitScToast('Не удалось получить client_id SoundCloud', 'error');
+    return false;
+  }
+
+  const invokeScLike = async (clientId: string, version: string) => bridge.scLike({
+    uid,
+    scId,
+    scUrl: trackUrl,
+    liked,
+    oauthToken: token,
+    clientId,
+    appVersion: version,
+  });
+
+  let res: { status?: string; message?: string } | undefined;
+  try {
+    res = await invokeScLike(cid, appVersion);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : '';
+    emitScToast(
+      message ? `Не удалось обновить лайк SoundCloud: ${message}` : 'Не удалось обновить лайк SoundCloud',
+      'error',
+    );
+    return false;
+  }
+
+  // При 401 один раз принудительно обновляем client_id и повторяем запрос без сброса сессии.
+  if (res?.status === 'unauthorized') {
+    const refreshed = await ensureScClientId(true);
+    cid = refreshed.cid;
+    appVersion = refreshed.appVersion;
+    if (cid) {
+      try {
+        res = await invokeScLike(cid, appVersion);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : '';
+        emitScToast(
+          message ? `Не удалось обновить лайк SoundCloud: ${message}` : 'Не удалось обновить лайк SoundCloud',
+          'error',
+        );
+        return false;
+      }
+    }
+  }
+
+  if (res?.status === 'ok') {
+    setScLikedInMemory(scId, liked);
+    return true;
+  }
+
+  if (res?.status === 'unauthorized') {
+    emitScToast('Сессия SoundCloud истекла. Войдите заново в Настройках', 'error');
+    return false;
+  }
+
+  if (res?.status === 'cancelled') {
+    emitScToast('Проверка SoundCloud отменена', 'info');
+    return false;
+  }
+
+  emitScToast(
+    res?.message ? `Не удалось обновить лайк SoundCloud: ${res.message}` : 'Не удалось обновить лайк SoundCloud',
+    'error',
+  );
+  return false;
 }
 
 // Открывает Chrome с кастомным профилем, юзер логинится в SC руками,

@@ -1,15 +1,48 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { likedStore, type LikedEntry, type YtImportSnapshot, type YtImportState, YT_IMPORT_VERSION } from './likedStore';
 import { tracksStore } from './tracks';
-import { likedManager, likedSyncLabel } from './likedManager';
+import { likedManager, likedSyncLabel, getPendingScLikeChanges, clearPendingScLikeQueue, whenScLikeQueueIdle } from './likedManager';
 import type { YTMTrack } from './yt';
 import { likedPlaylistTracks } from '../hooks/likedPlaylistTracks';
 
 // The renderer singleton reads its preference once, during module initialization.
 vi.hoisted(() => vi.stubGlobal('localStorage', { getItem: () => null }));
-vi.mock('./soundcloud', () => ({}));
+
+const scMocks = vi.hoisted(() => {
+  let disconnectHook: (() => void) | null = null;
+  let pendingProvider: (() => Map<string, unknown>) | null = null;
+  return {
+    isScAuthed: vi.fn(() => false),
+    scSetLiked: vi.fn(async () => true),
+    setScLikedInMemory: vi.fn(),
+    registerScDisconnectHook: vi.fn((hook: () => void) => {
+      disconnectHook = hook;
+      return () => { if (disconnectHook === hook) disconnectHook = null; };
+    }),
+    getDisconnectHook: () => disconnectHook,
+    addLocal: vi.fn(async () => {}),
+    removeLocal: vi.fn(async () => {}),
+    registerScPendingChangesProvider: vi.fn((provider: () => Map<string, unknown>) => {
+      pendingProvider = provider;
+    }),
+    getPendingProvider: () => pendingProvider,
+  };
+});
+
+vi.mock('./soundcloud', () => ({
+  isScAuthed: scMocks.isScAuthed,
+  scSetLiked: scMocks.scSetLiked,
+  setScLikedInMemory: scMocks.setScLikedInMemory,
+  registerScDisconnectHook: scMocks.registerScDisconnectHook,
+}));
 vi.mock('./yandex', () => ({}));
-vi.mock('./scLikedManager', () => ({}));
+vi.mock('./scLikedManager', () => ({
+  scLikedManager: {
+    addLocal: scMocks.addLocal,
+    removeLocal: scMocks.removeLocal,
+  },
+  registerScPendingChangesProvider: scMocks.registerScPendingChangesProvider,
+}));
 
 const song = (id: string): YTMTrack => ({ id, title: id, album: 'Fixture album', duration: '2:30', thumbUrl: '' });
 const [a, b, c] = ['a', 'b', 'c'].map(song);
@@ -334,5 +367,152 @@ describe('Liked Songs mirror', () => {
     ]);
     expect(rows.map(t => t.id)).toEqual(['sc', 'a', 'b', 'c']);
     expect(rows.every(t => t.likeStatus === 'LIKE')).toBe(true);
+  });
+});
+
+describe('SoundCloud optimistic toggleLike', () => {
+  const scTrack: YTMTrack = {
+    id: 'https://soundcloud.com/artist/track-1',
+    scId: 'sc-1',
+    scUrl: 'https://soundcloud.com/artist/track-1',
+    title: 'SC Track 1',
+    artists: ['SC Artist'],
+    album: '',
+    duration: '3:15',
+    thumbUrl: '',
+    source: 'soundcloud',
+  };
+
+  let events: Array<{ type: string; detail: any }>;
+
+  beforeEach(() => {
+    clearPendingScLikeQueue();
+    scMocks.isScAuthed.mockReset();
+    scMocks.scSetLiked.mockReset();
+    scMocks.setScLikedInMemory.mockReset();
+    scMocks.addLocal.mockReset();
+    scMocks.removeLocal.mockReset();
+
+    events = [];
+    vi.stubGlobal('window', {
+      bridge: { pyCall },
+      dispatchEvent: vi.fn((ev: Event) => {
+        events.push({ type: ev.type, detail: (ev as CustomEvent).detail });
+        return true;
+      }),
+      setTimeout: vi.fn(),
+    });
+  });
+
+  afterEach(async () => {
+    clearPendingScLikeQueue();
+    await whenScLikeQueueIdle();
+  });
+
+  it('мгновенно обновляет UI и локальное зеркало до ответа scSetLiked и очищает pending после успеха', async () => {
+    scMocks.isScAuthed.mockReturnValue(true);
+    let resolveRemote!: (ok: boolean) => void;
+    scMocks.scSetLiked.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      resolveRemote = resolve;
+    }));
+
+    const result = await likedManager.toggleLike(scTrack, 'INDIFFERENT');
+
+    expect(result).toBe(true);
+    expect(scMocks.setScLikedInMemory).toHaveBeenCalledWith('sc-1', true);
+    expect(scMocks.addLocal).toHaveBeenCalledWith({ ...scTrack, likeStatus: 'LIKE' });
+    expect(events).toContainEqual({
+      type: 'track-like-updated',
+      detail: { id: scTrack.id, status: 'success', likeStatus: 'LIKE' },
+    });
+    expect(getPendingScLikeChanges().get('sc-1')).toEqual({ track: scTrack, liked: true });
+
+    resolveRemote(true);
+    await whenScLikeQueueIdle();
+
+    expect(getPendingScLikeChanges().size).toBe(0);
+  });
+
+  it('откатывает состояние при неудаче scSetLiked через track-like-updated со status: success', async () => {
+    scMocks.isScAuthed.mockReturnValue(true);
+    let resolveRemote!: (ok: boolean) => void;
+    scMocks.scSetLiked.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      resolveRemote = resolve;
+    }));
+
+    const result = await likedManager.toggleLike(scTrack, 'INDIFFERENT');
+    expect(result).toBe(true);
+    events = [];
+
+    resolveRemote(false);
+    await whenScLikeQueueIdle();
+
+    expect(scMocks.setScLikedInMemory).toHaveBeenLastCalledWith('sc-1', false);
+    expect(scMocks.removeLocal).toHaveBeenCalledWith('sc-1');
+    expect(events).toEqual([
+      {
+        type: 'track-like-updated',
+        detail: { id: scTrack.id, status: 'success', likeStatus: 'INDIFFERENT' },
+      },
+    ]);
+    expect(getPendingScLikeChanges().size).toBe(0);
+  });
+
+  it('откатывает неудачный unlike обратно в LIKE со status: success', async () => {
+    scMocks.isScAuthed.mockReturnValue(true);
+    scMocks.scSetLiked.mockResolvedValueOnce(false);
+
+    const result = await likedManager.toggleLike(scTrack, 'LIKE');
+    expect(result).toBe(true);
+    await whenScLikeQueueIdle();
+
+    expect(scMocks.removeLocal).toHaveBeenCalledWith('sc-1');
+    expect(scMocks.addLocal).toHaveBeenCalledWith({ ...scTrack, likeStatus: 'LIKE' });
+    expect(scMocks.setScLikedInMemory).toHaveBeenLastCalledWith('sc-1', true);
+    expect(events[events.length - 1]).toEqual({
+      type: 'track-like-updated',
+      detail: { id: scTrack.id, status: 'success', likeStatus: 'LIKE' },
+    });
+  });
+
+  it('clearPendingScLikeQueue и зарегистрированные хуки disconnect/pending работают корректно', async () => {
+    const disconnectHook = scMocks.getDisconnectHook();
+    const pendingProvider = scMocks.getPendingProvider();
+    expect(typeof disconnectHook).toBe('function');
+    expect(typeof pendingProvider).toBe('function');
+
+    scMocks.isScAuthed.mockReturnValue(true);
+    let resolveRemote!: (ok: boolean) => void;
+    scMocks.scSetLiked.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      resolveRemote = resolve;
+    }));
+
+    await likedManager.toggleLike(scTrack, 'INDIFFERENT');
+    expect(pendingProvider!().has('sc-1')).toBe(true);
+    events = [];
+    scMocks.removeLocal.mockClear();
+
+    disconnectHook!();
+    resolveRemote(false);
+    await whenScLikeQueueIdle();
+
+    expect(scMocks.removeLocal).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(getPendingScLikeChanges().size).toBe(0);
+  });
+
+  it('сохраняет offline localOnly путь без авторизации SoundCloud', async () => {
+    scMocks.isScAuthed.mockReturnValue(false);
+
+    const result = await likedManager.toggleLike(scTrack, 'INDIFFERENT');
+
+    expect(result).toBe(true);
+    expect(scMocks.scSetLiked).not.toHaveBeenCalled();
+    expect(scMocks.addLocal).toHaveBeenCalledWith({ ...scTrack, likeStatus: 'LIKE' }, true);
+    expect(events).toContainEqual({
+      type: 'track-like-updated',
+      detail: { id: scTrack.id, status: 'success', likeStatus: 'LIKE' },
+    });
+    expect(events.some(e => e.type === 'app-toast' && e.detail.type === 'info')).toBe(true);
   });
 });

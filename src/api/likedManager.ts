@@ -1,11 +1,55 @@
 import { getContinuation, rateSong, YTMTrack, getPlaylistTracks } from './yt';
-import { isScAuthed, scSetLiked } from './soundcloud';
+import { isScAuthed, registerScDisconnectHook, scSetLiked, setScLikedInMemory } from './soundcloud';
 import { yandexSetLiked } from './yandex';
 import { likedStore, LikedEntry, YtImportState, YT_IMPORT_VERSION } from './likedStore';
 import { tracksStore } from './tracks';
-import { scLikedManager } from './scLikedManager';
+import { registerScPendingChangesProvider, scLikedManager } from './scLikedManager';
+import { ScLikeQueue, type PendingScLikeChange } from './scLikeQueue';
 
 const YT_IMPORT_RECHECK_MS = 15 * 60 * 1000;
+
+function applyScLikeLocal(track: YTMTrack, liked: boolean): Promise<void> | void {
+  const scId = track.scId;
+  let persistPromise: Promise<void> | undefined;
+  if (scId) {
+    setScLikedInMemory(scId, liked);
+    persistPromise = liked
+      ? scLikedManager.addLocal({ ...track, likeStatus: 'LIKE' })
+      : scLikedManager.removeLocal(scId);
+  }
+  window.dispatchEvent(new CustomEvent('track-like-updated', {
+    detail: { id: track.id, status: 'success', likeStatus: liked ? 'LIKE' : 'INDIFFERENT' },
+  }));
+  return persistPromise;
+}
+
+const scLikeQueue = new ScLikeQueue({
+  applyLocal: applyScLikeLocal,
+  persistRemote: (scId, scUrl, liked) => scSetLiked(scId, scUrl, liked),
+  onRollback: (track, revertedToLiked) => {
+    // Эмитим именно status: 'success', так как все UI-слушатели и PlayerStore обновляют likeStatus только при 'success'.
+    return applyScLikeLocal(track, revertedToLiked);
+  },
+});
+
+export function getPendingScLikeChanges(): Map<string, PendingScLikeChange> {
+  return scLikeQueue.getPendingChanges();
+}
+
+export function clearPendingScLikeQueue(): void {
+  scLikeQueue.clear();
+}
+
+export function whenScLikeQueueIdle(): Promise<void> {
+  return scLikeQueue.whenIdle();
+}
+
+if (typeof registerScDisconnectHook === 'function') {
+  registerScDisconnectHook(() => clearPendingScLikeQueue());
+}
+if (typeof registerScPendingChangesProvider === 'function') {
+  registerScPendingChangesProvider(() => getPendingScLikeChanges());
+}
 
 export type LikedSyncProgress =
   | { phase: 'idle' | 'checking' | 'saving' | 'failed' }
@@ -305,15 +349,12 @@ class LikedManager {
     // SoundCloud-трек: лайк уходит на SoundCloud (нужен oauth_token), не в YT-библиотеку.
     if (track.source === 'soundcloud') {
       if (isScAuthed()) {
-        const ok = await scSetLiked(track.scId, track.scUrl || track.id, newStatus === 'LIKE');
-        if (ok) {
-          if (newStatus === 'LIKE') scLikedManager.addLocal({ ...track, likeStatus: 'LIKE' });
-          else if (track.scId) scLikedManager.removeLocal(track.scId);
-          window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'success', likeStatus: newStatus } }));
-          return true;
+        if (!track.scId) {
+          window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+          return false;
         }
-        window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
-        return false;
+        scLikeQueue.enqueue(track, currentStatus === 'LIKE', newStatus === 'LIKE');
+        return true;
       }
 
       // Не авторизован — сохраняем локально с флагом localOnly
