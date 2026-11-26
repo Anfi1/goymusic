@@ -6,6 +6,7 @@ export interface LikedEntry {
   originalIndex: number;
   syncedAt: number;
   likedAt?: number;
+  likeTargetIds?: string[];
 }
 
 export interface HydratedLikedEntry extends LikedEntry {
@@ -33,7 +34,7 @@ export interface HydratedYandexLikedEntry extends YandexLikedEntry {
   track: YTMTrack;
 }
 
-export const YT_IMPORT_VERSION = 3;
+export const YT_IMPORT_VERSION = 4;
 
 export interface YtImportState {
   version: typeof YT_IMPORT_VERSION;
@@ -423,6 +424,7 @@ class LikedStore {
       tx.objectStore('yt_liked').put(entry);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('IDB transaction aborted'));
     });
   }
 
@@ -441,8 +443,13 @@ class LikedStore {
   async deleteTrack(trackId: string) {
     await this.init();
     if (!this.db) return;
-    const tx = this.db!.transaction('yt_liked', 'readwrite');
-    tx.objectStore('yt_liked').delete(trackId);
+    return new Promise<void>((resolve, reject) => {
+      const tx = this.db!.transaction('yt_liked', 'readwrite');
+      tx.objectStore('yt_liked').delete(trackId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('IDB transaction aborted'));
+    });
   }
 
   async clearAllTracks() {

@@ -67,6 +67,32 @@ export function likedSyncLabel(progress: LikedSyncProgress): string | null {
   }
 }
 
+export function initialLikeTargetIds(trackId: string, likeTargetId?: string): string[] | undefined {
+  return likeTargetId && likeTargetId !== trackId ? [likeTargetId] : undefined;
+}
+
+export function mergeLikeTargetIds(entry: LikedEntry, incomingTargetId: string): boolean {
+  if (!incomingTargetId) return false;
+  const current = entry.likeTargetIds?.length ? entry.likeTargetIds : [entry.trackId];
+  if (current.includes(incomingTargetId)) return false;
+  entry.likeTargetIds = [...current, incomingTargetId];
+  return true;
+}
+
+function entryLikeTargetIds(entry: LikedEntry): string[] {
+  return entry.likeTargetIds?.length ? entry.likeTargetIds : [entry.trackId];
+}
+
+function cloneLikedEntry(entry: LikedEntry): LikedEntry {
+  return entry.likeTargetIds?.length
+    ? { ...entry, likeTargetIds: [...entry.likeTargetIds] }
+    : { ...entry };
+}
+
+function findMatchedEntries(entries: LikedEntry[], id: string): LikedEntry[] {
+  return entries.filter(e => e.trackId === id || e.likeTargetIds?.includes(id));
+}
+
 class LikedManager {
   private _isSyncing = false;
   private _isEnabled = true;
@@ -143,7 +169,9 @@ class LikedManager {
       if (!firstPage.tracks.length && !firstPage.unavailableCount && ytTotal !== 0) {
         throw new Error('Liked Songs response has no rows or confirmed empty count');
       }
-      const headIds = firstPage.tracks.map(track => track.id);
+      const headIds = firstPage.tracks.map(track =>
+        track.likeTargetId && track.likeTargetId !== track.id ? `${track.id}:${track.likeTargetId}` : track.id
+      );
       const [savedImport, snapshot] = await Promise.all([
         likedStore.getYtImportState(), likedStore.getYtImportSnapshot(),
       ]);
@@ -163,8 +191,27 @@ class LikedManager {
         savedImport.headIds.every((id, i) => id === headIds[i]);
       if (savedImport && !canResume) await likedStore.clearYtImport();
 
-      const entries = canResume ? await likedStore.getYtImportTracks() : [];
-      const knownIds = new Set(entries.map(entry => entry.trackId));
+      const entries: LikedEntry[] = [];
+      const entryById = new Map<string, LikedEntry>();
+      if (canResume) {
+        const stagedEntries = await likedStore.getYtImportTracks();
+        for (const staged of stagedEntries) {
+          const existing = entryById.get(staged.trackId);
+          if (existing) {
+            for (const tid of entryLikeTargetIds(staged)) {
+              mergeLikeTargetIds(existing, tid);
+            }
+          } else {
+            const cloned = cloneLikedEntry(staged);
+            entries.push(cloned);
+            entryById.set(cloned.trackId, cloned);
+          }
+        }
+      }
+      const seenTargets = new Set<string>();
+      for (const entry of entries) {
+        for (const tid of entryLikeTargetIds(entry)) seenTargets.add(tid);
+      }
       const requestedTokens = new Set<string>();
       const now = Date.now();
       importState = canResume ? savedImport : {
@@ -184,24 +231,71 @@ class LikedManager {
         if (!currentLocal.length && revision === this.ytRevision) await this.notify(entries);
       }
       const addPage = async (page: { tracks: YTMTrack[], continuation?: string | null, unavailableCount: number }, previous: YtImportState) => {
-        const newTracks = page.tracks.filter(track => {
+        const newTracks: YTMTrack[] = [];
+        const addedEntries: LikedEntry[] = [];
+        const dirtyEntries = new Map<string, LikedEntry>();
+        const pageSeenTargets = new Set(seenTargets);
+        // Держим временные черновики на время сохранения страницы, чтобы сбой IDB не мутировал entries.
+        const pendingById = new Map<string, LikedEntry>();
+        let nextIndex = entries.length;
+
+        for (const track of page.tracks) {
           if (!track.id) throw new Error('Invalid Liked Songs row');
-          if (knownIds.has(track.id)) return false;
-          knownIds.add(track.id);
-          return true;
-        });
-        const pageEntries = newTracks.map((track, i) => ({
-          trackId: track.id, originalIndex: entries.length + i, syncedAt: 0,
-        }));
+          const targetId = track.likeTargetId || track.id;
+          pageSeenTargets.add(targetId);
+
+          const pending = pendingById.get(track.id);
+          if (pending) {
+            if (mergeLikeTargetIds(pending, targetId)) {
+              dirtyEntries.set(pending.trackId, pending);
+            }
+            continue;
+          }
+
+          const existing = entryById.get(track.id);
+          if (existing) {
+            const draft = cloneLikedEntry(existing);
+            if (mergeLikeTargetIds(draft, targetId)) {
+              pendingById.set(draft.trackId, draft);
+              dirtyEntries.set(draft.trackId, draft);
+            }
+            continue;
+          }
+
+          const entry: LikedEntry = {
+            trackId: track.id,
+            originalIndex: nextIndex++,
+            syncedAt: 0,
+          };
+          const initialTargets = initialLikeTargetIds(track.id, track.likeTargetId);
+          if (initialTargets) entry.likeTargetIds = initialTargets;
+          addedEntries.push(entry);
+          pendingById.set(entry.trackId, entry);
+          newTracks.push(track);
+          dirtyEntries.set(entry.trackId, entry);
+        }
+
         // Hydration reads a separate DB: persist metadata before publishing any references.
         await tracksStore.upsertTracksBatch(newTracks);
         const nextState: YtImportState = {
-          ...previous, status: 'importing', downloadedCount: entries.length + pageEntries.length,
+          ...previous, status: 'importing', downloadedCount: pageSeenTargets.size,
           unavailableCount: previous.unavailableCount + page.unavailableCount,
           continuation: page.continuation || null, updatedAt: Date.now(),
         };
-        await likedStore.saveYtImportPage(pageEntries, nextState);
-        entries.push(...pageEntries);
+        const entriesToSave = [...dirtyEntries.values()].map(cloneLikedEntry);
+        await likedStore.saveYtImportPage(entriesToSave, nextState);
+
+        for (const tid of pageSeenTargets) seenTargets.add(tid);
+        for (const entry of addedEntries) {
+          entries.push(entry);
+          entryById.set(entry.trackId, entry);
+        }
+        for (const [trackId, draft] of dirtyEntries) {
+          const existing = entryById.get(trackId);
+          if (existing && existing !== draft) {
+            existing.likeTargetIds = draft.likeTargetIds;
+          }
+        }
         publishCheckpoint(nextState);
         if (!currentLocal.length && revision === this.ytRevision) await this.notify(entries);
         return nextState;
@@ -221,15 +315,29 @@ class LikedManager {
         discardCursor = false;
       }
       if (revision !== this.ytRevision) return;
+      const observedTargets = seenTargets.size + importState.unavailableCount;
       const observedCount = entries.length + importState.unavailableCount;
-      const shortCount = ytTotal !== null && observedCount < ytTotal;
+      const shortCount = ytTotal !== null && observedTargets < ytTotal;
       if ((shortCount && !firstPage.continuation) || (ytTotal === null && entries.length < currentLocal.length)) {
         throw new Error('Incomplete Liked Songs response');
       }
       if (shortCount) {
         // Цепочка страниц завершилась, но счетчик в шапке выше. Отсутствие в выдаче не доказывает снятие лайка.
-        for (const entry of currentLocal) {
-          if (!knownIds.has(entry.trackId)) entries.push(entry);
+        for (const localEntry of currentLocal) {
+          const existing = entryById.get(localEntry.trackId);
+          if (!existing) {
+            const cloned = cloneLikedEntry(localEntry);
+            entries.push(cloned);
+            entryById.set(cloned.trackId, cloned);
+          } else {
+            // В v4 отсутствие likeTargetIds означает неявный target trackId; в старых версиях его не подмешиваем.
+            const priorTargets = completedVersion >= YT_IMPORT_VERSION
+              ? entryLikeTargetIds(localEntry)
+              : (localEntry.likeTargetIds ?? []);
+            for (const tid of priorTargets) {
+              mergeLikeTargetIds(existing, tid);
+            }
+          }
         }
       }
 
@@ -298,11 +406,71 @@ class LikedManager {
 
     if (success) {
       this.ytRevision++;
-      // Если трек был лайкнут — убираем из локального стора лайков
-      if (this._isEnabled && currentStatus === 'LIKE') {
-        const virtualCount = await likedStore.getVirtualCount();
-        await likedStore.deleteTrack(id);
-        await likedStore.setVirtualCount(Math.max(0, virtualCount - 1));
+      if (newStatus === 'DISLIKE') {
+        const currentTracks = this._isEnabled ? await likedStore.getAllTracks() : [];
+        let matched = findMatchedEntries(currentTracks, id);
+        if (matched.length === 0 && currentStatus === 'LIKE' && track.likeTargetId && track.likeTargetId !== id) {
+          matched = findMatchedEntries(currentTracks, track.likeTargetId);
+        }
+        const counterpartSet = new Set<string>();
+        for (const entry of matched) {
+          for (const tid of entryLikeTargetIds(entry)) {
+            if (tid !== id) counterpartSet.add(tid);
+          }
+        }
+        if (matched.length === 0 && currentStatus === 'LIKE' && track.likeTargetId && track.likeTargetId !== id) {
+          counterpartSet.add(track.likeTargetId);
+        }
+
+        const counterpartIds = [...counterpartSet];
+        const counterpartResults = await Promise.all(
+          counterpartIds.map(async tid => ({ tid, ok: await rateSong(tid, 'INDIFFERENT') })),
+        );
+        const failedCounterparts = new Set(counterpartResults.filter(r => !r.ok).map(r => r.tid));
+        const clearedOtherIds = new Set<string>();
+        for (const r of counterpartResults) {
+          if (r.ok && r.tid !== id) clearedOtherIds.add(r.tid);
+        }
+
+        const shouldUpdateStore = this._isEnabled && (currentStatus === 'LIKE' || matched.length > 0);
+        if (shouldUpdateStore) {
+          if (matched.length > 0) {
+            let deletedCount = 0;
+            for (const entry of matched) {
+              const remaining = entryLikeTargetIds(entry).filter(tid => tid !== id && failedCounterparts.has(tid));
+              if (remaining.length === 0) {
+                await likedStore.deleteTrack(entry.trackId);
+                deletedCount++;
+                if (entry.trackId !== id) clearedOtherIds.add(entry.trackId);
+              } else {
+                await likedStore.putTrack({ ...entry, likeTargetIds: remaining });
+              }
+            }
+            if (deletedCount > 0) {
+              const virtualCount = await likedStore.getVirtualCount();
+              await likedStore.setVirtualCount(Math.max(0, virtualCount - deletedCount));
+            }
+          } else {
+            const virtualCount = await likedStore.getVirtualCount();
+            await likedStore.deleteTrack(id);
+            await likedStore.setVirtualCount(Math.max(0, virtualCount - 1));
+          }
+        }
+
+        window.dispatchEvent(new CustomEvent('track-like-updated', {
+          detail: { id, status: 'success', likeStatus: 'DISLIKE' }
+        }));
+        for (const otherId of clearedOtherIds) {
+          window.dispatchEvent(new CustomEvent('track-like-updated', {
+            detail: { id: otherId, status: 'success', likeStatus: 'INDIFFERENT' }
+          }));
+        }
+
+        await this.notify();
+        if (shouldUpdateStore) {
+          this.scheduleSync();
+        }
+        return true;
       }
 
       window.dispatchEvent(new CustomEvent('track-like-updated', {
@@ -310,9 +478,6 @@ class LikedManager {
       }));
 
       await this.notify();
-      if (this._isEnabled && currentStatus === 'LIKE') {
-        this.scheduleSync();
-      }
       return true;
     } else {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
@@ -372,46 +537,148 @@ class LikedManager {
       return true;
     }
 
-    const success = await rateSong(id, newStatus as any);
+    if (newStatus === 'LIKE') {
+      const success = await rateSong(id, 'LIKE');
+      if (success) {
+        this.ytRevision++;
+        if (this._isEnabled) {
+          const currentTracks = await likedStore.getAllTracks();
+          const existing = currentTracks.find(e => e.trackId === id);
+          const now = Date.now();
+          if (existing) {
+            await tracksStore.upsertTrack({ ...track, likeStatus: 'LIKE' });
+            const updated = cloneLikedEntry(existing);
+            updated.syncedAt = now;
+            if (updated.likeTargetIds?.length) {
+              mergeLikeTargetIds(updated, id);
+            }
+            await likedStore.putTrack(updated);
+          } else {
+            // При новом лайке playable id убираем устаревший likeTargetId из метаданных трека.
+            const { likeTargetId: _unused, ...cleanTrack } = track;
+            await tracksStore.upsertTrack({ ...cleanTrack, likeStatus: 'LIKE' });
+            const virtualCount = await likedStore.getVirtualCount();
+            const minIdx = await likedStore.getMinIndex();
+            await likedStore.putTrack({
+              trackId: id,
+              originalIndex: minIdx - 1,
+              syncedAt: now,
+              likedAt: now,
+            });
+            // Если у трека нет длительности, не обновляем счетчик:
+            // sync увидит расхождение с YouTube и сделает полный рефетч.
+            if (track.duration) {
+              await likedStore.setVirtualCount(virtualCount + 1);
+            }
+          }
+        }
 
-    if (success) {
+        window.dispatchEvent(new CustomEvent('track-like-updated', {
+          detail: { id, status: 'success', likeStatus: 'LIKE' }
+        }));
+
+        await this.notify();
+        if (this._isEnabled) {
+          this.scheduleSync();
+        }
+        return true;
+      }
+
+      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+      return false;
+    }
+
+    // Снятие лайка (INDIFFERENT): разлайкиваем все связанные targetId синхронно.
+    const currentTracks = this._isEnabled ? await likedStore.getAllTracks() : [];
+    let matched = findMatchedEntries(currentTracks, id);
+    if (matched.length === 0 && track.likeTargetId && track.likeTargetId !== id) {
+      matched = findMatchedEntries(currentTracks, track.likeTargetId);
+    }
+    const targetSet = new Set<string>();
+    if (matched.length > 0) {
+      for (const entry of matched) {
+        for (const tid of entryLikeTargetIds(entry)) targetSet.add(tid);
+      }
+    } else {
+      if (track.likeTargetId && track.likeTargetId !== id) targetSet.add(track.likeTargetId);
+      targetSet.add(id);
+    }
+    const targetIds = [...targetSet];
+    const results = await Promise.all(
+      targetIds.map(async tid => ({ tid, ok: await rateSong(tid, 'INDIFFERENT') })),
+    );
+    const succeededTargets = results.filter(r => r.ok).map(r => r.tid);
+    const failedTargets = results.filter(r => !r.ok).map(r => r.tid);
+
+    if (succeededTargets.length > 0) {
       this.ytRevision++;
+    }
+
+    if (failedTargets.length === 0) {
       if (this._isEnabled) {
         const virtualCount = await likedStore.getVirtualCount();
-        if (newStatus === 'LIKE') {
-          const minIdx = await likedStore.getMinIndex();
-          await tracksStore.upsertTrack({ ...track, likeStatus: 'LIKE' });
-          await likedStore.putTrack({
-            trackId: id,
-            originalIndex: minIdx - 1,
-            syncedAt: Date.now(),
-            likedAt: Date.now()
-          });
-          // Если у трека нет длительности — не обновляем счётчик.
-          // Sync увидит расхождение с YouTube и сделает полный рефетч с правильными данными.
-          if (track.duration) {
-            await likedStore.setVirtualCount(virtualCount + 1);
+        if (matched.length > 0) {
+          for (const entry of matched) {
+            await likedStore.deleteTrack(entry.trackId);
           }
         } else {
           await likedStore.deleteTrack(id);
-          await likedStore.setVirtualCount(Math.max(0, virtualCount - 1));
         }
+        await likedStore.setVirtualCount(Math.max(0, virtualCount - Math.max(1, matched.length)));
       }
-      
-      // Глобальное событие успеха (для Row и QueueItem)
-      window.dispatchEvent(new CustomEvent('track-like-updated', { 
-        detail: { id, status: 'success', likeStatus: newStatus } 
-      }));
+
+      const affectedIds = new Set<string>([id, ...targetIds]);
+      for (const entry of matched) affectedIds.add(entry.trackId);
+
+      for (const affectedId of affectedIds) {
+        window.dispatchEvent(new CustomEvent('track-like-updated', {
+          detail: { id: affectedId, status: 'success', likeStatus: 'INDIFFERENT' }
+        }));
+      }
 
       await this.notify();
       if (this._isEnabled) {
         this.scheduleSync();
       }
       return true;
-    } else {
-      window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
-      return false;
     }
+
+    if (succeededTargets.length > 0) {
+      const partialClearedIds = new Set<string>();
+      for (const tid of succeededTargets) {
+        if (tid !== id) partialClearedIds.add(tid);
+      }
+      if (this._isEnabled) {
+        const failedSet = new Set(failedTargets);
+        let deletedCount = 0;
+        for (const entry of matched) {
+          const remaining = entryLikeTargetIds(entry).filter(tid => failedSet.has(tid));
+          if (remaining.length === 0) {
+            await likedStore.deleteTrack(entry.trackId);
+            deletedCount++;
+            if (entry.trackId !== id) partialClearedIds.add(entry.trackId);
+          } else {
+            await likedStore.putTrack({ ...entry, likeTargetIds: remaining });
+          }
+        }
+        if (deletedCount > 0) {
+          const virtualCount = await likedStore.getVirtualCount();
+          await likedStore.setVirtualCount(Math.max(0, virtualCount - deletedCount));
+        }
+      }
+      for (const clearedId of partialClearedIds) {
+        window.dispatchEvent(new CustomEvent('track-like-updated', {
+          detail: { id: clearedId, status: 'success', likeStatus: 'INDIFFERENT' }
+        }));
+      }
+      if (this._isEnabled) {
+        await this.notify();
+        this.scheduleSync();
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id, status: 'error' } }));
+    return false;
   }
 }
 

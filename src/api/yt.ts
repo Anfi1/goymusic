@@ -16,6 +16,7 @@ export interface YTMTrack {
     views?: string;
     isAvailable?: boolean;
     likeStatus?: 'LIKE' | 'DISLIKE' | 'INDIFFERENT';
+    likeTargetId?: string;
     setVideoId?: string; // Unique ID for a track in a specific playlist
     menu_tokens?: {
         pin?: string | null;

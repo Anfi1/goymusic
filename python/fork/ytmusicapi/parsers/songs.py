@@ -160,10 +160,18 @@ def parse_song_menu_data(data: JsonDict) -> JsonDict:
     if "menu" not in data:
         return {}
 
+    menu = data.get("menu")
+    menu_renderer = menu.get("menuRenderer") if isinstance(menu, dict) else None
+    if not isinstance(menu_renderer, dict):
+        return {}
+
     song_data: JsonDict = {}
-    for item in nav(data, MENU_ITEMS):
+    menu_items = menu_renderer.get("items")
+    for item in menu_items if isinstance(menu_items, list) else ():
+        if not isinstance(item, dict):
+            continue
         menu_item = nav(item, [TOGGLE_MENU], True) or nav(item, ["menuServiceItemRenderer"], True)
-        if menu_item is None:
+        if not isinstance(menu_item, dict):
             continue
 
         song_data["inLibrary"] = song_data.get("inLibrary", False)
@@ -207,9 +215,23 @@ def parse_song_menu_data(data: JsonDict) -> JsonDict:
             case "REMOVE_FROM_HISTORY":
                 song_data["feedbackToken"] = feedback_token("serviceEndpoint")
 
-    like_status = nav(data, MENU_LIKE_STATUS, True)
-    if like_status:
-        song_data["likeStatus"] = like_status
+    top_buttons = menu_renderer.get("topLevelButtons")
+    if isinstance(top_buttons, list):
+        for btn in top_buttons:
+            if not isinstance(btn, dict):
+                continue
+            like_renderer = btn.get("likeButtonRenderer")
+            if not isinstance(like_renderer, dict):
+                continue
+            like_status = like_renderer.get("likeStatus")
+            if like_status:
+                song_data["likeStatus"] = like_status
+            # В LM target.videoId кнопки лайка может отличаться от отображаемого videoId (клип/перезалив)
+            like_target = like_renderer.get("target")
+            like_target_id = like_target.get("videoId") if isinstance(like_target, dict) else None
+            if isinstance(like_target_id, str) and like_target_id.strip():
+                song_data["likeTargetId"] = like_target_id.strip()
+            break
 
     return song_data
 

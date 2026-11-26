@@ -52,16 +52,17 @@ function readOverride(
 }
 
 export function resolveTrackLikeStatus(
-  track: Pick<YTMTrack, 'id' | 'likeStatus' | 'source' | 'scId' | 'yandexId'>,
+  track: Pick<YTMTrack, 'id' | 'likeTargetId' | 'likeStatus' | 'source' | 'scId' | 'yandexId'>,
   lookup: TrackLikeLookup,
   options?: ResolveTrackLikeOptions,
 ): TrackLikeStatus {
-  // Живое событие track-like-updated за текущую сессию всегда побеждает устаревший кэш API/стора.
+  // 1. Живое событие track-like-updated для самого track.id имеет высший приоритет.
   if (track.id) {
     const override = readOverride(lookup.overrides, track.id);
     if (override.found) return override.value;
   }
 
+  // 2. Прямое совпадение по track.id или платформенным идентификаторам (SC / Yandex).
   const yandexId = track.yandexId || (track.id?.startsWith('yandex:') ? track.id.slice(7) : undefined);
 
   const isInLikedStore =
@@ -71,6 +72,14 @@ export function resolveTrackLikeStatus(
 
   if (isInLikedStore) {
     return 'LIKE';
+  }
+
+  // 3-4. Проверяем likeTargetId только после track.id, чтобы повторный лайк playable id
+  // не перебивался старым INDIFFERENT-оверрайдом от снятого counterpart videoId.
+  if (track.likeTargetId && track.likeTargetId !== track.id) {
+    const targetOverride = readOverride(lookup.overrides, track.likeTargetId);
+    if (targetOverride.found) return targetOverride.value;
+    if (lookup.likedTrackIds.has(track.likeTargetId)) return 'LIKE';
   }
 
   if (options?.demoteStaleLike && lookup.loaded && track.likeStatus === 'LIKE') {
@@ -120,6 +129,7 @@ let reloadInFlight: Promise<void> | null = null;
 let reloadAgain = false;
 
 let ytTrackIds = new Set<string>();
+let ytTargetIds = new Set<string>();
 let scTrackIds = new Set<string>();
 let syncedScTrackIds = new Set<string>();
 let scIds = new Set<string>();
@@ -214,8 +224,19 @@ export async function reloadLikedIndex(): Promise<void> {
       const ytOk = ytRes.status === 'fulfilled';
       if (ytOk) {
         const nextYt = new Set<string>();
-        for (const e of ytRes.value) if (e?.trackId) nextYt.add(e.trackId);
+        const nextYtTargets = new Set<string>();
+        for (const e of ytRes.value) {
+          if (e?.trackId) nextYt.add(e.trackId);
+          const targets = e?.likeTargetIds?.length ? e.likeTargetIds : (e?.trackId ? [e.trackId] : []);
+          for (const tid of targets) {
+            if (tid) {
+              nextYt.add(tid);
+              nextYtTargets.add(tid);
+            }
+          }
+        }
         ytTrackIds = nextYt;
+        ytTargetIds = nextYtTargets;
         ytLoaded = true;
       }
 
@@ -283,7 +304,7 @@ export async function reloadLikedIndex(): Promise<void> {
             ? yandexOk && (yandexTrackIds.has(id) || yandexIds.has(rawYandexId)) && isYandexTrackLiked(rawYandexId)
             : isSc
               ? scOk && syncedScTrackIds.has(id) && scId !== undefined && isScTrackLiked(scId)
-              : ytOk && ytTrackIds.has(id);
+              : ytOk && (entry.status === 'DISLIKE' ? ytTargetIds.has(id) : ytTrackIds.has(id));
           if (reLikedRemotely) {
             liveOverrides.delete(id);
           }
@@ -394,6 +415,7 @@ export function resetLikedIndexForTests(): void {
 
   listeners.clear();
   ytTrackIds = new Set();
+  ytTargetIds = new Set();
   scTrackIds = new Set();
   syncedScTrackIds = new Set();
   scIds = new Set();

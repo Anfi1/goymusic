@@ -27,6 +27,7 @@ interface TrackRowProps {
   isActive?: boolean; 
   isPlaying?: boolean;
   likeStatus?: string;
+  likeTargetId?: string;
   onClick?: () => void;
   onSelectArtist?: (id: string) => void;
   onSelectAlbum?: (id: string) => void;
@@ -123,6 +124,7 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
     duration: trackData.duration,
     thumbUrl: trackData.thumbUrl || '',
     likeStatus: likeStatus as any,
+    likeTargetId: trackData.likeTargetId,
     source: (trackData as any).source,
     scUrl: (trackData as any).scUrl,
     scId: (trackData as any).scId,
@@ -134,12 +136,8 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
     e.stopPropagation();
     if (loadingAction || !trackData.id) return;
     setLoadingAction('like');
-    window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackData.id } }));
     try {
-      const newStatus = likeStatus === 'LIKE' ? 'INDIFFERENT' : 'LIKE';
-      const success = await likedManager.toggleLike(buildTrackObj(), likeStatus || 'INDIFFERENT');
-      if (success) window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'success', likeStatus: newStatus } }));
-      else window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
+      await likedManager.toggleLike(buildTrackObj(), likeStatus || 'INDIFFERENT');
     } catch {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
     }
@@ -149,12 +147,8 @@ const LikeButton = memo(({ trackData, hideDislike }: { trackData: any, hideDisli
     e.stopPropagation();
     if (loadingAction || !trackData.id) return;
     setLoadingAction('dislike');
-    window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackData.id } }));
     try {
-      const newStatus = likeStatus === 'DISLIKE' ? 'INDIFFERENT' : 'DISLIKE';
-      const success = await likedManager.toggleDislike(buildTrackObj(), likeStatus || 'INDIFFERENT');
-      if (success) window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'success', likeStatus: newStatus } }));
-      else window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
+      await likedManager.toggleDislike(buildTrackObj(), likeStatus || 'INDIFFERENT');
     } catch {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackData.id, status: 'error' } }));
     }

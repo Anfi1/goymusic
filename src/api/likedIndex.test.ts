@@ -14,7 +14,7 @@ import {
 } from './likedIndex';
 
 const storeMocks = vi.hoisted(() => ({
-  ytEntries: [] as Array<{ trackId: string; originalIndex: number; syncedAt: number }>,
+  ytEntries: [] as Array<{ trackId: string; originalIndex: number; syncedAt: number; likeTargetIds?: string[] }>,
   scEntries: [] as Array<{ scId: string; trackId: string; likedAt: number }>,
   yandexEntries: [] as Array<{ yandexId: string; trackId: string; likedAt: number }>,
   getAllTracks: vi.fn(),
@@ -439,5 +439,110 @@ describe('useLikedLookup SSR safety', () => {
     const markup = renderToStaticMarkup(createElement(Probe));
     expect(markup).toContain('data-loaded="false"');
     expect(storeMocks.getAllTracks).not.toHaveBeenCalled();
+  });
+});
+
+describe('likedIndex likeTargetIds indexing and re-like precedence', () => {
+  it('indexes both trackId and likeTargetIds so Loj, 6r1, and counterpart references resolve to LIKE', async () => {
+    storeMocks.ytEntries = [
+      { trackId: 'Loj', originalIndex: 0, syncedAt: 1, likeTargetIds: ['6r1'] },
+      { trackId: 'Cq4', originalIndex: 1, syncedAt: 1, likeTargetIds: ['Cq4', 'SZm'] },
+    ];
+
+    await reloadLikedIndex();
+    const snap = likedIndex.getSnapshot();
+
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'Loj', likeStatus: undefined }), snap)).toBe('LIKE');
+    expect(resolveTrackLikeStatus(makeTrack({ id: '6r1', likeStatus: undefined }), snap)).toBe('LIKE');
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'other-display', likeTargetId: '6r1', likeStatus: undefined }), snap)).toBe('LIKE');
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'Cq4', likeStatus: undefined }), snap)).toBe('LIKE');
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'SZm', likeStatus: undefined }), snap)).toBe('LIKE');
+  });
+
+  it('clears both Loj and 6r1 on unlike, then keeps re-liked Loj as LIKE after reload while 6r1 stays INDIFFERENT', async () => {
+    storeMocks.ytEntries = [{ trackId: 'Loj', originalIndex: 0, syncedAt: 1, likeTargetIds: ['6r1'] }];
+    const unsub = likedIndex.subscribe(() => {});
+    await flushMicrotasks();
+
+    const cachedPlayable = makeTrack({ id: 'Loj', likeTargetId: '6r1', likeStatus: 'LIKE' });
+    const cachedCounterpart = makeTrack({ id: '6r1', likeStatus: 'LIKE' });
+    const uncachedCounterpart = makeTrack({ id: '6r1', likeStatus: undefined });
+    expect(resolveTrackLikeStatus(cachedPlayable, likedIndex.getSnapshot())).toBe('LIKE');
+    expect(resolveTrackLikeStatus(uncachedCounterpart, likedIndex.getSnapshot())).toBe('LIKE');
+
+    // Снятие лайка удаляет запись из IDB и шлет INDIFFERENT для Loj и 6r1.
+    storeMocks.ytEntries = [];
+    fakeWindow.dispatchCustom('track-like-updated', { id: 'Loj', status: 'success', likeStatus: 'INDIFFERENT' });
+    fakeWindow.dispatchCustom('track-like-updated', { id: '6r1', status: 'success', likeStatus: 'INDIFFERENT' });
+    await flushMicrotasks();
+    await reloadLikedIndex();
+
+    expect(resolveTrackLikeStatus(cachedPlayable, likedIndex.getSnapshot())).toBe('INDIFFERENT');
+    expect(resolveTrackLikeStatus(cachedCounterpart, likedIndex.getSnapshot())).toBe('INDIFFERENT');
+
+    // Повторный лайк Loj пишет в IDB только trackId Loj без 6r1 и шлет LIKE для Loj.
+    // После reload override Loj снимается, а override 6r1 = INDIFFERENT остается в liveOverrides.
+    storeMocks.ytEntries = [{ trackId: 'Loj', originalIndex: -1, syncedAt: 2 }];
+    fakeWindow.dispatchCustom('track-like-updated', { id: 'Loj', status: 'success', likeStatus: 'LIKE' });
+    await flushMicrotasks();
+    await reloadLikedIndex();
+
+    const afterRelike = likedIndex.getSnapshot();
+    expect(afterRelike.overrides instanceof Map ? afterRelike.overrides.has('Loj') : false).toBe(false);
+    expect(afterRelike.overrides instanceof Map ? afterRelike.overrides.get('6r1') : undefined).toBe('INDIFFERENT');
+
+    // track.id в likedTrackIds обязан победить устаревший likeTargetId='6r1' в overrides!
+    expect(resolveTrackLikeStatus(cachedPlayable, afterRelike)).toBe('LIKE');
+    expect(resolveTrackLikeStatus(cachedCounterpart, afterRelike)).toBe('INDIFFERENT');
+    unsub();
+  });
+
+  it('respects exact precedence: track.id override > track.id liked > likeTargetId override > likeTargetId liked', () => {
+    // 1. track.id override побеждает все остальное
+    expect(resolveTrackLikeStatus(
+      makeTrack({ id: 'Loj', likeTargetId: '6r1', likeStatus: 'LIKE' }),
+      { likedTrackIds: new Set(['Loj', '6r1']), overrides: new Map([['Loj', 'DISLIKE'], ['6r1', 'LIKE']]) },
+    )).toBe('DISLIKE');
+
+    // 2. track.id в likedTrackIds побеждает likeTargetId override
+    expect(resolveTrackLikeStatus(
+      makeTrack({ id: 'Loj', likeTargetId: '6r1', likeStatus: undefined }),
+      { likedTrackIds: new Set(['Loj']), overrides: new Map([['6r1', 'INDIFFERENT']]) },
+    )).toBe('LIKE');
+
+    // 3. likeTargetId override побеждает likeTargetId в likedTrackIds
+    expect(resolveTrackLikeStatus(
+      makeTrack({ id: 'other', likeTargetId: '6r1', likeStatus: 'LIKE' }),
+      { likedTrackIds: new Set(['6r1']), overrides: new Map([['6r1', 'INDIFFERENT']]) },
+    )).toBe('INDIFFERENT');
+
+    // 4. likeTargetId в likedTrackIds дает LIKE при отсутствии совпадения по track.id
+    expect(resolveTrackLikeStatus(
+      makeTrack({ id: 'other', likeTargetId: '6r1', likeStatus: undefined }),
+      { likedTrackIds: new Set(['6r1']) },
+    )).toBe('LIKE');
+  });
+
+  it('keeps DISLIKE override on partial dislike failure while trackId stays in yt_liked with only failed counterpart target', async () => {
+    storeMocks.ytEntries = [{ trackId: 'Cq4', originalIndex: 0, syncedAt: 1, likeTargetIds: ['Cq4', 'SZm'] }];
+    const unsub = likedIndex.subscribe(() => {});
+    await flushMicrotasks();
+
+    // rateSong('Cq4', 'DISLIKE') прошел, а rateSong('SZm', 'INDIFFERENT') упал:
+    // в yt_liked осталась запись { trackId: 'Cq4', likeTargetIds: ['SZm'] }.
+    storeMocks.ytEntries = [{ trackId: 'Cq4', originalIndex: 0, syncedAt: 1, likeTargetIds: ['SZm'] }];
+    fakeWindow.dispatchCustom('track-like-updated', { id: 'Cq4', status: 'success', likeStatus: 'DISLIKE' });
+    await flushMicrotasks();
+    await reloadLikedIndex();
+
+    const afterPartial = likedIndex.getSnapshot();
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'Cq4', likeStatus: 'LIKE' }), afterPartial)).toBe('DISLIKE');
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'SZm', likeStatus: undefined }), afterPartial)).toBe('LIKE');
+
+    // Если позже Cq4 реально перелайкнули с телефона (он снова стал target), DISLIKE снимается.
+    storeMocks.ytEntries = [{ trackId: 'Cq4', originalIndex: 0, syncedAt: 2, likeTargetIds: ['Cq4', 'SZm'] }];
+    await reloadLikedIndex();
+    expect(resolveTrackLikeStatus(makeTrack({ id: 'Cq4', likeStatus: undefined }), likedIndex.getSnapshot())).toBe('LIKE');
+    unsub();
   });
 });

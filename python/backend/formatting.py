@@ -113,7 +113,7 @@ def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playl
         elif isinstance(t_album, dict) and t_album.get('thumbnails'):
             res_thumb = t_album['thumbnails'][-1].get('url')
 
-        return {
+        result = {
             'id': vid,
             'title': t.get('title'),
             'artists': artist_names,
@@ -134,6 +134,12 @@ def track_to_dict(t, album_name=None, album_id=None, thumb_url=None, audio_playl
             'setVideoId': t.get('setVideoId'), # Essential for playlist modifications
             'source': t.get('source', 'youtube'),
         }
+        like_target_id = t.get('likeTargetId')
+        if isinstance(like_target_id, str):
+            like_target_id = like_target_id.strip()
+            if like_target_id and like_target_id != vid:
+                result['likeTargetId'] = like_target_id
+        return result
     except Exception as e:
         print(f"Error in track_to_dict: {e}", file=sys.stderr)
         return None

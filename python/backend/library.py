@@ -261,7 +261,7 @@ def get_library(request, ctx):
                 v_id = track.get('videoId') or track.get('id')
                 if v_id:
                     al = track.get('artists', [])
-                    items.append({
+                    item = {
                         'id': v_id,
                         'videoId': v_id,
                         'type': 'song',
@@ -273,7 +273,13 @@ def get_library(request, ctx):
                         'album': track.get('album', {}).get('name') if isinstance(track.get('album'), dict) else '',
                         'albumId': track.get('album', {}).get('id') if isinstance(track.get('album'), dict) else None,
                         'likeStatus': track.get('likeStatus') or 'INDIFFERENT',
-                    })
+                    }
+                    like_target_id = track.get('likeTargetId')
+                    if isinstance(like_target_id, str):
+                        like_target_id = like_target_id.strip()
+                        if like_target_id and like_target_id != v_id:
+                            item['likeTargetId'] = like_target_id
+                    items.append(item)
 
         ctx.emit({'status': 'ok', 'tab': tab, 'items': items})
     except Exception as e:

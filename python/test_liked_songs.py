@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import api
 from ytmusicapi.mixins.playlists import PlaylistsMixin
+from ytmusicapi.parsers.songs import parse_song_menu_data
 
 
 class LikedSongsIPC(unittest.TestCase):
@@ -151,6 +152,213 @@ class LikedSongsIPC(unittest.TestCase):
         reply = self.request(client, 'get_album', albumId='fixture')
         self.assertEqual([(t['id'], t['likeStatus']) for t in reply['tracks']],
                          [('saved', None), ('rated', 'LIKE')])
+
+    @staticmethod
+    def _lm_row(video_id, *, title='Song', menu=None, available=True):
+        run = {'text': title}
+        if available:
+            run['navigationEndpoint'] = {'watchEndpoint': {'videoId': video_id}}
+        renderer = {
+            'playlistItemData': {'videoId': video_id},
+            'flexColumns': [{'musicResponsiveListItemFlexColumnRenderer': {'text': {'runs': [run]}}}],
+        }
+        if available:
+            renderer['overlay'] = {
+                'musicItemThumbnailOverlayRenderer': {
+                    'content': {
+                        'musicPlayButtonRenderer': {
+                            'playNavigationEndpoint': {'watchEndpoint': {'videoId': video_id}},
+                        }
+                    }
+                }
+            }
+        else:
+            renderer['musicItemRendererDisplayPolicy'] = 'MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT'
+        if menu is not None:
+            renderer['menu'] = menu
+        return {'musicResponsiveListItemRenderer': renderer}
+
+    @staticmethod
+    def _like_menu(target_video_id, *, like_status='LIKE'):
+        return {
+            'menuRenderer': {
+                'items': [],
+                'topLevelButtons': [{
+                    'likeButtonRenderer': {
+                        'likeStatus': like_status,
+                        'target': {'videoId': target_video_id},
+                    }
+                }],
+            }
+        }
+
+    def _lm_playlist_tracks(self, rows):
+        header = {'musicResponsiveHeaderRenderer': {'subtitle': {'runs': []}}}
+        shelf = {'musicPlaylistShelfRenderer': {'contents': rows}}
+        response = {'contents': {'twoColumnBrowseResultsRenderer': {
+            'tabs': [{'tabRenderer': {'content': {'sectionListRenderer': {'contents': [header]}}}}],
+            'secondaryContents': {'sectionListRenderer': {'contents': [shelf]}},
+        }}}
+        client = Mock()
+        client._send_request.return_value = response
+        client.get_playlist.side_effect = (
+            lambda pid, limit=100: PlaylistsMixin.get_playlist(client, pid, limit=limit)
+        )
+        client.get_liked_songs.side_effect = (
+            lambda limit=100: PlaylistsMixin.get_liked_songs(client, limit=limit)
+        )
+        return self.request(client, 'get_playlist_tracks', playlistId='LM')
+
+    def test_lm_row_exposes_like_target_id_when_different_from_display_id(self):
+        rows = [
+            self._lm_row('display_av', menu=self._like_menu('  orig_av  ')),
+            self._lm_row('display_unav', menu=self._like_menu('orig_unav'), available=False),
+        ]
+
+        initial = self._lm_playlist_tracks(rows)
+        self.assertEqual(initial['status'], 'ok')
+        self.assertEqual(
+            [(t['id'], t.get('likeTargetId'), t['likeStatus'], t['isAvailable']) for t in initial['tracks']],
+            [
+                ('display_av', 'orig_av', 'LIKE', True),
+                ('display_unav', 'orig_unav', 'LIKE', False),
+            ],
+        )
+
+        cont = self.continuation({'onResponseReceivedActions': [self.append(rows)]})
+        self.assertEqual(cont['status'], 'ok')
+        self.assertEqual(
+            [(t['id'], t.get('likeTargetId'), t['likeStatus'], t['isAvailable']) for t in cont['tracks']],
+            [
+                ('display_av', 'orig_av', 'LIKE', True),
+                ('display_unav', 'orig_unav', 'LIKE', False),
+            ],
+        )
+
+    def test_lm_row_omits_like_target_id_when_equal_to_display_id(self):
+        rows = [
+            self._lm_row('same_id', menu=self._like_menu('same_id')),
+            self._lm_row('trimmed_id', menu=self._like_menu(' trimmed_id ')),
+        ]
+
+        for source, reply in (
+            ('get_playlist_tracks', self._lm_playlist_tracks(rows)),
+            ('get_continuation', self.continuation({'onResponseReceivedActions': [self.append(rows)]})),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(reply['status'], 'ok')
+                self.assertEqual([t['id'] for t in reply['tracks']], ['same_id', 'trimmed_id'])
+                for track in reply['tracks']:
+                    self.assertNotIn('likeTargetId', track)
+                    self.assertEqual(track['likeStatus'], 'LIKE')
+
+    def test_lm_row_omits_like_target_id_when_absent_empty_or_non_string(self):
+        menus = [
+            None,
+            {'menuRenderer': {'items': []}},
+            {'menuRenderer': {'items': [], 'topLevelButtons': []}},
+            {'menuRenderer': {'items': [], 'topLevelButtons': [{}]}},
+            {'menuRenderer': {'items': [], 'topLevelButtons': [{'likeButtonRenderer': {'likeStatus': 'LIKE'}}]}},
+            {'menuRenderer': {'items': [], 'topLevelButtons': [{'likeButtonRenderer': {'likeStatus': 'LIKE', 'target': None}}]}},
+            {'menuRenderer': {'items': [], 'topLevelButtons': [{'likeButtonRenderer': {'likeStatus': 'LIKE', 'target': {}}}]}},
+            self._like_menu(''),
+            self._like_menu('   '),
+            self._like_menu(None),
+            self._like_menu(12345),
+            self._like_menu(['orig']),
+        ]
+        rows = [self._lm_row(f'vid_{i}', menu=menu) for i, menu in enumerate(menus)]
+
+        for source, reply in (
+            ('get_playlist_tracks', self._lm_playlist_tracks(rows)),
+            ('get_continuation', self.continuation({'onResponseReceivedActions': [self.append(rows)]})),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(reply['status'], 'ok')
+                self.assertEqual(len(reply['tracks']), len(menus))
+                for track in reply['tracks']:
+                    self.assertNotIn('likeTargetId', track)
+
+    def test_parse_song_menu_data_finds_like_button_at_any_index_and_guards_malformed_nodes(self):
+        idx1_menu = {
+            'menuRenderer': {
+                'items': [],
+                'topLevelButtons': [
+                    {'buttonRenderer': {'text': 'Share'}},
+                    {'likeButtonRenderer': {'likeStatus': 'LIKE', 'target': {'videoId': ' orig_idx1 '}}},
+                ],
+            }
+        }
+        row_idx1 = self._lm_row('disp_idx1', menu=idx1_menu)
+        for source, reply in (
+            ('get_playlist_tracks', self._lm_playlist_tracks([row_idx1])),
+            ('get_continuation', self.continuation({'onResponseReceivedActions': [self.append([row_idx1])]})),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(reply['status'], 'ok')
+                self.assertEqual(
+                    [(t['id'], t.get('likeTargetId'), t['likeStatus']) for t in reply['tracks']],
+                    [('disp_idx1', 'orig_idx1', 'LIKE')],
+                )
+
+        # Пропускает None / не-dict элементы перед валидным likeButtonRenderer
+        mixed_menu = {
+            'menuRenderer': {
+                'items': [],
+                'topLevelButtons': [
+                    None,
+                    'invalid',
+                    {'likeButtonRenderer': None},
+                    {'likeButtonRenderer': {'likeStatus': 'LIKE', 'target': {'videoId': 'orig_mixed'}}},
+                ],
+            }
+        }
+        self.assertEqual(
+            parse_song_menu_data({'menu': mixed_menu}),
+            {'likeStatus': 'LIKE', 'likeTargetId': 'orig_mixed'},
+        )
+        unav_mixed = self._lm_row('disp_unav_mixed', menu=mixed_menu, available=False)
+        cont = self.continuation({'onResponseReceivedActions': [self.append([unav_mixed])]})
+        self.assertEqual(cont['status'], 'ok')
+        self.assertEqual(
+            [(t['id'], t.get('likeTargetId'), t['likeStatus']) for t in cont['tracks']],
+            [('disp_unav_mixed', 'orig_mixed', 'LIKE')],
+        )
+
+        malformed_inputs = [
+            {'menu': None},
+            {'menu': 'bad'},
+            {'menu': {'menuRenderer': None}},
+            {'menu': {'menuRenderer': 'bad'}},
+            {'menu': {'menuRenderer': {'items': None, 'topLevelButtons': None}}},
+            {'menu': {'menuRenderer': {'items': [None, 'bad'], 'topLevelButtons': 'bad'}}},
+            {'menu': {'menuRenderer': {'items': [], 'topLevelButtons': [None, 123]}}},
+            {'menu': {'menuRenderer': {'items': [], 'topLevelButtons': [{'likeButtonRenderer': None}]}}},
+            {'menu': {'menuRenderer': {'items': [], 'topLevelButtons': [{'likeButtonRenderer': {'target': None}}]}}},
+            {'menu': {'menuRenderer': {'items': [], 'topLevelButtons': [{'likeButtonRenderer': {'target': 'bad'}}]}}},
+        ]
+        for payload in malformed_inputs:
+            with self.subTest(payload=payload):
+                parsed = parse_song_menu_data(payload)
+                self.assertIsInstance(parsed, dict)
+                self.assertNotIn('likeTargetId', parsed)
+
+    def test_get_library_songs_forwards_like_target_id_only_when_different(self):
+        client = Mock()
+        client.get_library_songs.return_value = [
+            {'videoId': 'lib_diff', 'title': 'Diff', 'likeStatus': 'LIKE', 'likeTargetId': ' orig_lib '},
+            {'videoId': 'lib_same', 'title': 'Same', 'likeStatus': 'LIKE', 'likeTargetId': 'lib_same'},
+            {'videoId': 'lib_trim', 'title': 'Trim', 'likeStatus': 'LIKE', 'likeTargetId': ' lib_trim '},
+            {'videoId': 'lib_empty', 'title': 'Empty', 'likeStatus': 'LIKE', 'likeTargetId': '   '},
+            {'videoId': 'lib_non_str', 'title': 'NonStr', 'likeStatus': 'LIKE', 'likeTargetId': 42},
+            {'videoId': 'lib_absent', 'title': 'Absent', 'likeStatus': 'LIKE'},
+        ]
+        reply = self.request(client, 'get_library', tab='songs')
+        self.assertEqual(reply['status'], 'ok')
+        by_id = {item['id']: item for item in reply['items']}
+        self.assertEqual(by_id['lib_diff'].get('likeTargetId'), 'orig_lib')
+        for vid in ('lib_same', 'lib_trim', 'lib_empty', 'lib_non_str', 'lib_absent'):
+            self.assertNotIn('likeTargetId', by_id[vid])
 
 
 if __name__ == '__main__':
