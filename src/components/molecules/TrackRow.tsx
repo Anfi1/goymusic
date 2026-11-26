@@ -331,21 +331,19 @@ export const TrackRow = memo(forwardRef<HTMLTableRowElement, TrackRowProps>((pro
       </td>
       <td className={styles.titleTd}>
         <div className={styles.titleCell}>
-          {thumbUrl && (
-            <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
-              <LazyImage
-                src={thumbUrl}
-                alt=""
-                className={styles.thumb}
-                placeholder={ThumbPlaceholder}
-              />
-              {(resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex') && (
-                <div style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
-                  <SourceBadge source={source} size={12} />
-                </div>
-              )}
-            </div>
-          )}
+          <div className={styles.thumbWrapper}>
+            <LazyImage
+              src={thumbUrl}
+              alt=""
+              className={styles.thumb}
+              placeholder={ThumbPlaceholder}
+            />
+            {(resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex') && (
+              <div className={styles.sourceBadge}>
+                <SourceBadge source={source} size={12} />
+              </div>
+            )}
+          </div>
           <div className={styles.titleWrapper}>
             <div className={styles.titleLine}>
               <div className={styles.title} data-tooltip={title} data-tooltip-overflow="">{title}</div>

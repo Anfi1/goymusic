@@ -819,17 +819,6 @@
   flex-shrink: 0;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
 }
-.legendImagePlaceholder {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.08);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--text-sub);
-}
 .legendText {
   display: flex;
   flex-direction: column;

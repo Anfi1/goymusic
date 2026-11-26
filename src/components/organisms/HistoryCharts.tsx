@@ -4,6 +4,7 @@ import type { HydratedHistoryEntry } from '../../api/history';
 import type { YTMTrack } from '../../api/yt';
 import { getArtistDetail } from '../../api/yt';
 import { player } from '../../api/player';
+import { CoverPlaceholder } from '../atoms/CoverPlaceholder';
 import { X, Clock, Users, Music2, Disc } from 'lucide-react';
 
 const CHART_COLORS = [
@@ -141,6 +142,23 @@ const METRIC_CARD_META: Record<
 
 const artistThumbsCache: Record<string, string> = {};
 
+export function resolveLegendImageSrc(
+  metric: 'artist' | 'tracks' | 'albums',
+  artistThumb: string | undefined,
+  image: string | undefined,
+  failedImages: ReadonlySet<string>
+): string {
+  const trimmedArtistThumb = metric === 'artist' ? (artistThumb?.trim() ?? '') : '';
+  if (trimmedArtistThumb && !failedImages.has(trimmedArtistThumb)) {
+    return trimmedArtistThumb;
+  }
+  const trimmedImage = image?.trim() ?? '';
+  if (trimmedImage && !failedImages.has(trimmedImage)) {
+    return trimmedImage;
+  }
+  return '';
+}
+
 export default function HistoryCharts({
   rawHistory,
   onClose,
@@ -160,6 +178,15 @@ export default function HistoryCharts({
   );
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [artistThumbs, setArtistThumbs] = useState<Record<string, string>>({ ...artistThumbsCache });
+  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
+  const markImageFailed = useCallback((url: string) => {
+    setFailedImages((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  }, []);
   const periodRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
 
@@ -706,27 +733,20 @@ export default function HistoryCharts({
                     className={styles.legendColor}
                     style={{ background: color }}
                   />
-                  {metric === 'artist' && (artistThumbs[s.key] || image) ? (
-                    <img
-                      src={artistThumbs[s.key] || image}
-                      alt={title}
-                      className={styles.legendImage}
-                      loading="lazy"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : image ? (
-                    <img
-                      src={image}
-                      alt={title}
-                      className={styles.legendImage}
-                      loading="lazy"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div className={styles.legendImagePlaceholder}>
-                      <Music2 size={16} />
-                    </div>
-                  )}
+                  {(() => {
+                    const imgSrc = resolveLegendImageSrc(metric, artistThumbs[s.key], image, failedImages);
+                    return imgSrc ? (
+                      <img
+                        src={imgSrc}
+                        alt={title}
+                        className={styles.legendImage}
+                        loading="lazy"
+                        onError={() => markImageFailed(imgSrc)}
+                      />
+                    ) : (
+                      <CoverPlaceholder iconSize={16} className={styles.legendImage} />
+                    );
+                  })()}
                   <div className={styles.legendText}>
                     <div className={styles.legendTitle} data-tooltip={title} data-tooltip-overflow="">{title}</div>
                     {subtitle && (

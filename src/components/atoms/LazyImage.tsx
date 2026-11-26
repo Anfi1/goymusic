@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Music2 } from 'lucide-react';
 import { imageQueue } from '../../utils/imageQueue';
+import { CoverPlaceholder } from './CoverPlaceholder';
+import styles from './LazyImage.module.css';
 
 interface LazyImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   placeholder?: React.ReactNode;
@@ -8,39 +9,68 @@ interface LazyImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   fallback?: React.ReactNode;
 }
 
-export const LazyImage: React.FC<LazyImageProps> = memo(({ 
-  src, 
-  alt, 
-  className, 
-  placeholder, 
+export function shouldRequestLazyImageLoad(state: {
+  isIntersecting: boolean;
+  isAllowedToLoad: boolean;
+  isLoaded: boolean;
+  hasSrc: boolean;
+  isRetrying: boolean;
+  showErrorState: boolean;
+  showFallback: boolean;
+}): boolean {
+  return (
+    state.isIntersecting &&
+    !state.isAllowedToLoad &&
+    !state.isLoaded &&
+    state.hasSrc &&
+    !state.isRetrying &&
+    !state.showErrorState &&
+    !state.showFallback
+  );
+}
+
+export const LazyImage: React.FC<LazyImageProps> = memo(({
+  src,
+  alt,
+  className,
+  placeholder,
   maxRetries = 3,
   fallback,
-  ...props 
+  ...props
 }) => {
+  const normalizedSrc = typeof src === 'string' ? src.trim() : '';
+  const hasSrc = normalizedSrc.length > 0;
+
   const [isIntersecting, setIntersecting] = useState(false);
   const [isAllowedToLoad, setIsAllowedToLoad] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [errorCount, setErrorCount] = useState(0);
-  const [currentSrc, setCurrentSrc] = useState(src);
+  const [currentSrc, setCurrentSrc] = useState(normalizedSrc);
   const [showErrorState, setShowErrorState] = useState(false);
   const [showFallback, setShowFallback] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const retryTimeoutRef = useRef<any>(null);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelRequestRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    setCurrentSrc(src);
+    setCurrentSrc(normalizedSrc);
     setErrorCount(0);
     setIsLoaded(false);
     setIsAllowedToLoad(false);
+    setIsRetrying(false);
     setShowErrorState(false);
     setShowFallback(false);
-    
+
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
     if (cancelRequestRef.current) {
       cancelRequestRef.current();
       cancelRequestRef.current = null;
     }
-  }, [src]);
+  }, [normalizedSrc]);
 
   useEffect(() => {
     if (showErrorState) {
@@ -50,6 +80,7 @@ export const LazyImage: React.FC<LazyImageProps> = memo(({
   }, [showErrorState]);
 
   useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -57,7 +88,7 @@ export const LazyImage: React.FC<LazyImageProps> = memo(({
           observer.disconnect();
         }
       },
-      { rootMargin: '400px' } // Slightly more aggressive pre-loading
+      { rootMargin: '400px' }
     );
 
     if (containerRef.current) {
@@ -66,72 +97,71 @@ export const LazyImage: React.FC<LazyImageProps> = memo(({
 
     return () => {
       observer.disconnect();
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
       if (cancelRequestRef.current) cancelRequestRef.current();
     };
   }, []);
 
   const requestLoad = () => {
+    if (!normalizedSrc) return;
     if (cancelRequestRef.current) cancelRequestRef.current();
-    
-    cancelRequestRef.current = imageQueue.enqueue(src || '', () => {
+
+    cancelRequestRef.current = imageQueue.enqueue(normalizedSrc, () => {
       setIsAllowedToLoad(true);
       cancelRequestRef.current = null;
     });
   };
 
   useEffect(() => {
-    if (isIntersecting && !isAllowedToLoad && !isLoaded && src) {
+    if (
+      shouldRequestLazyImageLoad({
+        isIntersecting,
+        isAllowedToLoad,
+        isLoaded,
+        hasSrc,
+        isRetrying,
+        showErrorState,
+        showFallback,
+      })
+    ) {
       requestLoad();
     }
-  }, [isIntersecting, isAllowedToLoad, isLoaded, src]);
+  }, [isIntersecting, isAllowedToLoad, isLoaded, hasSrc, isRetrying, showErrorState, showFallback, normalizedSrc]);
 
   const handleError = () => {
+    if (!hasSrc) return;
     if (errorCount < maxRetries) {
       const delay = (errorCount + 1) * 3000;
-      setIsAllowedToLoad(false); // Reset allowed state to re-queue
-      
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      // Помечаем ожидание ретрая, чтобы эффект не ставил запрос в очередь до конца задержки.
+      setIsAllowedToLoad(false);
+      setIsRetrying(true);
+
       retryTimeoutRef.current = setTimeout(() => {
+        retryTimeoutRef.current = null;
         setErrorCount(prev => prev + 1);
-        // We try the original URL again (it might have been a transient 429)
-        requestLoad();
+        setIsRetrying(false);
       }, delay);
     } else {
+      setIsRetrying(false);
       setShowErrorState(true);
     }
   };
 
-  const defaultPlaceholder = (
-    <div style={{
-      position: 'absolute',
-      inset: 0,
-      background: 'rgba(255,255,255,0.06)',
-      animation: 'lazyImageShimmer 1.5s ease-in-out infinite',
-    }} />
-  );
-
-  const defaultFallbackIcon = (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'rgba(255,255,255,0.04)',
-      color: 'rgba(255,255,255,0.2)',
-    }}>
-      <Music2 size={32} />
-    </div>
-  );
+  const defaultPlaceholder = <div className={styles.shimmer} />;
+  // Пустой src сразу показывает заглушку, не залипая в шиммере ожидания загрузки.
+  const shouldShowFallback = !hasSrc || showFallback;
 
   return (
-    <div ref={containerRef} className={className} style={{
-      position: 'relative',
-      overflow: 'hidden',
-      transition: 'opacity 0.3s ease-in-out',
-    }}>
-      {showFallback ? (
-        fallback ?? defaultFallbackIcon
+    <div
+      ref={containerRef}
+      className={className ? `${styles.container} ${className}` : styles.container}
+    >
+      {shouldShowFallback ? (
+        fallback ?? <CoverPlaceholder />
       ) : showErrorState ? (
         placeholder ?? defaultPlaceholder
       ) : (
@@ -143,14 +173,7 @@ export const LazyImage: React.FC<LazyImageProps> = memo(({
               alt={alt}
               onLoad={() => setIsLoaded(true)}
               onError={handleError}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                opacity: isLoaded ? 1 : 0,
-                transition: 'opacity 0.3s ease-in-out',
-                display: 'block'
-              }}
+              className={isLoaded ? `${styles.image} ${styles.imageLoaded}` : styles.image}
               {...props}
             />
           ) : null}
@@ -159,3 +182,5 @@ export const LazyImage: React.FC<LazyImageProps> = memo(({
     </div>
   );
 });
+
+LazyImage.displayName = 'LazyImage';

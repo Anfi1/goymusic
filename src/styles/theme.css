@@ -24,6 +24,8 @@
     --panel-bg: rgba(25, 25, 25, 0.85);
     --border-color: rgba(255, 255, 255, 0.05);
     --hover: rgba(255, 255, 255, 0.06);
+    --cover-placeholder-bg: rgba(255, 255, 255, 0.05);
+    --cover-placeholder-color: rgba(255, 255, 255, 0.28);
 
     /* Glassmorphism */
     --glass-blur: 24px;
@@ -185,6 +187,8 @@
     --border-color: rgb(255 255 255 / 10%);
     --border-subtle: rgb(255 255 255 / 5%);
     --hover: var(--cover-hover);
+    --cover-placeholder-bg: var(--bg-raised);
+    --cover-placeholder-color: var(--text-dim);
     --glass-surface: color-mix(in srgb, var(--deck-scrim) var(--deck-panel-strength), transparent);
     --glass-surface-player: color-mix(in srgb, var(--deck-scrim) var(--deck-player-strength), transparent);
     --glass-surface-main: color-mix(in srgb, var(--deck-scrim) var(--deck-main-strength), transparent);

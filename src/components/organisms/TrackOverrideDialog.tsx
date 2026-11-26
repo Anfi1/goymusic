@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save, Clock, Music2 } from 'lucide-react';
+import { Search, Link, HardDriveDownload, FolderOpen, Trash2, X, Loader2, Save, Clock } from 'lucide-react';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { streamCache } from '../../api/cache';
 import { getOverride, setOverride, deleteOverride, LocalOverride, songFileId } from '../../api/localOverrides';
+import { buildSavedStreamOverride, resolveMeasuredGain, OverrideWithGainMeasured } from '../../api/overrideSave';
 import { createCallId } from '../../api/callId';
 import { tracksStore } from '../../api/tracks';
+import { CoverPlaceholder } from '../atoms/CoverPlaceholder';
 import { MiniPreviewPlayer } from '../molecules/MiniPreviewPlayer';
 import styles from './TrackOverrideDialog.module.css';
 
@@ -152,14 +154,14 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
         callId,
       });
       if (res.status !== 'ok') throw new Error(res.message || 'Error');
-      const override: LocalOverride = {
-        videoId: track.id,
-        filename: res.filename,
-        sourceUrl: cached.url,
-        sourceType: 'youtube',
-        gainDb: cached.loudness ?? 0,
-        addedAt: Date.now(),
-      };
+      const storedLoudness = await streamCache.getLoudness(track.id);
+      const override = buildSavedStreamOverride({
+        track,
+        cachedUrl: cached.url,
+        cachedLoudness: cached.loudness,
+        storedLoudness,
+        downloadRes: res,
+      });
       await bindOverride(track, override);
       setExistingOverride(override);
       setDialogState('done');
@@ -264,12 +266,14 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
         callId
       });
       if (res.status !== 'ok') throw new Error(res.message || 'Download failed');
-      const override: LocalOverride = {
+      const { gainDb, gainMeasured } = resolveMeasuredGain(res.gainDb, res.gainMeasured);
+      const override: OverrideWithGainMeasured = {
         videoId: track.id,
         filename: res.filename,
         sourceUrl: previewInfo.sourceUrl,
         sourceType: previewInfo.sourceType,
-        gainDb: res.gainDb ?? 0,
+        gainDb,
+        gainMeasured,
         addedAt: Date.now(),
       };
       await bindOverride(track, override);
@@ -312,14 +316,17 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
         filename: res.filename,
         songsPath,
       });
-      const gainDb = analyzeRes.status === 'ok' ? (analyzeRes.gainDb ?? 0) : 0;
+      const { gainDb, gainMeasured } = analyzeRes.status === 'ok'
+        ? resolveMeasuredGain(analyzeRes.gainDb, analyzeRes.measured)
+        : { gainDb: 0, gainMeasured: false };
 
-      const override: LocalOverride = {
+      const override: OverrideWithGainMeasured = {
         videoId: track.id,
         filename: res.filename,
         sourceUrl: res.sourcePath || res.filename,
         sourceType: 'local',
         gainDb,
+        gainMeasured,
         addedAt: Date.now(),
       };
       await bindOverride(track, override);
@@ -344,12 +351,10 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <div className={styles.trackInfo}>
-            {track.thumbUrl && !thumbError ? (
+            {track.thumbUrl?.trim() && !thumbError ? (
               <img src={track.thumbUrl} alt="" className={styles.thumb} onError={() => setThumbError(true)} />
             ) : (
-              <div className={styles.thumb} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
-                {!track.thumbUrl ? null : <Music2 size={18} />}
-              </div>
+              <CoverPlaceholder iconSize={18} className={styles.thumb} />
             )}
             <div>
               <div className={styles.trackTitle}>{track.title}</div>
@@ -415,7 +420,7 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
 
               {activeTab === 'current' && (
                 <div className={styles.tabContent}>
-                  <p className={styles.hintText}>Save the current YouTube Music stream as a local file.</p>
+                  <p className={styles.hintText}>Save the current stream as a local file.</p>
                   <button className={styles.primaryBtn} onClick={handleSaveCurrentStream}>
                     <Save size={16} /> Save Stream
                   </button>
@@ -443,12 +448,10 @@ export const TrackOverrideDialog: React.FC<Props> = ({ track, isOpen, onClose })
                           key={i}
                           className={`${styles.resultRow} ${selectedResult === r ? styles.resultSelected : ''}`}
                         >
-                          {r.thumbUrl && !erroredResultThumbs.has(r.thumbUrl) ? (
+                          {r.thumbUrl?.trim() && !erroredResultThumbs.has(r.thumbUrl) ? (
                             <img src={r.thumbUrl} alt="" className={styles.resultThumb} onError={() => setErroredResultThumbs(prev => new Set(prev).add(r.thumbUrl))} />
                           ) : (
-                            <div className={styles.resultThumb} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
-                              {!r.thumbUrl ? null : <Music2 size={16} />}
-                            </div>
+                            <CoverPlaceholder iconSize={16} className={styles.resultThumb} />
                           )}
                           <div className={styles.resultMeta}>
                             <div className={styles.resultTitle}>{r.title}</div>

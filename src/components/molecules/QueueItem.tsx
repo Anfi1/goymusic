@@ -1,7 +1,8 @@
 import { likedManager } from '../../api/likedManager';
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload, Music2 } from 'lucide-react';
+import { Play, Pause, Heart, HeartCrack, Loader2, HardDriveDownload } from 'lucide-react';
 import { Visualizer } from '../atoms/Visualizer';
+import { CoverPlaceholder } from '../atoms/CoverPlaceholder';
 import { YTMTrack } from '../../api/yt';
 import { player } from '../../api/player';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
@@ -202,13 +203,11 @@ export const QueueItem: React.FC<QueueItemProps> = memo(({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <div className={styles.coverWrapper} style={{ position: 'relative' }}>
-        {thumbUrl && thumbUrl !== failedThumb ? (
+      <div className={styles.coverWrapper}>
+        {thumbUrl?.trim() && thumbUrl !== failedThumb ? (
           <img src={thumbUrl} alt="" className={styles.cover} onError={() => setFailedThumb(thumbUrl)} />
         ) : (
-          <div className={styles.cover} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
-            {!thumbUrl ? null : <Music2 size={18} />}
-          </div>
+          <CoverPlaceholder iconSize={18} className={styles.cover} />
         )}
         <PlaybackOverlay id={id} title={title} isActive={isActive} />
         {(resolveSource(source) === 'soundcloud' || resolveSource(source) === 'yandex') && (
