@@ -5,6 +5,11 @@ import sys
 
 import requests
 
+
+class ScUnauthorizedError(Exception):
+    """api-v2 вернул 401 на запрос с oauth_token."""
+
+
 def _sc_pick_thumb(url):
     """Берём картинку покрупнее: SoundCloud отдаёт -large (100px), меняем на -t500x500."""
     if not url:
@@ -244,35 +249,49 @@ class SoundCloudCommands:
                 })
             else:
                 ctx.emit({'status': 'ok', 'connected': False})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'connected': False, 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_me: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})
 
     def sc_liked_ids(self, request, ctx):
-        # Permalink-URL'ы лайкнутых треков пользователя (для статуса лайков в радио/поиске).
+        # ID лайкнутых треков пользователя (для статуса лайков в радио/поиске).
         token = request.get('token', '')
+        if not token:
+            ctx.emit({'status': 'ok', 'ids': []})
+            return
         try:
-            me = self.get('/me', {}, oauth_token=token) if token else None
+            me = self.get('/me', {}, oauth_token=token)
             uid = (me or {}).get('id')
+            if not uid:
+                ctx.emit({'status': 'error', 'message': 'Failed to load SoundCloud account'})
+                return
             ids = []
-            if uid:
-                next_url = f'https://api-v2.soundcloud.com/users/{uid}/track_likes'
-                next_params = {'limit': 200, 'linked_partitioning': 1, 'client_id': self.client_id()}
-                for _ in range(5):  # до ~1000 лайков
-                    r = requests.get(next_url, params=next_params, headers=self.headers(token), timeout=12)
-                    if not r.ok:
-                        break
-                    data = r.json()
-                    for item in (data.get('collection') or []):
-                        tr = item.get('track') or {}
-                        if tr.get('id') is not None:
-                            ids.append(str(tr['id']))
-                    nxt = data.get('next_href')
-                    if not nxt:
-                        break
-                    next_url = nxt  # next_href уже содержит client_id и параметры
-                    next_params = {}
+            next_url = f'https://api-v2.soundcloud.com/users/{uid}/track_likes'
+            next_params = {'limit': 200, 'linked_partitioning': 1, 'client_id': self.client_id()}
+            for page_idx in range(5):  # до ~1000 лайков
+                r = requests.get(next_url, params=next_params, headers=self.headers(token), timeout=12)
+                if r.status_code == 401:
+                    raise ScUnauthorizedError('HTTP 401')
+                if not r.ok:
+                    if page_idx == 0:
+                        ctx.emit({'status': 'error', 'message': f'HTTP {r.status_code}'})
+                        return
+                    break
+                data = r.json()
+                for item in (data.get('collection') or []):
+                    tr = item.get('track') or {}
+                    if tr.get('id') is not None:
+                        ids.append(str(tr['id']))
+                nxt = data.get('next_href')
+                if not nxt:
+                    break
+                next_url = nxt  # next_href уже содержит client_id и параметры
+                next_params = {}
             ctx.emit({'status': 'ok', 'ids': ids})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_liked_ids: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})
@@ -280,66 +299,87 @@ class SoundCloudCommands:
     def sc_liked_tracks(self, request, ctx):
         # Полные объекты лайкнутых треков (для вкладки лайков).
         token = request.get('token', '')
+        if not token:
+            ctx.emit({'status': 'ok', 'results': []})
+            return
         try:
-            me = self.get('/me', {}, oauth_token=token) if token else None
+            me = self.get('/me', {}, oauth_token=token)
             uid = (me or {}).get('id')
+            if not uid:
+                ctx.emit({'status': 'error', 'message': 'Failed to load SoundCloud account'})
+                return
             results = []
-            if uid:
-                next_url = f'https://api-v2.soundcloud.com/users/{uid}/track_likes'
-                next_params = {'limit': 200, 'linked_partitioning': 1, 'client_id': self.client_id()}
-                for _ in range(5):  # до ~1000 лайков
-                    r = requests.get(next_url, params=next_params, headers=self.headers(token), timeout=12)
-                    if not r.ok:
-                        break
-                    data = r.json()
-                    for item in (data.get('collection') or []):
-                        t = item.get('track') or {}
-                        if not t.get('permalink_url'):
-                            continue
-                        user = t.get('user') or {}
-                        results.append({
-                            'url': t.get('permalink_url', ''),
-                            'title': t.get('title', ''),
-                            'artist': user.get('username', ''),
-                            'duration': int((t.get('duration') or 0) / 1000),
-                            'thumbUrl': _sc_pick_track_thumb(t),
-                            'source': 'soundcloud',
-                            'scId': str(t.get('id') or ''),
-                            'uploaderUrl': user.get('permalink_url', ''),
-                            'likedAt': _sc_iso_to_ms(item.get('created_at')),
-                        })
-                    nxt = data.get('next_href')
-                    if not nxt:
-                        break
-                    next_url = nxt  # next_href уже содержит client_id
-                    next_params = {}
+            next_url = f'https://api-v2.soundcloud.com/users/{uid}/track_likes'
+            next_params = {'limit': 200, 'linked_partitioning': 1, 'client_id': self.client_id()}
+            for _ in range(5):  # до ~1000 лайков
+                r = requests.get(next_url, params=next_params, headers=self.headers(token), timeout=12)
+                if r.status_code == 401:
+                    raise ScUnauthorizedError('HTTP 401')
+                if not r.ok:
+                    # Не отдаем обрезанный список как ok, чтобы sync не стер локальное зеркало лайков.
+                    ctx.emit({'status': 'error', 'message': f'HTTP {r.status_code}'})
+                    return
+                data = r.json()
+                for item in (data.get('collection') or []):
+                    t = item.get('track') or {}
+                    if not t.get('permalink_url'):
+                        continue
+                    user = t.get('user') or {}
+                    results.append({
+                        'url': t.get('permalink_url', ''),
+                        'title': t.get('title', ''),
+                        'artist': user.get('username', ''),
+                        'duration': int((t.get('duration') or 0) / 1000),
+                        'thumbUrl': _sc_pick_track_thumb(t),
+                        'source': 'soundcloud',
+                        'scId': str(t.get('id') or ''),
+                        'uploaderUrl': user.get('permalink_url', ''),
+                        'likedAt': _sc_iso_to_ms(item.get('created_at')),
+                    })
+                nxt = data.get('next_href')
+                if not nxt:
+                    break
+                next_url = nxt  # next_href уже содержит client_id
+                next_params = {}
             ctx.emit({'status': 'ok', 'results': results})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_liked_tracks: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})
 
     def sc_liked_meta(self, request, ctx):
-        # Дёшево: общее число SC-лайков + первые id (для сверки без полной загрузки).
+        # Дешево: общее число SC-лайков + первые id (для сверки без полной загрузки).
         token = request.get('token', '')
+        if not token:
+            ctx.emit({'status': 'error', 'message': 'Missing SoundCloud token'})
+            return
         try:
-            me = self.get('/me', {}, oauth_token=token) if token else None
+            me = self.get('/me', {}, oauth_token=token)
             uid = (me or {}).get('id')
+            if not uid:
+                ctx.emit({'status': 'error', 'message': 'Failed to load SoundCloud account'})
+                return
             count = int((me or {}).get('likes_count') or 0)
+            data = self.get(f'/users/{uid}/track_likes', {'limit': 15}, oauth_token=token)
+            if data is None:
+                ctx.emit({'status': 'error', 'message': 'Failed to load SoundCloud likes head'})
+                return
             head_ids = []
-            if uid:
-                data = self.get(f'/users/{uid}/track_likes', {'limit': 15}, oauth_token=token)
-                for item in ((data or {}).get('collection') or []):
-                    t = item.get('track') or {}
-                    if t.get('id') is not None:
-                        head_ids.append(str(t['id']))
+            for item in (data.get('collection') or []):
+                t = item.get('track') or {}
+                if t.get('id') is not None:
+                    head_ids.append(str(t['id']))
             ctx.emit({'status': 'ok', 'count': count, 'headIds': head_ids})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_liked_meta: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})
 
     def sc_wave_stations(self, request, ctx):
         # Курируемые станции SoundCloud (жанровые подборки из mixed-selections).
-        # С токеном — региональные/персональные подборки как в залогиненном вебе.
+        # С токеном - региональные/персональные подборки как в залогиненном вебе.
         token = request.get('token', '')
         try:
             data = self.get('/mixed-selections', {'limit': 6}, oauth_token=token or None)
@@ -347,7 +387,7 @@ class SoundCloudCommands:
             seen = set()
             for sel in ((data or {}).get('collection') or []):
                 urn = sel.get('urn') or ''
-                # Только «Trending by genre» — там подборки лучше, чем editorial/charts.
+                # Только «Trending by genre» - там подборки лучше, чем editorial/charts.
                 if 'trending-by-genre' not in urn:
                     continue
                 for pl in ((sel.get('items') or {}).get('collection') or []):
@@ -366,12 +406,14 @@ class SoundCloudCommands:
                         'thumbUrl': _sc_pick_thumb(art),
                     })
             ctx.emit({'status': 'ok', 'stations': stations})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_wave_stations: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})
 
     def sc_station_tracks(self, request, ctx):
-        # Треки станции (плейлиста) через api-v2: /playlists/{id} → ids → /tracks?ids (быстро).
+        # Треки станции (плейлиста) через api-v2: /playlists/{id} -> ids -> /tracks?ids (быстро).
         sid = request.get('id', '')
         token = request.get('token', '')
         try:
@@ -380,7 +422,7 @@ class SoundCloudCommands:
                 pl = self.get(f'/playlists/{sid}', {'representation': 'full'}, oauth_token=token or None)
                 ids = [str(t.get('id')) for t in ((pl or {}).get('tracks') or []) if t.get('id')][:50]
                 full = self.get('/tracks', {'ids': ','.join(ids)}, oauth_token=token or None) if ids else []
-                # /tracks?ids отдаёт в произвольном порядке — восстанавливаем порядок плейлиста.
+                # /tracks?ids отдает в произвольном порядке - восстанавливаем порядок плейлиста.
                 by_id = {str(t.get('id')): t for t in (full or []) if t and t.get('id') is not None}
                 for tid in ids:
                     t = by_id.get(tid)
@@ -398,12 +440,14 @@ class SoundCloudCommands:
                         'uploaderUrl': user.get('permalink_url', ''),
                     })
             ctx.emit({'status': 'ok', 'results': results})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_station_tracks: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})
 
     def sc_recommendations(self, request, ctx):
-        # SC-радио от трека: api-v2 /tracks/{id}/related (с oauth_token — персонализировано).
+        # SC-радио от трека: api-v2 /tracks/{id}/related (с oauth_token - персонализировано).
         token = request.get('token', '')
         sc_id = request.get('scId', '')
         track_url = request.get('url', '')
@@ -423,13 +467,15 @@ class SoundCloudCommands:
                         'url': t.get('permalink_url', ''),
                         'title': t.get('title', ''),
                         'artist': user.get('username', ''),
-                        'duration': int((t.get('duration') or 0) / 1000),  # api-v2 отдаёт мс
+                        'duration': int((t.get('duration') or 0) / 1000),  # api-v2 отдает мс
                         'thumbUrl': _sc_pick_track_thumb(t),
                         'source': 'soundcloud',
                         'scId': str(t.get('id') or ''),
                         'uploaderUrl': user.get('permalink_url', ''),
                     })
             ctx.emit({'status': 'ok', 'results': results})
+        except ScUnauthorizedError:
+            ctx.emit({'status': 'unauthorized', 'message': 'HTTP 401'})
         except Exception as e:
             print(f"[error] sc_recommendations: {e}", file=sys.stderr)
             ctx.emit({'status': 'error', 'message': str(e)})

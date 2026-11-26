@@ -90,6 +90,14 @@ class ScLikedManager {
       }
 
       const fresh = await getScLikedEntries();
+      if (!fresh) {
+        await this.localOpChain;
+        const freshLocalOnError = await likedStore.getAllScTracks();
+        this._isSyncing = false;
+        this.mutatedDuringSync.clear();
+        this.notify(freshLocalOnError, false);
+        return;
+      }
       let finalMerged: ScLikedEntry[] = [];
 
       await this.enqueueLocalOp(async () => {

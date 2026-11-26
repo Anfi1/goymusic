@@ -1228,5 +1228,46 @@ class LyricsCancellationContract(unittest.TestCase):
         self.assertEqual(emitted2, [{'status': 'error', 'message': 'Cancelled by client', 'callId': 'lyr-ovh'}])
 
 
+class SoundCloudAuthContract(unittest.TestCase):
+    def test_sc_api_get_raises_unauthorized_when_token_gets_401(self):
+        fake_resp = MagicMock(status_code=401, ok=False)
+        with patch.object(api, 'get_sc_client_id', return_value='cid-1') as mock_cid, \
+                patch.object(api.requests, 'get', return_value=fake_resp):
+            with self.assertRaises(soundcloud.ScUnauthorizedError):
+                api._sc_api_get('/me', {}, oauth_token='expired-jwt')
+        # Не скрапим client_id повторно на 401 с токеном - этим управляет refresh-цепочка.
+        mock_cid.assert_called_once_with()
+
+    def test_soundcloud_commands_emit_unauthorized_and_never_wipe_meta_on_error(self):
+        def run_cmd(sc, fn, req):
+            emitted = []
+            ctx = CommandContext('sc-auth', emitted.append, lambda: None, lambda: None, lambda: False)
+            fn(req, ctx)
+            return emitted[-1]
+
+        def raising_get(*_args, **_kwargs):
+            raise soundcloud.ScUnauthorizedError('HTTP 401')
+
+        sc_401 = soundcloud.SoundCloudCommands(raising_get, lambda tok=None: {}, lambda: 'cid')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_me, {'token': 'bad'})['status'], 'unauthorized')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_liked_ids, {'token': 'bad'})['status'], 'unauthorized')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_liked_tracks, {'token': 'bad'})['status'], 'unauthorized')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_liked_meta, {'token': 'bad'})['status'], 'unauthorized')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_wave_stations, {'token': 'bad'})['status'], 'unauthorized')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_station_tracks, {'id': '1', 'token': 'bad'})['status'], 'unauthorized')
+        self.assertEqual(run_cmd(sc_401, sc_401.sc_recommendations, {'scId': '1', 'token': 'bad'})['status'], 'unauthorized')
+
+        # При 401 на странице track_likes (даже если /me еще прошел) тоже отдаем unauthorized
+        sc_page_401 = soundcloud.SoundCloudCommands(lambda p, *a, **kw: {'id': 42} if p == '/me' else None, lambda tok=None: {}, lambda: 'cid')
+        with patch.object(soundcloud.requests, 'get', return_value=MagicMock(status_code=401, ok=False)):
+            self.assertEqual(run_cmd(sc_page_401, sc_page_401.sc_liked_ids, {'token': 'tok'})['status'], 'unauthorized')
+            self.assertEqual(run_cmd(sc_page_401, sc_page_401.sc_liked_tracks, {'token': 'tok'})['status'], 'unauthorized')
+
+        # При сетевом сбое /me (None) sc_liked_meta и sc_liked_tracks возвращают error, а не пустой ok
+        sc_net_err = soundcloud.SoundCloudCommands(lambda *_a, **_kw: None, lambda tok=None: {}, lambda: 'cid')
+        self.assertEqual(run_cmd(sc_net_err, sc_net_err.sc_liked_meta, {'token': 'tok'})['status'], 'error')
+        self.assertEqual(run_cmd(sc_net_err, sc_net_err.sc_liked_tracks, {'token': 'tok'})['status'], 'error')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -144,7 +144,13 @@ function createHarness(opts: HarnessOptions = {}) {
   const cookies: ScCookie[] = [...(opts.initialCookies ?? [])];
   const createdWindows: MockWindow[] = [];
   const removedCookies: Array<{ url: string; name: string }> = [];
-  const setCookieCalls: Array<{ url: string; name: string; value: string }> = [];
+  const setCookieCalls: Array<{
+    url: string;
+    name: string;
+    value: string;
+    httpOnly?: boolean;
+    expirationDate?: number;
+  }> = [];
   const clearStorageCalls: Array<{ storages?: string[] } | undefined> = [];
   const fetchCalls: Array<{ input: string; init?: RequestInit }> = [];
   let flushCount = 0;
@@ -177,12 +183,19 @@ function createHarness(opts: HarnessOptions = {}) {
         });
       },
       set: async (details) => {
-        setCookieCalls.push({ url: details.url, name: details.name, value: details.value });
-        const idx = cookies.findIndex((c) => c.name === details.name);
+        setCookieCalls.push({
+          url: details.url,
+          name: details.name,
+          value: details.value,
+          httpOnly: details.httpOnly,
+          expirationDate: details.expirationDate,
+        });
+        const targetDomain = details.domain ?? 'soundcloud.com';
+        const idx = cookies.findIndex((c) => c.name === details.name && (c.domain ?? 'soundcloud.com') === targetDomain);
         const next: ScCookie = {
           name: details.name,
           value: details.value,
-          domain: '.soundcloud.com',
+          domain: targetDomain,
           path: details.path ?? '/',
         };
         if (idx >= 0) cookies[idx] = next;
@@ -190,8 +203,26 @@ function createHarness(opts: HarnessOptions = {}) {
       },
       remove: async (url, name) => {
         removedCookies.push({ url, name });
+        const targetHost = (() => {
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return '';
+          }
+        })();
+        // Поведение соответствует Chromium cookies.remove(url, name): удаляются все куки с этим именем,
+        // домен которых матчится с url (и host-only soundcloud.com, и .soundcloud.com).
         for (let i = cookies.length - 1; i >= 0; i -= 1) {
-          if (cookies[i].name === name) cookies.splice(i, 1);
+          if (cookies[i].name !== name) continue;
+          const rawDom = cookies[i].domain || 'soundcloud.com';
+          const cookieHost = rawDom.replace(/^\./, '');
+          const matches =
+            !targetHost ||
+            cookieHost === targetHost ||
+            (rawDom.startsWith('.') && targetHost.endsWith(`.${cookieHost}`));
+          if (matches) {
+            cookies.splice(i, 1);
+          }
         }
       },
       flushStore: async () => {
@@ -877,5 +908,288 @@ describe('createScLikesController', () => {
 
     win.emitClosed();
     await expect(likePromise).resolves.toEqual({ status: 'cancelled', message: 'Verification cancelled' });
+  });
+
+  function makeScJwt(payload: Record<string, unknown>): string {
+    const enc = (obj: Record<string, unknown>) =>
+      Buffer.from(JSON.stringify(obj), 'utf8')
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    return `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc(payload)}.sig`;
+  }
+
+  it('refresh skips /n/api/refresh-token when oauth_refresh_token cookie is absent', async () => {
+    const expiredJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) - 60, client_id: 'cid-jwt' });
+    const h = createHarness({
+      initialCookies: [{ name: 'oauth_token', value: expiredJwt, domain: 'soundcloud.com' }],
+    });
+
+    const res = await h.controller.refresh({ failedToken: expiredJwt, force: true });
+    expect(res).toEqual({ status: 'no_refresh_token' });
+    expect(h.fetchCalls).toHaveLength(0);
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe(expiredJwt);
+  });
+
+  it('refresh calls SoundCloud webi proxy once across concurrent callers and dedupes stale domain cookie', async () => {
+    const expiredJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) - 60, client_id: 'cid-jwt' });
+    const freshJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 3600, client_id: 'cid-jwt' });
+    let resolveProxy!: (resp: ScFetchResponse) => void;
+
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: expiredJwt, domain: '.soundcloud.com' },
+        { name: 'oauth_refresh_token', value: 'rt-1', domain: 'soundcloud.com' },
+      ],
+      fetchImpl: (input) => {
+        expect(input).toBe('https://soundcloud.com/n/api/refresh-token');
+        return new Promise<ScFetchResponse>((resolve) => {
+          resolveProxy = resolve;
+        });
+      },
+    });
+
+    const p1 = h.controller.refresh({ failedToken: expiredJwt, force: true });
+    const p2 = h.controller.refresh({ failedToken: expiredJwt, force: true });
+    await waitForCondition(() => h.fetchCalls.length === 1);
+
+    // Имитируем Set-Cookie от webi proxy (host-only soundcloud.com)
+    h.cookies.push({ name: 'oauth_token', value: freshJwt, domain: 'soundcloud.com', path: '/' });
+    h.setCookieDirect({ name: 'oauth_refresh_token', value: 'rt-2', domain: 'soundcloud.com' });
+    resolveProxy(createMockResponse(200, '{}'));
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toEqual({ status: 'ok', token: freshJwt });
+    expect(r2).toEqual({ status: 'ok', token: freshJwt });
+    expect(h.fetchCalls).toHaveLength(1);
+    expect(h.cookies.filter((c) => c.name === 'oauth_token')).toHaveLength(1);
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe(freshJwt);
+
+    // Повторный вызов с уже замененным failedToken возвращает свежую куку без сжигания rt-2
+    const r3 = await h.controller.refresh({ failedToken: expiredJwt, force: true });
+    expect(r3).toEqual({ status: 'ok', token: freshJwt });
+    expect(h.fetchCalls).toHaveLength(1);
+  });
+
+  it('refresh falls back to secure.soundcloud.com/oauth/token using jwt client_id on proxy 403/404 and persists rotated cookies', async () => {
+    const expiredJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) - 30, client_id: 'cid-from-jwt' });
+    const freshJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 3600, client_id: 'cid-from-jwt' });
+
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: expiredJwt, domain: 'soundcloud.com' },
+        { name: 'oauth_refresh_token', value: 'rt-1', domain: 'soundcloud.com' },
+      ],
+      fetchImpl: async (input, init) => {
+        if (input === 'https://soundcloud.com/n/api/refresh-token') {
+          return createMockResponse(403, 'datadome', { 'x-datadome': 'protected' });
+        }
+        expect(input).toBe('https://secure.soundcloud.com/oauth/token');
+        const body = new URLSearchParams(String(init?.body || ''));
+        expect(body.get('grant_type')).toBe('refresh_token');
+        expect(body.get('client_id')).toBe('cid-from-jwt');
+        expect(body.get('refresh_token')).toBe('rt-1');
+        return createMockResponse(
+          200,
+          JSON.stringify({ access_token: freshJwt, refresh_token: 'rt-rotated', expires_in: 3600 })
+        );
+      },
+    });
+
+    const res = await h.controller.refresh({ failedToken: expiredJwt, clientId: 'cid-scraped', force: true });
+    expect(res).toEqual({ status: 'ok', token: freshJwt });
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe(freshJwt);
+    expect(h.cookies.find((c) => c.name === 'oauth_refresh_token')?.value).toBe('rt-rotated');
+    const rtSet = h.setCookieCalls.find((c) => c.name === 'oauth_refresh_token');
+    expect(rtSet?.httpOnly).toBe(true);
+    expect(rtSet?.expirationDate).toBeGreaterThan(Math.floor(Date.now() / 1000) + 86_400 * 100);
+  });
+
+  it('refresh returns unauthorized when webi proxy clears refresh cookie and error without wiping on transient 500', async () => {
+    const expiredJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) - 30 });
+
+    // 1. Временная 502 без очистки refresh cookie -> error, куки сохранены
+    const hTransient = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: expiredJwt, domain: 'soundcloud.com' },
+        { name: 'oauth_refresh_token', value: 'rt-keep', domain: 'soundcloud.com' },
+      ],
+      fetchImpl: async () => createMockResponse(502, 'Bad Gateway'),
+    });
+    const rErr = await hTransient.controller.refresh({ failedToken: expiredJwt, force: true });
+    expect(rErr).toEqual({ status: 'error', message: 'HTTP 502' });
+    expect(hTransient.cookies.find((c) => c.name === 'oauth_refresh_token')?.value).toBe('rt-keep');
+
+    // 2. Сервер очистил oauth_refresh_token при протухшем refresh -> unauthorized
+    const hRevoked = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: expiredJwt, domain: 'soundcloud.com' },
+        { name: 'oauth_refresh_token', value: 'rt-dead', domain: 'soundcloud.com' },
+      ],
+      fetchImpl: async () => {
+        const idx = hRevoked.cookies.findIndex((c) => c.name === 'oauth_refresh_token');
+        if (idx >= 0) hRevoked.cookies.splice(idx, 1);
+        return createMockResponse(500, '');
+      },
+    });
+    const rUnauth = await hRevoked.controller.refresh({ failedToken: expiredJwt, force: true });
+    expect(rUnauth).toEqual({ status: 'unauthorized', message: 'HTTP 500' });
+  });
+
+  it('like refreshes expired oauth_token on 401 and returns refreshedToken to renderer', async () => {
+    const freshJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    let likeAttempts = 0;
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: 'tok-stale', domain: 'soundcloud.com' },
+        { name: 'oauth_refresh_token', value: 'rt-live', domain: 'soundcloud.com' },
+      ],
+      fetchImpl: async (input, init) => {
+        if (input === 'https://soundcloud.com/n/api/refresh-token') {
+          h.setCookieDirect({ name: 'oauth_token', value: freshJwt, domain: 'soundcloud.com' });
+          h.setCookieDirect({ name: 'oauth_refresh_token', value: 'rt-live-2', domain: 'soundcloud.com' });
+          return createMockResponse(200, '{}');
+        }
+        likeAttempts += 1;
+        const auth = (init?.headers as Record<string, string>)?.Authorization;
+        if (auth === 'OAuth tok-stale') {
+          return createMockResponse(401, 'Unauthorized');
+        }
+        expect(auth).toBe(`OAuth ${freshJwt}`);
+        return createMockResponse(200, 'true');
+      },
+    });
+
+    const res = await h.controller.like(makeLikeRequest({ oauthToken: 'tok-stale', liked: true }));
+    expect(res).toEqual({ status: 'ok', liked: 'liked', verified: false, refreshedToken: freshJwt });
+    expect(likeAttempts).toBe(2);
+    expect(h.createdWindows).toHaveLength(0);
+  });
+
+  it('setTokens persists both tokens and clears stale refresh cookie when switching oauth_token without refreshToken', async () => {
+    const h = createHarness();
+    const s1 = await h.controller.setTokens({ oauthToken: 'tok-acc-1', refreshToken: 'rt-acc-1' });
+    expect(s1).toEqual({ status: 'ok' });
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe('tok-acc-1');
+    expect(h.cookies.find((c) => c.name === 'oauth_refresh_token')?.value).toBe('rt-acc-1');
+
+    const s2 = await h.controller.setTokens({ oauthToken: 'tok-acc-2' });
+    expect(s2).toEqual({ status: 'ok' });
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe('tok-acc-2');
+    expect(h.cookies.find((c) => c.name === 'oauth_refresh_token')).toBeUndefined();
+  });
+
+  it('logout cancels in-flight refresh before clearing storage', async () => {
+    const expiredJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) - 60 });
+    let resolveProxy!: (resp: ScFetchResponse) => void;
+
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: expiredJwt, domain: 'soundcloud.com' },
+        { name: 'oauth_refresh_token', value: 'rt-1', domain: 'soundcloud.com' },
+      ],
+      fetchImpl: (_input, init) =>
+        new Promise<ScFetchResponse>((resolve, reject) => {
+          resolveProxy = resolve;
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    });
+
+    const refreshPromise = h.controller.refresh({ failedToken: expiredJwt, force: true });
+    await waitForCondition(() => h.fetchCalls.length === 1);
+
+    const logoutRes = await h.controller.logout();
+    const refreshRes = await refreshPromise;
+    void resolveProxy;
+
+    expect(logoutRes).toEqual({ status: 'ok' });
+    expect(refreshRes.status).toBe('cancelled');
+    expect(h.cookies).toHaveLength(0);
+  });
+
+  it('proactive refresh without force runs inside 180s leeway window and picks rotated .soundcloud.com cookie', async () => {
+    const expiringSoonJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 170, client_id: 'cid-jwt' });
+    const freshJwt = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 3600, client_id: 'cid-jwt' });
+
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: expiringSoonJwt, domain: 'soundcloud.com', path: '/' },
+        { name: 'oauth_refresh_token', value: 'rt-1', domain: 'soundcloud.com', path: '/' },
+      ],
+      fetchImpl: async (input) => {
+        expect(input).toBe('https://soundcloud.com/n/api/refresh-token');
+        // Даже если SoundCloud выставил Set-Cookie с Domain=.soundcloud.com поверх старой host-only куки,
+        // dedupeSoundCloudCookie должен выбрать свежее (отличное от предыдущего) значение.
+        h.cookies.push({ name: 'oauth_token', value: freshJwt, domain: '.soundcloud.com', path: '/' });
+        h.cookies.push({ name: 'oauth_refresh_token', value: 'rt-2', domain: '.soundcloud.com', path: '/' });
+        return createMockResponse(200, '{}');
+      },
+    });
+
+    const res = await h.controller.refresh({ failedToken: expiringSoonJwt });
+    expect(res).toEqual({ status: 'ok', token: freshJwt });
+    expect(h.fetchCalls).toHaveLength(1);
+    expect(h.cookies.filter((c) => c.name === 'oauth_token').map((c) => c.value)).toEqual([freshJwt]);
+    expect(h.cookies.filter((c) => c.name === 'oauth_refresh_token').map((c) => c.value)).toEqual(['rt-2']);
+  });
+
+  it('like awaits concurrent refresh without clobbering rotated cookie and returns refreshedToken even on stale client_id 401', async () => {
+    const token1 = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 1200 });
+    const token2 = makeScJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    let resolveProxy!: (resp: ScFetchResponse) => void;
+
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_token', value: token1, domain: 'soundcloud.com', path: '/' },
+        { name: 'oauth_refresh_token', value: 'rt-1', domain: 'soundcloud.com', path: '/' },
+      ],
+      fetchImpl: async (input, init) => {
+        if (input === 'https://soundcloud.com/n/api/refresh-token') {
+          return new Promise<ScFetchResponse>((resolve) => {
+            resolveProxy = resolve;
+          });
+        }
+        const auth = (init?.headers as Record<string, string>)?.Authorization;
+        expect(auth).toBe(`OAuth ${token2}`);
+        // Имитируем 401 из-за устаревшего client_id уже после успешной ротации токена.
+        return createMockResponse(401, 'Unauthorized');
+      },
+    });
+
+    const refreshPromise = h.controller.refresh({ failedToken: token1, force: true });
+    await waitForCondition(() => h.fetchCalls.length === 1);
+
+    // Параллельный like приходит со старым token1 пока refresh в полете
+    const likePromise = h.controller.like(makeLikeRequest({ oauthToken: token1, clientId: 'cid-stale' }));
+
+    h.setCookieDirect({ name: 'oauth_token', value: token2, domain: 'soundcloud.com' });
+    h.setCookieDirect({ name: 'oauth_refresh_token', value: 'rt-2', domain: 'soundcloud.com' });
+    resolveProxy(createMockResponse(200, '{}'));
+
+    const [refRes, likeRes] = await Promise.all([refreshPromise, likePromise]);
+    expect(refRes).toEqual({ status: 'ok', token: token2 });
+    expect(likeRes).toEqual({ status: 'unauthorized', message: 'HTTP 401', refreshedToken: token2 });
+    // Свежая кука token2 не была перезаписана обратно на token1, и rt-2 не был сожжен.
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe(token2);
+    expect(h.cookies.find((c) => c.name === 'oauth_refresh_token')?.value).toBe('rt-2');
+    expect(h.fetchCalls.filter((c) => c.input.includes('refresh-token'))).toHaveLength(1);
+  });
+
+  it('setTokens clears orphaned oauth_refresh_token even when oauth_token cookie is absent', async () => {
+    const h = createHarness({
+      initialCookies: [
+        { name: 'oauth_refresh_token', value: 'rt-old-account', domain: 'soundcloud.com', path: '/' },
+      ],
+    });
+
+    const res = await h.controller.setTokens({ oauthToken: 'tok-new-account' });
+    expect(res).toEqual({ status: 'ok' });
+    expect(h.cookies.find((c) => c.name === 'oauth_token')?.value).toBe('tok-new-account');
+    expect(h.cookies.find((c) => c.name === 'oauth_refresh_token')).toBeUndefined();
   });
 });

@@ -1,7 +1,21 @@
+import {
+  extractScJwtClientId,
+  isScJwtNewer,
+  isScTokenExpiringSoon,
+  parseScJwt,
+  SC_PROACTIVE_REFRESH_LEEWAY_SEC,
+} from '../src/utils/scJwt';
+
 export const SC_PARTITION = 'persist:soundcloud';
 
 const AUTH_COOKIES_TO_CLEAR = ['oauth_token', 'oauth_refresh_token', 'sc_session'] as const;
 const TRACK_LIKES_FILTER = { urls: ['*://api-v2.soundcloud.com/*/track_likes/*'] };
+const SC_REFRESH_PROXY_URL = 'https://soundcloud.com/n/api/refresh-token';
+const SC_OAUTH_TOKEN_URL = 'https://secure.soundcloud.com/oauth/token';
+const OAUTH_TOKEN_TTL_DAYS = 365;
+const REFRESH_TOKEN_TTL_DAYS = 182;
+const PROACTIVE_REFRESH_LEEWAY_SEC = SC_PROACTIVE_REFRESH_LEEWAY_SEC;
+const FRESH_COOKIE_LEEWAY_SEC = 30;
 
 export interface Rect {
   x: number;
@@ -18,17 +32,40 @@ export interface ScLikeRequest {
   oauthToken: string;
   clientId: string;
   appVersion: string;
+  skipRefresh?: boolean;
 }
 
 export type ScLikeResult =
-  | { status: 'ok'; liked: 'liked' | 'unliked'; verified?: boolean }
-  | { status: 'unauthorized'; message?: string }
+  | { status: 'ok'; liked: 'liked' | 'unliked'; verified?: boolean; refreshedToken?: string }
+  | { status: 'unauthorized'; message?: string; refreshedToken?: string }
   | { status: 'cancelled'; message?: string }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; refreshedToken?: string };
 
 export type ScLoginResult =
   | { status: 'ok'; token: string }
   | { status: 'cancelled' };
+
+export interface ScRefreshRequest {
+  failedToken?: string;
+  clientId?: string;
+  force?: boolean;
+}
+
+export type ScRefreshResult =
+  | { status: 'ok'; token: string }
+  | { status: 'no_refresh_token' }
+  | { status: 'unauthorized'; message?: string }
+  | { status: 'cancelled'; message?: string }
+  | { status: 'error'; message: string };
+
+export interface ScSetTokensRequest {
+  oauthToken: string;
+  refreshToken?: string;
+}
+
+export type ScSetTokensResult =
+  | { status: 'ok' }
+  | { status: 'error'; message: string };
 
 export interface ScCookie {
   name: string;
@@ -44,6 +81,9 @@ export interface ScCookieSetDetails {
   domain?: string;
   path?: string;
   secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
+  expirationDate?: number;
 }
 
 export interface ScFetchResponse {
@@ -175,6 +215,8 @@ export interface ScLikesController {
   login: () => Promise<ScLoginResult>;
   logout: () => Promise<{ status: 'ok' }>;
   like: (req: ScLikeRequest) => Promise<ScLikeResult>;
+  refresh: (req?: ScRefreshRequest) => Promise<ScRefreshResult>;
+  setTokens: (req: ScSetTokensRequest) => Promise<ScSetTokensResult>;
   dispose: () => void;
 }
 
@@ -237,8 +279,48 @@ function buildCookieUrl(cookie: ScCookie): string {
   return `https://${rawDomain}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-function pickSoundCloudCookie(cookies: ScCookie[]): ScCookie | undefined {
-  return cookies.find((c) => !c.domain || c.domain.includes('soundcloud.com')) || cookies[0];
+function isSoundCloudCookieDomain(domain?: string): boolean {
+  if (!domain) return true;
+  const lower = domain.toLowerCase();
+  return lower === 'soundcloud.com' || lower === '.soundcloud.com' || lower.endsWith('.soundcloud.com');
+}
+
+function pickSoundCloudCookie(cookies: ScCookie[], previousValue?: string): ScCookie | undefined {
+  const scCookies = cookies.filter((c) => isSoundCloudCookieDomain(c.domain));
+  const scoped = scCookies.length > 0 ? scCookies : cookies;
+  const nonEmpty = scoped.filter((c) => Boolean(c.value));
+  const pool = nonEmpty.length > 0 ? nonEmpty : scoped;
+
+  // Если знаем предыдущее значение до refresh, в первую очередь выбираем измененную (свежеротированную) куку,
+  // независимо от того, пришла ли она с host-only soundcloud.com или .soundcloud.com.
+  if (previousValue) {
+    const rotated = pool.filter((c) => c.value && c.value !== previousValue);
+    if (rotated.length > 0) {
+      return (
+        rotated.find((c) => c.domain === 'soundcloud.com') ||
+        rotated.find((c) => c.domain === '.soundcloud.com') ||
+        rotated[0]
+      );
+    }
+  }
+
+  // При нескольких JWT-куках выбираем куку с максимальным exp.
+  let bestJwt: ScCookie | undefined;
+  let bestExp = -Infinity;
+  for (const c of pool) {
+    const exp = parseScJwt(c.value)?.exp;
+    if (typeof exp === 'number' && exp > bestExp) {
+      bestExp = exp;
+      bestJwt = c;
+    }
+  }
+  if (bestJwt) return bestJwt;
+
+  return (
+    pool.find((c) => c.domain === 'soundcloud.com') ||
+    pool.find((c) => c.domain === '.soundcloud.com') ||
+    pool[0]
+  );
 }
 
 function isLogoutUrl(url: string, allowedTargetUrl: string | null): boolean {
@@ -413,11 +495,16 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
   let activeLoginWin: ScWindowLike<TSession> | null = null;
   let cancelActiveLogin: (() => void) | null = null;
 
+  let activeRefreshPromise: Promise<ScRefreshResult> | null = null;
+  let cancelActiveRefresh: (() => void) | null = null;
+  let activeSetTokensPromise: Promise<ScSetTokensResult> | null = null;
+  let logoutInProgress = false;
+
   let verifyPromise: Promise<VerifyOutcome> | null = null;
   let cancelActiveVerify: (() => void) | null = null;
 
   function isCancelledEnvironment(): boolean {
-    return disposed || deps.isShuttingDown();
+    return disposed || deps.isShuttingDown() || logoutInProgress;
   }
 
   function getConfiguredSession(): TSession {
@@ -453,26 +540,96 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
     }
   }
 
-  async function readCookieValue(sess: TSession, name: string): Promise<string> {
+  async function readCookieValue(sess: TSession, name: string, previousValue?: string): Promise<string> {
     try {
       const list = await sess.cookies.get({ name });
-      return pickSoundCloudCookie(list)?.value || '';
+      const scOnly = list.filter((c) => isSoundCloudCookieDomain(c.domain));
+      return pickSoundCloudCookie(scOnly, previousValue)?.value || '';
     } catch {
       return '';
     }
   }
 
+  async function removeCookiesByName(sess: TSession, name: string): Promise<void> {
+    try {
+      const list = await sess.cookies.get({ name });
+      for (const cookie of list) {
+        if (!isSoundCloudCookieDomain(cookie.domain)) continue;
+        await sess.cookies.remove(buildCookieUrl(cookie), cookie.name);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function dedupeSoundCloudCookie(
+    sess: TSession,
+    name: string,
+    opts: { ttlDays: number; httpOnly?: boolean; sameSite?: 'lax' },
+    previousValue?: string
+  ): Promise<string> {
+    try {
+      const list = (await sess.cookies.get({ name })).filter((c) => isSoundCloudCookieDomain(c.domain));
+      const winner = pickSoundCloudCookie(list, previousValue);
+      if (list.length <= 1) return winner?.value || '';
+      if (!winner || !winner.value) return '';
+      // В Chromium cookies.remove(url, name) удаляет все куки, подходящие под url (и host-only, и .soundcloud.com),
+      // поэтому безопасно удаляем все дубликаты и записываем обратно только победившую куку.
+      await removeCookiesByName(sess, name);
+      const expirationDate = Math.floor(Date.now() / 1000) + opts.ttlDays * 86_400;
+      await sess.cookies.set({
+        url: 'https://soundcloud.com',
+        name,
+        value: winner.value,
+        path: '/',
+        secure: true,
+        expirationDate,
+        ...(opts.httpOnly ? { httpOnly: true } : {}),
+        ...(opts.sameSite ? { sameSite: opts.sameSite } : {}),
+      });
+      return winner.value;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      deps.log?.(`[soundcloud] dedupe ${name} failed: ${msg}`);
+      return readCookieValue(sess, name, previousValue);
+    }
+  }
+
+  async function setPersistentCookie(
+    sess: TSession,
+    name: string,
+    value: string,
+    opts: { ttlDays: number; httpOnly?: boolean; sameSite?: 'lax' }
+  ): Promise<void> {
+    // Сначала убираем возможные дубликаты на других доменах soundcloud.com, чтобы не было конфликта кук.
+    const existing = (await sess.cookies.get({ name }).catch(() => [] as ScCookie[])).filter((c) =>
+      isSoundCloudCookieDomain(c.domain)
+    );
+    const hasConflictingDomain = existing.some((c) => c.domain && c.domain !== 'soundcloud.com');
+    if (hasConflictingDomain) {
+      await removeCookiesByName(sess, name);
+    }
+    const expirationDate = Math.floor(Date.now() / 1000) + opts.ttlDays * 86_400;
+    await sess.cookies.set({
+      url: 'https://soundcloud.com',
+      name,
+      value,
+      path: '/',
+      secure: true,
+      expirationDate,
+      ...(opts.httpOnly ? { httpOnly: true } : {}),
+      ...(opts.sameSite ? { sameSite: opts.sameSite } : {}),
+    });
+  }
+
   async function ensureOAuthCookie(sess: TSession, oauthToken: string): Promise<void> {
     const current = await readCookieValue(sess, 'oauth_token');
     if (current === oauthToken) return;
-    // Указываем domain '.soundcloud.com', чтобы кука отправлялась и на api-v2.soundcloud.com.
-    await sess.cookies.set({
-      url: 'https://soundcloud.com',
-      domain: '.soundcloud.com',
-      name: 'oauth_token',
-      value: oauthToken,
-      path: '/',
-      secure: true,
+    // Не даем устаревшему JWT перезаписать более свежую куку в persist:soundcloud.
+    if (isScJwtNewer(current, oauthToken)) return;
+    await setPersistentCookie(sess, 'oauth_token', oauthToken, {
+      ttlDays: OAUTH_TOKEN_TTL_DAYS,
+      sameSite: 'lax',
     });
     await sess.cookies.flushStore();
   }
@@ -480,14 +637,7 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
   async function removeStaleAuthCookies(sess: TSession): Promise<void> {
     // Сбрасываем только auth-куки, не трогая datadome, чтобы избежать тупика перелогина после 401 и не терять проверку DataDome.
     for (const name of AUTH_COOKIES_TO_CLEAR) {
-      try {
-        const list = await sess.cookies.get({ name });
-        for (const cookie of list) {
-          await sess.cookies.remove(buildCookieUrl(cookie), cookie.name);
-        }
-      } catch {
-        // ignore
-      }
+      await removeCookiesByName(sess, name);
     }
   }
 
@@ -696,7 +846,8 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
               if (settled || completing || !currentDatadome || currentDatadome === lastTriedDatadome) {
                 return;
               }
-              const retry = await executeDirectLike(sess, ownerReq);
+              const liveToken = (await readCookieValue(sess, 'oauth_token')) || ownerReq.oauthToken;
+              const retry = await executeDirectLike(sess, { ...ownerReq, oauthToken: liveToken });
               if (settled || completing) return;
               if (retry.kind === 'done') {
                 if (retry.result.status === 'ok') {
@@ -743,7 +894,8 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
                 return;
               }
               if (currentDatadome && currentDatadome !== lastTriedDatadome) {
-                const finalTry = await executeDirectLike(sess, ownerReq);
+                const liveToken = (await readCookieValue(sess, 'oauth_token')) || ownerReq.oauthToken;
+                const finalTry = await executeDirectLike(sess, { ...ownerReq, oauthToken: liveToken });
                 if (settled || cancelledExternally || isCancelledEnvironment()) {
                   finish({ status: 'cancelled', message: 'Verification cancelled' });
                   return;
@@ -802,6 +954,346 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
     })();
   }
 
+  type DirectOAuthRefreshOutcome =
+    | { kind: 'ok'; accessToken: string; refreshToken: string }
+    | { kind: 'unauthorized'; message: string }
+    | { kind: 'error'; message: string };
+
+  async function refreshViaDirectOAuth(
+    sess: TSession,
+    refreshToken: string,
+    clientId: string,
+    signal: AbortSignal
+  ): Promise<DirectOAuthRefreshOutcome> {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      refresh_token: refreshToken,
+    });
+    const resp = await sess.fetch(SC_OAUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json; charset=utf-8',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        Origin: 'https://soundcloud.com',
+        Referer: 'https://soundcloud.com/',
+      },
+      body: body.toString(),
+      signal,
+    });
+
+    let bodyText = '';
+    try {
+      bodyText = await resp.text();
+    } catch {
+      bodyText = '';
+    }
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      const json = JSON.parse(bodyText);
+      if (json && typeof json === 'object' && !Array.isArray(json)) {
+        parsed = json as Record<string, unknown>;
+      }
+    } catch {
+      parsed = null;
+    }
+
+    if (resp.ok) {
+      const accessToken = typeof parsed?.access_token === 'string' ? parsed.access_token.trim() : '';
+      const nextRefresh = typeof parsed?.refresh_token === 'string' ? parsed.refresh_token.trim() : '';
+      if (accessToken) {
+        return { kind: 'ok', accessToken, refreshToken: nextRefresh };
+      }
+      return { kind: 'error', message: 'Missing access_token in OAuth refresh response' };
+    }
+
+    const oauthError = typeof parsed?.error === 'string' ? parsed.error : '';
+    if (resp.status === 401 || (resp.status === 400 && oauthError === 'invalid_grant')) {
+      return { kind: 'unauthorized', message: oauthError || `HTTP ${resp.status}` };
+    }
+    return { kind: 'error', message: oauthError || `HTTP ${resp.status}` };
+  }
+
+  // Однопоточный refresh oauth_token через SoundCloud Webi proxy (или прямой fallback secure.soundcloud.com).
+  // Refresh-токены SoundCloud одноразовые, поэтому параллельные вызовы строго делят один in-flight промис.
+  async function refresh(req?: ScRefreshRequest): Promise<ScRefreshResult> {
+    const startLogoutGen = logoutGeneration;
+    if (isCancelledEnvironment()) {
+      return { status: 'cancelled', message: 'App is shutting down' };
+    }
+
+    if (activeRefreshPromise) {
+      const shared = await activeRefreshPromise;
+      if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
+        return { status: 'cancelled', message: 'Logged out' };
+      }
+      // Если force-вызов (после реального 401) присоединился к не-forced refresh, который вернул тот же токен,
+      // не возвращаем протухший токен, а делаем принудительный refresh ниже.
+      if (!(req?.force && shared.status === 'ok' && req.failedToken && shared.token === req.failedToken)) {
+        return shared;
+      }
+    }
+
+    const sess = getConfiguredSession();
+    let cancelledExternally = false;
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    cancelActiveRefresh = () => {
+      cancelledExternally = true;
+      controller.abort();
+    };
+
+    let promise: Promise<ScRefreshResult> | null = null;
+    promise = (async (): Promise<ScRefreshResult> => {
+      try {
+        const currentCookie = await readCookieValue(sess, 'oauth_token');
+        if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+          return { status: 'cancelled', message: 'Logged out' };
+        }
+
+        // Если другая вкладка/вызов уже ротировала oauth_token в persist:soundcloud, не сжигаем refresh_token повторно.
+        if (
+          req?.failedToken &&
+          currentCookie &&
+          currentCookie !== req.failedToken &&
+          !isScTokenExpiringSoon(currentCookie, FRESH_COOKIE_LEEWAY_SEC)
+        ) {
+          return { status: 'ok', token: currentCookie };
+        }
+        if (
+          !req?.force &&
+          currentCookie &&
+          !isScTokenExpiringSoon(currentCookie, PROACTIVE_REFRESH_LEEWAY_SEC)
+        ) {
+          return { status: 'ok', token: currentCookie };
+        }
+
+        // Без oauth_refresh_token НЕ вызываем /n/api/refresh-token: сервер SoundCloud в ответ присылает
+        // Set-Cookie с очисткой oauth_token, что сломало бы валидный неистекающий токен.
+        const refreshToken = await readCookieValue(sess, 'oauth_refresh_token');
+        if (!refreshToken) {
+          return { status: 'no_refresh_token' };
+        }
+
+        // Перед запросом убираем возможные старые дубликаты (.soundcloud.com + soundcloud.com),
+        // чтобы в заголовке Cookie ушла ровно одна пара токенов и серверная очистка при 401 сработала чисто.
+        const preRefreshOAuth =
+          (await dedupeSoundCloudCookie(sess, 'oauth_token', {
+            ttlDays: OAUTH_TOKEN_TTL_DAYS,
+            sameSite: 'lax',
+          })) || currentCookie;
+        const preRefreshToken =
+          (await dedupeSoundCloudCookie(sess, 'oauth_refresh_token', {
+            ttlDays: REFRESH_TOKEN_TTL_DAYS,
+            httpOnly: true,
+            sameSite: 'lax',
+          })) || refreshToken;
+
+        if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+          return { status: 'cancelled', message: 'Logged out' };
+        }
+
+        // Прокси читает jwt.client_id из куки oauth_token, поэтому при ее отсутствии засеваем failedToken.
+        if (!preRefreshOAuth && req?.failedToken) {
+          await setPersistentCookie(sess, 'oauth_token', req.failedToken, {
+            ttlDays: OAUTH_TOKEN_TTL_DAYS,
+            sameSite: 'lax',
+          });
+        }
+
+        timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
+        const resp = await sess.fetch(SC_REFRESH_PROXY_URL, {
+          method: 'POST',
+          headers: {
+            Origin: 'https://soundcloud.com',
+            Referer: 'https://soundcloud.com/',
+            Accept: 'application/json, text/plain, */*',
+          },
+          credentials: 'include',
+          signal: controller.signal,
+        });
+
+        if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+          return { status: 'cancelled', message: 'Logged out' };
+        }
+
+        if (resp.ok) {
+          const nextToken = await dedupeSoundCloudCookie(
+            sess,
+            'oauth_token',
+            { ttlDays: OAUTH_TOKEN_TTL_DAYS, sameSite: 'lax' },
+            preRefreshOAuth || req?.failedToken
+          );
+          await dedupeSoundCloudCookie(
+            sess,
+            'oauth_refresh_token',
+            { ttlDays: REFRESH_TOKEN_TTL_DAYS, httpOnly: true, sameSite: 'lax' },
+            preRefreshToken
+          );
+          await sess.cookies.flushStore();
+          if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+            return { status: 'cancelled', message: 'Logged out' };
+          }
+          const finalToken = nextToken || (await readCookieValue(sess, 'oauth_token', preRefreshOAuth || req?.failedToken));
+          if (finalToken) {
+            deps.log?.('[soundcloud] refreshed oauth_token via webi proxy');
+            return { status: 'ok', token: finalToken };
+          }
+          return { status: 'error', message: 'Refresh response did not set oauth_token' };
+        }
+
+        const remainingRefresh = await readCookieValue(sess, 'oauth_refresh_token');
+        if (!remainingRefresh || resp.status === 401) {
+          try {
+            await sess.cookies.flushStore();
+          } catch {
+            // ignore
+          }
+          deps.log?.(`[soundcloud] refresh rejected by webi proxy (HTTP ${resp.status})`);
+          return { status: 'unauthorized', message: `HTTP ${resp.status}` };
+        }
+
+        // Безопасный fallback на прямой /oauth/token: только если прокси не успел сжечь одноразовый refresh_token
+        // (403 DataDome или 404 при смене пути прокси) и кука oauth_refresh_token осталась на месте.
+        if (resp.status === 403 || resp.status === 404) {
+          const effectiveClientId =
+            extractScJwtClientId(preRefreshOAuth || req?.failedToken || '') || req?.clientId || '';
+          if (effectiveClientId) {
+            const direct = await refreshViaDirectOAuth(
+              sess,
+              remainingRefresh,
+              effectiveClientId,
+              controller.signal
+            );
+            if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+              return { status: 'cancelled', message: 'Logged out' };
+            }
+            if (direct.kind === 'ok') {
+              await setPersistentCookie(sess, 'oauth_token', direct.accessToken, {
+                ttlDays: OAUTH_TOKEN_TTL_DAYS,
+                sameSite: 'lax',
+              });
+              if (direct.refreshToken) {
+                await setPersistentCookie(sess, 'oauth_refresh_token', direct.refreshToken, {
+                  ttlDays: REFRESH_TOKEN_TTL_DAYS,
+                  httpOnly: true,
+                  sameSite: 'lax',
+                });
+              }
+              await sess.cookies.flushStore();
+              if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+                return { status: 'cancelled', message: 'Logged out' };
+              }
+              deps.log?.('[soundcloud] refreshed oauth_token via secure.soundcloud.com fallback');
+              return { status: 'ok', token: direct.accessToken };
+            }
+            if (direct.kind === 'unauthorized') {
+              await removeCookiesByName(sess, 'oauth_refresh_token');
+              try {
+                await sess.cookies.flushStore();
+              } catch {
+                // ignore
+              }
+              deps.log?.(`[soundcloud] direct refresh rejected (${direct.message})`);
+              return { status: 'unauthorized', message: direct.message };
+            }
+            return { status: 'error', message: direct.message };
+          }
+        }
+
+        return { status: 'error', message: `HTTP ${resp.status}` };
+      } catch (err: unknown) {
+        if (cancelledExternally || isCancelledEnvironment() || logoutGeneration !== startLogoutGen) {
+          return { status: 'cancelled', message: 'Refresh cancelled' };
+        }
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        const message = isAbort
+          ? 'Request timed out'
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        return { status: 'error', message };
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        cancelActiveRefresh = null;
+        if (activeRefreshPromise === promise) {
+          activeRefreshPromise = null;
+        }
+      }
+    })();
+
+    activeRefreshPromise = promise;
+    return promise;
+  }
+
+  async function setTokens(req: ScSetTokensRequest): Promise<ScSetTokensResult> {
+    const startLogoutGen = logoutGeneration;
+    if (isCancelledEnvironment()) {
+      return { status: 'error', message: 'App is shutting down' };
+    }
+    const oauthToken = (req?.oauthToken || '').trim();
+    const refreshToken = (req?.refreshToken || '').trim();
+    if (!oauthToken) {
+      return { status: 'error', message: 'Missing oauth_token' };
+    }
+
+    let op: Promise<ScSetTokensResult> | null = null;
+    op = (async (): Promise<ScSetTokensResult> => {
+      if (activeRefreshPromise) {
+        try {
+          await activeRefreshPromise;
+        } catch {
+          // ignore
+        }
+      }
+      if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
+        return { status: 'error', message: 'Logged out' };
+      }
+      const sess = getConfiguredSession();
+      try {
+        const existingOAuth = await readCookieValue(sess, 'oauth_token');
+        if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
+          return { status: 'error', message: 'Logged out' };
+        }
+        await setPersistentCookie(sess, 'oauth_token', oauthToken, {
+          ttlDays: OAUTH_TOKEN_TTL_DAYS,
+          sameSite: 'lax',
+        });
+        if (refreshToken) {
+          await setPersistentCookie(sess, 'oauth_refresh_token', refreshToken, {
+            ttlDays: REFRESH_TOKEN_TTL_DAYS,
+            httpOnly: true,
+            sameSite: 'lax',
+          });
+        } else if (existingOAuth !== oauthToken) {
+          // Пользователь вручную подключил другой токен (или кука oauth_token отсутствовала) без refresh_token:
+          // убираем возможный старый oauth_refresh_token от прошлого аккаунта.
+          await removeCookiesByName(sess, 'oauth_refresh_token');
+        }
+        await sess.cookies.flushStore();
+        return { status: 'ok' };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: 'error', message };
+      } finally {
+        if (activeSetTokensPromise === op) {
+          activeSetTokensPromise = null;
+        }
+      }
+    })();
+
+    activeSetTokensPromise = op;
+    return op;
+  }
+
+  function withRefreshedToken<T extends Exclude<ScLikeResult, { status: 'cancelled' }>>(
+    result: T,
+    refreshedToken?: string
+  ): T {
+    return refreshedToken ? { ...result, refreshedToken } : result;
+  }
+
   async function like(req: ScLikeRequest): Promise<ScLikeResult> {
     const startLogoutGen = logoutGeneration;
     if (isCancelledEnvironment()) {
@@ -815,66 +1307,145 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
     }
 
     const sess = getConfiguredSession();
+    let activeToken = req.oauthToken;
+    let refreshedToken: string | undefined;
+    let triedRefresh = Boolean(req.skipRefresh);
+
+    // Если прямо сейчас идет refresh, дожидаемся его, чтобы не перезаписать свежую куку старым req.oauthToken.
+    if (activeRefreshPromise) {
+      const inFlightRef = await activeRefreshPromise;
+      if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
+        return { status: 'cancelled', message: 'Logged out' };
+      }
+      if (inFlightRef.status === 'ok' && inFlightRef.token && inFlightRef.token !== activeToken) {
+        activeToken = inFlightRef.token;
+        refreshedToken = inFlightRef.token;
+        triedRefresh = true;
+      }
+    }
+
+    const existingCookieToken = await readCookieValue(sess, 'oauth_token');
+    if (
+      existingCookieToken &&
+      existingCookieToken !== activeToken &&
+      (isScJwtNewer(existingCookieToken, activeToken) ||
+        (isScTokenExpiringSoon(activeToken, PROACTIVE_REFRESH_LEEWAY_SEC) &&
+          !isScTokenExpiringSoon(existingCookieToken, FRESH_COOKIE_LEEWAY_SEC)))
+    ) {
+      activeToken = existingCookieToken;
+      refreshedToken = existingCookieToken;
+    } else if (!triedRefresh && isScTokenExpiringSoon(activeToken, PROACTIVE_REFRESH_LEEWAY_SEC)) {
+      triedRefresh = true;
+      const ref = await refresh({ failedToken: activeToken, clientId: req.clientId });
+      if (logoutGeneration !== startLogoutGen || isCancelledEnvironment() || ref.status === 'cancelled') {
+        return { status: 'cancelled', message: 'Logged out' };
+      }
+      if (ref.status === 'ok') {
+        activeToken = ref.token;
+        refreshedToken = ref.token;
+      } else if (ref.status === 'unauthorized' && isScTokenExpiringSoon(activeToken, 0)) {
+        return { status: 'unauthorized', message: ref.message || 'HTTP 401' };
+      }
+    }
+
+    if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
+      return { status: 'cancelled', message: 'Logged out' };
+    }
+
     try {
-      await ensureOAuthCookie(sess, req.oauthToken);
+      await ensureOAuthCookie(sess, activeToken);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      return { status: 'error', message: `Failed to sync oauth_token cookie: ${message}` };
+      return withRefreshedToken(
+        { status: 'error', message: `Failed to sync oauth_token cookie: ${message}` },
+        refreshedToken
+      );
     }
 
-    if (logoutGeneration !== startLogoutGen) {
+    if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
       return { status: 'cancelled', message: 'Logged out' };
     }
 
-    const first = await executeDirectLike(sess, req);
-    if (logoutGeneration !== startLogoutGen) {
+    let first = await executeDirectLike(sess, { ...req, oauthToken: activeToken });
+    if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
       return { status: 'cancelled', message: 'Logged out' };
     }
+
+    if (first.kind === 'done' && first.result.status === 'unauthorized' && !triedRefresh) {
+      triedRefresh = true;
+      const ref = await refresh({ failedToken: activeToken, clientId: req.clientId, force: true });
+      if (logoutGeneration !== startLogoutGen || isCancelledEnvironment() || ref.status === 'cancelled') {
+        return { status: 'cancelled', message: 'Logged out' };
+      }
+      if (ref.status === 'ok') {
+        activeToken = ref.token;
+        refreshedToken = ref.token;
+        first = await executeDirectLike(sess, { ...req, oauthToken: activeToken });
+        if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
+          return { status: 'cancelled', message: 'Logged out' };
+        }
+      }
+    }
+
     if (first.kind === 'done') {
-      return first.result;
+      if (first.result.status === 'cancelled') {
+        return first.result;
+      }
+      return withRefreshedToken(first.result, refreshedToken);
     }
+
+    const activeReq: ScLikeRequest = { ...req, oauthToken: activeToken };
 
     // Single-flight мьютекс: параллельные 403 DataDome разделяют одно окно проверки.
     let isOwner = false;
     let activeVerify = verifyPromise;
     if (!activeVerify) {
       isOwner = true;
-      activeVerify = runVerificationModal(sess, req);
+      activeVerify = runVerificationModal(sess, activeReq);
       verifyPromise = activeVerify;
     }
 
     const outcome = await activeVerify;
-    if (logoutGeneration !== startLogoutGen) {
+    if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
       return { status: 'cancelled', message: 'Logged out' };
     }
     const likedLabel: 'liked' | 'unliked' = req.liked ? 'liked' : 'unliked';
+
+    const postModalToken = await readCookieValue(sess, 'oauth_token');
+    if (postModalToken && postModalToken !== activeToken) {
+      activeToken = postModalToken;
+      refreshedToken = postModalToken;
+    }
 
     if (outcome.status === 'cancelled') {
       return { status: 'cancelled', message: outcome.message };
     }
     if (outcome.status === 'unauthorized') {
-      return { status: 'unauthorized', message: outcome.message };
+      return withRefreshedToken({ status: 'unauthorized', message: outcome.message }, refreshedToken);
     }
     if (outcome.status === 'error') {
-      return { status: 'error', message: outcome.message };
+      return withRefreshedToken({ status: 'error', message: outcome.message }, refreshedToken);
     }
 
     if (isOwner && outcome.ownerCompleted) {
-      return { status: 'ok', liked: likedLabel, verified: true };
+      return withRefreshedToken({ status: 'ok', liked: likedLabel, verified: true }, refreshedToken);
     }
 
-    const retry = await executeDirectLike(sess, req);
-    if (logoutGeneration !== startLogoutGen) {
+    const retry = await executeDirectLike(sess, { ...req, oauthToken: activeToken });
+    if (logoutGeneration !== startLogoutGen || isCancelledEnvironment()) {
       return { status: 'cancelled', message: 'Logged out' };
     }
     if (retry.kind === 'done') {
       if (retry.result.status === 'ok') {
-        return { ...retry.result, verified: true };
+        return withRefreshedToken({ ...retry.result, verified: true }, refreshedToken);
       }
-      return retry.result;
+      if (retry.result.status === 'cancelled') {
+        return retry.result;
+      }
+      return withRefreshedToken(retry.result, refreshedToken);
     }
 
-    return { status: 'error', message: 'DataDome verification required' };
+    return withRefreshedToken({ status: 'error', message: 'DataDome verification required' }, refreshedToken);
   }
 
   function login(): Promise<ScLoginResult> {
@@ -961,15 +1532,33 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
             if (tok) {
               capturing = true;
               if (pollTimer) clearInterval(pollTimer);
-              settleTimer = setTimeout(() => {
+              let settleAttempts = 0;
+              const finalizeCapture = () => {
                 if (cancelledExternally || isCancelledEnvironment()) {
                   finish({ status: 'cancelled' });
                   return;
                 }
-                void readCookieValue(sess, 'oauth_token').then((latest) => {
-                  finish({ status: 'ok', token: latest || tok });
-                });
-              }, loginSettleDelayMs);
+                void (async () => {
+                  const latest = (await readCookieValue(sess, 'oauth_token')) || tok;
+                  const refreshTok = await readCookieValue(sess, 'oauth_refresh_token');
+                  if (cancelledExternally || isCancelledEnvironment()) {
+                    finish({ status: 'cancelled' });
+                    return;
+                  }
+                  const isJwt = typeof parseScJwt(latest)?.exp === 'number';
+                  // Для истекающего JWT даем куке oauth_refresh_token немного времени на фиксацию, если она еще не записалась.
+                  if (isJwt && !refreshTok && settleAttempts < 3) {
+                    settleAttempts += 1;
+                    settleTimer = setTimeout(finalizeCapture, loginSettleDelayMs);
+                    return;
+                  }
+                  deps.log?.(
+                    `[soundcloud] login ok (jwt=${isJwt}, hasRefreshToken=${Boolean(refreshTok)})`
+                  );
+                  finish({ status: 'ok', token: latest });
+                })();
+              };
+              settleTimer = setTimeout(finalizeCapture, loginSettleDelayMs);
             }
           };
 
@@ -1012,46 +1601,71 @@ export function createScLikesController<TSession extends ScSessionLike = ScSessi
 
   async function logout(): Promise<{ status: 'ok' }> {
     logoutGeneration += 1;
-    const pendingLogin = activeLoginPromise;
-    const pendingVerify = verifyPromise;
-
-    cancelActiveLogin?.();
-    cancelActiveVerify?.();
-
-    if (pendingLogin) {
-      try {
-        await pendingLogin;
-      } catch {
-        // ignore
-      }
-    }
-    if (pendingVerify) {
-      try {
-        await pendingVerify;
-      } catch {
-        // ignore
-      }
-    }
-
-    const sess = getConfiguredSession();
+    logoutInProgress = true;
     try {
-      await sess.clearStorageData();
-    } catch {
-      // ignore
+      const pendingLogin = activeLoginPromise;
+      const pendingVerify = verifyPromise;
+      const pendingRefresh = activeRefreshPromise;
+      const pendingSetTokens = activeSetTokensPromise;
+
+      cancelActiveLogin?.();
+      cancelActiveVerify?.();
+      cancelActiveRefresh?.();
+
+      if (pendingLogin) {
+        try {
+          await pendingLogin;
+        } catch {
+          // ignore
+        }
+      }
+      if (pendingVerify) {
+        try {
+          await pendingVerify;
+        } catch {
+          // ignore
+        }
+      }
+      if (pendingRefresh) {
+        try {
+          await pendingRefresh;
+        } catch {
+          // ignore
+        }
+      }
+      if (pendingSetTokens) {
+        try {
+          await pendingSetTokens;
+        } catch {
+          // ignore
+        }
+      }
+
+      const sess = getConfiguredSession();
+      try {
+        await sess.clearStorageData();
+      } catch {
+        // ignore
+      }
+      return { status: 'ok' };
+    } finally {
+      logoutInProgress = false;
     }
-    return { status: 'ok' };
   }
 
   function dispose(): void {
     disposed = true;
     cancelActiveLogin?.();
     cancelActiveVerify?.();
+    cancelActiveRefresh?.();
   }
 
   return {
     login,
     logout,
     like,
+    refresh,
+    setTokens,
     dispose,
   };
 }

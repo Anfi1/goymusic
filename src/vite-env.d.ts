@@ -18,6 +18,12 @@ interface Window {
     scLike: (
       payload: import('../electron/scLikes').ScLikeRequest
     ) => Promise<import('../electron/scLikes').ScLikeResult>;
+    scRefresh: (
+      payload?: import('../electron/scLikes').ScRefreshRequest
+    ) => Promise<import('../electron/scLikes').ScRefreshResult>;
+    scSetTokens: (
+      payload: import('../electron/scLikes').ScSetTokensRequest
+    ) => Promise<import('../electron/scLikes').ScSetTokensResult>;
     winMinimize: () => void;
     winMaximize: () => void;
     winFullscreen: () => void;

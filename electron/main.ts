@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { writeFileSync, appendFileSync, existsSync, mkdirSync, readFileSync, copyFileSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs'
 import * as DiscordRPC from 'discord-rpc'
 import { autoUpdater, NsisUpdater } from 'electron-updater'
-import { createScLikesController, type ScLikeRequest } from './scLikes'
+import { createScLikesController, type ScLikeRequest, type ScRefreshRequest, type ScSetTokensRequest } from './scLikes'
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.PUBLIC = app.isPackaged ? process.env.DIST : join(__dirname, '../public')
@@ -940,6 +940,8 @@ const scLikes = createScLikesController({
 ipcMain.handle('sc:login', () => scLikes.login())
 ipcMain.handle('sc:logout', () => scLikes.logout())
 ipcMain.handle('sc:like', (_event, payload: ScLikeRequest) => scLikes.like(payload))
+ipcMain.handle('sc:refresh', (_event, payload?: ScRefreshRequest) => scLikes.refresh(payload))
+ipcMain.handle('sc:set-tokens', (_event, payload: ScSetTokensRequest) => scLikes.setTokens(payload))
 
 // Путь к кастомному профилю Chrome для лайков SC.
 ipcMain.handle('sc:profile-path', () => {

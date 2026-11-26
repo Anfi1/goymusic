@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ensureScClientId,
   formatScDuration,
+  getScAccount,
+  getScLikedEntries,
+  getScLikedMeta,
   getScLikeMode,
+  getScRecommendations,
   getScToken,
   getScUid,
   interleaveTracks,
@@ -10,11 +14,14 @@ import {
   mergeTracks,
   pickBestScMatch,
   registerScDisconnectHook,
+  scConnect,
   scDisconnect,
   scEntryToTrack,
+  scLoginViaWebviewDetailed,
   scSetLiked,
   setScLikeMode,
   setScLikedInMemory,
+  setSoundCloudEnabled,
 } from './soundcloud';
 import { likedStore } from './likedStore';
 import type { YTMTrack } from './yt';
@@ -369,18 +376,185 @@ describe('SoundCloud fast likes mode & scSetLiked', () => {
     pyCall.mockResolvedValueOnce({ status: 'ok', clientId: 'cid-1', appVersion: 'v1' });
 
     let resolveLike!: (res: { status: 'ok'; liked: 'liked'; verified: boolean }) => void;
+    let markLikeStarted!: () => void;
+    const likeStarted = new Promise<void>((resolve) => { markLikeStarted = resolve; });
     scLike.mockImplementationOnce(() => new Promise((resolve) => {
       resolveLike = resolve;
+      markLikeStarted();
     }));
 
     const likePromise = scSetLiked('9010', 'https://soundcloud.com/artist/t10', true);
-    await Promise.resolve();
-    await Promise.resolve();
+    await likeStarted;
 
     await scDisconnect();
     resolveLike({ status: 'ok', liked: 'liked', verified: false });
     await likePromise;
 
     expect(isScTrackLiked('9010')).toBe(false);
+  });
+
+  function makeJwt(expOffsetSec: number, clientId = 'cid-jwt'): string {
+    const enc = (obj: Record<string, unknown>) =>
+      Buffer.from(JSON.stringify(obj), 'utf8')
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    return `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc({ exp: Math.floor(Date.now() / 1000) + expOffsetSec, client_id: clientId })}.sig`;
+  }
+
+  it('проактивно обновляет истекающий JWT перед getScAccount и сохраняет новый токен в localStorage', async () => {
+    const expiredJwt = makeJwt(-30);
+    const freshJwt = makeJwt(3600);
+    const scRefresh = vi.fn().mockResolvedValue({ status: 'ok', token: freshJwt });
+    vi.stubGlobal('window', {
+      bridge: { pyCall, scLike, scLogout, scRefresh, getScProfileDir, winGetBounds },
+      dispatchEvent,
+    });
+    storage.set('sc-oauth-token', expiredJwt);
+    pyCall.mockResolvedValueOnce({ status: 'ok', connected: true, id: 555, username: 'tester', avatarUrl: '', permalinkUrl: '' });
+
+    const acc = await getScAccount();
+
+    expect(acc?.username).toBe('tester');
+    expect(scRefresh).toHaveBeenCalledTimes(1);
+    expect(pyCall).toHaveBeenCalledWith('sc_me', { token: freshJwt });
+    expect(getScToken()).toBe(freshJwt);
+    expect(getScUid()).toBe('555');
+  });
+
+  it('при 401 в getScLikedMeta и getScLikedEntries обновляет токен через scRefresh и повторяет запрос', async () => {
+    const freshJwt = makeJwt(3600);
+    const scRefresh = vi.fn().mockResolvedValue({ status: 'ok', token: freshJwt });
+    vi.stubGlobal('window', {
+      bridge: { pyCall, scLike, scLogout, scRefresh, getScProfileDir, winGetBounds },
+      dispatchEvent,
+    });
+    storage.set('sc-oauth-token', 'tok-old');
+
+    pyCall
+      .mockResolvedValueOnce({ status: 'unauthorized', message: 'HTTP 401' })
+      .mockResolvedValueOnce({ status: 'ok', count: 12, headIds: ['100'] });
+
+    const meta = await getScLikedMeta();
+    expect(meta).toEqual({ count: 12, headIds: ['100'] });
+    expect(scRefresh).toHaveBeenCalledTimes(1);
+    expect(getScToken()).toBe(freshJwt);
+
+    // Если повторный запрос все равно unauthorized -> возвращаем null (не []), чтобы не стереть зеркало
+    pyCall.mockResolvedValue({ status: 'unauthorized', message: 'HTTP 401' });
+    scRefresh.mockResolvedValue({ status: 'unauthorized', message: 'revoked' });
+    const entries = await getScLikedEntries();
+    expect(entries).toBeNull();
+  });
+
+  it('getScRecommendations при протухшем токене без refresh откатывается на анонимный запрос', async () => {
+    setSoundCloudEnabled(true);
+    const scRefresh = vi.fn().mockResolvedValue({ status: 'unauthorized', message: 'revoked' });
+    vi.stubGlobal('window', {
+      bridge: { pyCall, scLike, scLogout, scRefresh, getScProfileDir, winGetBounds },
+      dispatchEvent,
+    });
+    storage.set('sc-oauth-token', 'tok-dead');
+
+    pyCall
+      .mockResolvedValueOnce({ status: 'unauthorized', message: 'HTTP 401' })
+      .mockResolvedValueOnce({
+        status: 'ok',
+        results: [{ url: 'https://soundcloud.com/a/b', title: 'Anon Rec', artist: 'A', duration: 120, thumbUrl: '', source: 'soundcloud', scId: '77' }],
+      });
+
+    const recs = await getScRecommendations({ scId: '10' });
+    expect(recs).toHaveLength(1);
+    expect(recs[0].title).toBe('Anon Rec');
+    expect(pyCall).toHaveBeenLastCalledWith('sc_recommendations', { scId: '10', url: '', token: '' });
+  });
+
+  it('scConnect с просроченным oauth_token + валидным oauth_refresh_token засевает сессию, обновляет токен и подключает аккаунт', async () => {
+    const expiredJwt = makeJwt(-60);
+    const freshJwt = makeJwt(3600);
+    const scSetTokens = vi.fn().mockResolvedValue({ status: 'ok' });
+    const scRefresh = vi.fn().mockResolvedValue({ status: 'ok', token: freshJwt });
+    vi.stubGlobal('window', {
+      bridge: { pyCall, scLike, scLogout, scRefresh, scSetTokens, getScProfileDir, winGetBounds },
+      dispatchEvent,
+    });
+
+    pyCall
+      .mockResolvedValueOnce({ status: 'unauthorized', connected: false, message: 'HTTP 401' })
+      .mockResolvedValueOnce({ status: 'ok', connected: true, id: 888, username: 'refreshed-user', avatarUrl: '', permalinkUrl: '' })
+      .mockResolvedValueOnce({ status: 'ok', ids: [] }); // фоновый loadScLikedIds
+
+    const acc = await scConnect(expiredJwt, 'rt-manual');
+    expect(acc?.username).toBe('refreshed-user');
+    expect(scSetTokens).toHaveBeenCalledWith({ oauthToken: expiredJwt, refreshToken: 'rt-manual' });
+    expect(scRefresh).toHaveBeenCalledTimes(1);
+    expect(getScToken()).toBe(freshJwt);
+    expect(getScUid()).toBe('888');
+  });
+
+  it('scSetLiked сохраняет refreshedToken из ответа bridge.scLike', async () => {
+    const freshJwt = makeJwt(3600);
+    storage.set('sc-oauth-token', 'tok-old');
+    storage.set('sc-uid', '777');
+    pyCall.mockResolvedValueOnce({ status: 'ok', clientId: 'cid-1', appVersion: 'v1' });
+    scLike.mockResolvedValueOnce({ status: 'ok', liked: 'liked', verified: false, refreshedToken: freshJwt });
+
+    const ok = await scSetLiked('9090', 'https://soundcloud.com/a/t9090', true);
+    expect(ok).toBe(true);
+    expect(getScToken()).toBe(freshJwt);
+    expect(isScTrackLiked('9090')).toBe(true);
+  });
+
+  it('scLoginViaWebviewDetailed различает отмену окна и ошибку валидации', async () => {
+    const scLogin = vi.fn().mockResolvedValueOnce({ status: 'cancelled' });
+    vi.stubGlobal('window', {
+      bridge: { pyCall, scLogin, scLogout },
+      dispatchEvent,
+    });
+
+    expect(await scLoginViaWebviewDetailed()).toEqual({ status: 'cancelled' });
+  });
+
+  it('при протухшем JWT без refresh_token не дергает scRefresh дважды и не скрапит client_id', async () => {
+    const expiredJwt = makeJwt(-60);
+    const scRefresh = vi.fn().mockResolvedValue({ status: 'no_refresh_token' });
+    vi.stubGlobal('window', {
+      bridge: { pyCall, scLike, scLogout, scRefresh, getScProfileDir, winGetBounds },
+      dispatchEvent,
+    });
+    storage.set('sc-oauth-token', expiredJwt);
+    pyCall.mockResolvedValueOnce({ status: 'unauthorized', message: 'HTTP 401' });
+
+    const meta = await getScLikedMeta();
+    expect(meta).toBeNull();
+    expect(scRefresh).toHaveBeenCalledTimes(1);
+    expect(pyCall).toHaveBeenCalledTimes(1);
+    expect(pyCall).toHaveBeenCalledWith('sc_liked_meta', { token: expiredJwt });
+  });
+
+  it('scSetLiked обновляет scLikedSet, даже если фоновый refresh сменил токен пока лайк был в полете', async () => {
+    const freshJwt = makeJwt(3600);
+    storage.set('sc-oauth-token', 'tok-initial');
+    storage.set('sc-uid', '777');
+    pyCall.mockResolvedValueOnce({ status: 'ok', clientId: 'cid-1', appVersion: 'v1' });
+
+    let resolveLike!: (res: { status: 'ok'; liked: 'liked'; verified: boolean }) => void;
+    let markLikeStarted!: () => void;
+    const likeStarted = new Promise<void>((resolve) => { markLikeStarted = resolve; });
+    scLike.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveLike = resolve;
+      markLikeStarted();
+    }));
+
+    const likePromise = scSetLiked('9099', 'https://soundcloud.com/a/t9099', true);
+    await likeStarted;
+
+    // Фоновый refresh обновил токен того же аккаунта
+    storage.set('sc-oauth-token', freshJwt);
+    resolveLike({ status: 'ok', liked: 'liked', verified: false });
+
+    expect(await likePromise).toBe(true);
+    expect(isScTrackLiked('9099')).toBe(true);
   });
 });

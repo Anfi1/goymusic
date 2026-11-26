@@ -341,4 +341,23 @@ describe('scLikedManager.sync pending overlay', () => {
 
     expect(notified[notified.length - 1].map(e => e.scId)).toEqual(['c', 'a']);
   });
+
+  it('не затирает локальное зеркало SC-лайков, если getScLikedEntries вернул null (401/сетевая ошибка)', async () => {
+    const trackA = makeTrack('a');
+    const trackB = makeTrack('b');
+    storedEntries = [
+      { scId: 'a', trackId: trackA.id, likedAt: 200 },
+      { scId: 'b', trackId: trackB.id, likedAt: 100 },
+    ];
+    virtualCount = 2;
+
+    scApiMocks.getScLikedMeta.mockResolvedValueOnce({ count: 3, headIds: ['c', 'a'] });
+    scApiMocks.getScLikedEntries.mockResolvedValueOnce(null);
+
+    await scLikedManager.sync();
+
+    expect(storedEntries.map(e => e.scId)).toEqual(['a', 'b']);
+    expect(virtualCount).toBe(2);
+    expect(likedStore.replaceScTracks).not.toHaveBeenCalled();
+  });
 });

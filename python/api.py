@@ -33,7 +33,7 @@ from pytubefix.sig_nsig.node_runner import NodeRunner as _PtfNodeRunner
 from backend import catalog, discovery, history, imports, library, local_media, lyrics, yandex
 from backend.context import CommandContext
 from backend.local_media import _ffmpeg_loudness_i, get_ffmpeg_exe, measure_local_gain_db, measure_loudness_full
-from backend.soundcloud import SoundCloudCommands, _sc_extract_track_id
+from backend.soundcloud import ScUnauthorizedError, SoundCloudCommands, _sc_extract_track_id
 
 # Force UTF-8 for communication to handle Russian text on Windows
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
@@ -213,17 +213,20 @@ def _sc_headers(oauth_token=None):
     return h
 
 def _sc_api_get(path, params, oauth_token=None, retry_on_401=True):
-    """GET к api-v2.soundcloud.com; oauth_token → авторизованный запрос."""
+    """GET к api-v2.soundcloud.com; oauth_token -> авторизованный запрос."""
     cid = get_sc_client_id()
     if not cid:
         return None
     p = dict(params or {})
     p['client_id'] = cid
     r = requests.get(f'https://api-v2.soundcloud.com{path}', params=p, timeout=12, headers=_sc_headers(oauth_token))
-    # client_id протух — обновляем (только для публичных запросов; на 401 с токеном это не поможет)
-    if r.status_code == 401 and retry_on_401 and not oauth_token:
-        get_sc_client_id(force=True)
-        return _sc_api_get(path, params, retry_on_401=False)
+    if r.status_code == 401:
+        # client_id протух - обновляем только для публичных запросов; для авторизованных сигнализируем 401 наверх.
+        if retry_on_401 and not oauth_token:
+            get_sc_client_id(force=True)
+            return _sc_api_get(path, params, retry_on_401=False)
+        if oauth_token:
+            raise ScUnauthorizedError('HTTP 401')
     if r.ok:
         return r.json()
     return None
@@ -841,7 +844,7 @@ def _sc_nodriver_like(profile_dir: str, url: str, oauth_token: str | None = None
     return asyncio.run(_do())
 
 
-def _sc_nodriver_login(profile_dir: str, browser_path: str | None = None) -> str | None:
+def _sc_nodriver_login(profile_dir: str, browser_path: str | None = None) -> tuple[str | None, str | None]:
     import asyncio
     import nodriver as uc
 
@@ -858,18 +861,38 @@ def _sc_nodriver_login(profile_dir: str, browser_path: str | None = None) -> str
             tab = await browser.get('https://soundcloud.com')
             for _ in range(10):
                 try:
-                    cs = await tab.evaluate('document.cookie')
-                    if cs and 'oauth_token' in cs:
-                        for part in cs.split(';'):
-                            part = part.strip()
-                            if part.startswith('oauth_token='):
-                                tok = part.split('=', 1)[1]
-                                print("[nodriver] got oauth_token", file=sys.stderr)
-                                return tok
-                except:
+                    tok = None
+                    refresh_tok = None
+                    # Сначала пробуем CDP cookies.get_all(), чтобы захватить и HttpOnly oauth_refresh_token.
+                    try:
+                        all_cookies = await browser.cookies.get_all()
+                        for c in (all_cookies or []):
+                            dom = getattr(c, 'domain', '') or ''
+                            if 'soundcloud.com' not in dom:
+                                continue
+                            name = getattr(c, 'name', '')
+                            val = getattr(c, 'value', '')
+                            if name == 'oauth_token' and val and (not tok or dom == 'soundcloud.com'):
+                                tok = val
+                            elif name == 'oauth_refresh_token' and val and (not refresh_tok or dom == 'soundcloud.com'):
+                                refresh_tok = val
+                    except Exception:
+                        pass
+                    if not tok:
+                        cs = await tab.evaluate('document.cookie')
+                        if cs and 'oauth_token' in cs:
+                            for part in cs.split(';'):
+                                part = part.strip()
+                                if part.startswith('oauth_token='):
+                                    tok = part.split('=', 1)[1]
+                                    break
+                    if tok:
+                        print(f"[nodriver] got oauth_token (has_refresh={bool(refresh_tok)})", file=sys.stderr)
+                        return tok, refresh_tok
+                except Exception:
                     break
                 await asyncio.sleep(1)
-            return None
+            return None, None
         finally:
             try: browser.stop()
             except: pass
@@ -1883,9 +1906,12 @@ def sc_setup_profile(request, ctx):
     profile_dir = request.get('profileDir', '')
     browser_path = request.get('browserPath') or None
     try:
-        token = _sc_nodriver_login(profile_dir, browser_path)
+        token, refresh_token = _sc_nodriver_login(profile_dir, browser_path)
         if token:
-            safe_print({'status': 'ok', 'token': token, 'callId': call_id})
+            payload = {'status': 'ok', 'token': token, 'callId': call_id}
+            if refresh_token:
+                payload['refreshToken'] = refresh_token
+            safe_print(payload)
         else:
             safe_print({'status': 'error', 'message': 'Login cancelled or failed',
                         'callId': call_id})

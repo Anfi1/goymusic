@@ -3,6 +3,11 @@ import type { ScLikedEntry } from './likedStore';
 import { likedStore } from './likedStore';
 import { tracksStore } from './tracks';
 import { registerSoundCloudTrack } from './stream';
+import {
+  getScTokenRefreshDelayMs,
+  isScTokenExpiringSoon,
+  SC_PROACTIVE_REFRESH_LEEWAY_SEC,
+} from '../utils/scJwt';
 
 export interface ScSearchEntry {
   url: string;
@@ -373,6 +378,17 @@ export function setScBrowserPath(path: string): void {
 
 let scClientId = '';
 let scAppVersion = '';
+let scAuthGeneration = 0;
+let scRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let lastBgRefreshFailAt = 0;
+const SC_BG_REFRESH_RETRY_COOLDOWN_MS = 60_000;
+const MAX_TIMEOUT_MS = 2_000_000_000;
+
+type ScInternalRefreshResult =
+  | { status: 'ok'; token: string }
+  | { status: 'no_refresh_token' | 'unauthorized' | 'cancelled' | 'error' };
+
+let scRefreshInFlight: Promise<ScInternalRefreshResult> | null = null;
 const scDisconnectHooks = new Set<() => void>();
 
 export function registerScDisconnectHook(hook: () => void): () => void {
@@ -388,6 +404,173 @@ export function getScToken(): string {
 
 export function getScUid(): string {
   return localStorage.getItem(SC_UID_KEY) || '';
+}
+
+function clearScRefreshTimer(): void {
+  if (scRefreshTimer !== null) {
+    clearTimeout(scRefreshTimer);
+    scRefreshTimer = null;
+  }
+}
+
+function scheduleProactiveScRefresh(token: string): void {
+  clearScRefreshTimer();
+  if (typeof window === 'undefined') return;
+  const bridge = (window as any).bridge;
+  if (typeof bridge?.scRefresh !== 'function') return;
+  const delayMs = getScTokenRefreshDelayMs(token, SC_PROACTIVE_REFRESH_LEEWAY_SEC);
+  if (delayMs === null || delayMs <= 0) return;
+  const scheduledGen = scAuthGeneration;
+  scRefreshTimer = setTimeout(() => {
+    scRefreshTimer = null;
+    if (scAuthGeneration !== scheduledGen || !getScToken()) return;
+    void refreshScTokenInternal(getScToken());
+  }, Math.min(delayMs, MAX_TIMEOUT_MS));
+}
+
+function applyRefreshedScToken(token: string, expectedGen: number): boolean {
+  if (!token || scAuthGeneration !== expectedGen || !getScToken()) return false;
+  localStorage.setItem(SC_TOKEN_KEY, token);
+  scheduleProactiveScRefresh(token);
+  return true;
+}
+
+// Единая точка обновления oauth_token в рендерере: дедуплицирует параллельные вызовы и защищает от гонки с scDisconnect.
+async function refreshScTokenInternal(
+  failedToken?: string,
+  opts?: { force?: boolean }
+): Promise<ScInternalRefreshResult> {
+  const startGen = scAuthGeneration;
+  const current = getScToken();
+  if (!current) return { status: 'no_refresh_token' };
+
+  const bridge = (window as any).bridge;
+  if (typeof bridge?.scRefresh !== 'function') return { status: 'no_refresh_token' };
+
+  if (scRefreshInFlight) {
+    const shared = await scRefreshInFlight;
+    if (scAuthGeneration !== startGen) return { status: 'cancelled' };
+    if (!(opts?.force && shared.status === 'ok' && failedToken && shared.token === failedToken)) {
+      return shared;
+    }
+  }
+
+  const latestCurrent = getScToken();
+  if (!latestCurrent || scAuthGeneration !== startGen) return { status: 'cancelled' };
+  if (failedToken && latestCurrent !== failedToken && !isScTokenExpiringSoon(latestCurrent, 30)) {
+    return { status: 'ok', token: latestCurrent };
+  }
+
+  let run: Promise<ScInternalRefreshResult> | null = null;
+  run = (async (): Promise<ScInternalRefreshResult> => {
+    try {
+      const res = await bridge.scRefresh({
+        failedToken: failedToken || latestCurrent,
+        clientId: scClientId || undefined,
+        force: opts?.force,
+      });
+      if (scAuthGeneration !== startGen) {
+        return { status: 'cancelled' };
+      }
+      if (res?.status === 'ok' && res.token) {
+        applyRefreshedScToken(res.token, startGen);
+        lastBgRefreshFailAt = 0;
+        return { status: 'ok', token: res.token as string };
+      }
+      if (res?.status === 'no_refresh_token' || res?.status === 'unauthorized' || res?.status === 'cancelled') {
+        lastBgRefreshFailAt = Date.now();
+        return { status: res.status };
+      }
+      lastBgRefreshFailAt = Date.now();
+      return { status: 'error' };
+    } catch (e) {
+      console.warn('[soundcloud] scRefresh failed', e);
+      lastBgRefreshFailAt = Date.now();
+      return { status: 'error' };
+    } finally {
+      if (scRefreshInFlight === run) {
+        scRefreshInFlight = null;
+      }
+    }
+  })();
+
+  scRefreshInFlight = run;
+  return run;
+}
+
+export async function refreshScToken(force = false): Promise<string | null> {
+  const res = await refreshScTokenInternal(getScToken(), { force });
+  return res.status === 'ok' ? res.token : null;
+}
+
+// Возвращает актуальный oauth_token и метаданные, была ли уже попытка проактивного обновления.
+async function getValidScTokenWithMeta(): Promise<{
+  token: string;
+  attemptedRefresh: boolean;
+  refreshStatus?: ScInternalRefreshResult['status'];
+}> {
+  const token = getScToken();
+  if (!token) return { token: '', attemptedRefresh: false };
+  if (isScTokenExpiringSoon(token, SC_PROACTIVE_REFRESH_LEEWAY_SEC)) {
+    const ref = await refreshScTokenInternal(token);
+    if (ref.status === 'ok') {
+      return { token: ref.token, attemptedRefresh: true, refreshStatus: 'ok' };
+    }
+    if (ref.status === 'cancelled') {
+      return { token: '', attemptedRefresh: true, refreshStatus: 'cancelled' };
+    }
+    return { token: getScToken(), attemptedRefresh: true, refreshStatus: ref.status };
+  }
+  return { token, attemptedRefresh: false };
+}
+
+// Обертка для Python SC-команд с автообновлением oauth_token при истечении JWT или 401.
+async function scPyCallWithAuth(
+  command: string,
+  args: Record<string, unknown>,
+  opts: { requireAuth?: boolean; fallbackAnonymous?: boolean } = {}
+): Promise<any> {
+  const startGen = scAuthGeneration;
+  const initial = await getValidScTokenWithMeta();
+  let token = initial.token;
+  if (scAuthGeneration !== startGen) return null;
+  if (opts.requireAuth && !token) return null;
+
+  const bridge = (window as any).bridge;
+  let res = await bridge.pyCall(command, { ...args, token });
+  if (scAuthGeneration !== startGen) return null;
+
+  if (token && res?.status === 'unauthorized') {
+    let refStatus = initial.refreshStatus;
+    if (!initial.attemptedRefresh) {
+      const ref = await refreshScTokenInternal(token, { force: true });
+      refStatus = ref.status;
+      if (scAuthGeneration !== startGen || !getScToken()) return null;
+      if (ref.status === 'ok') {
+        token = ref.token;
+        res = await bridge.pyCall(command, { ...args, token });
+        if (scAuthGeneration !== startGen) return null;
+      }
+    }
+    // Обновляем client_id только если токен не заведомо протухший JWT (иначе это лишний скрапинг soundcloud.com).
+    if (
+      res?.status === 'unauthorized' &&
+      refStatus !== 'unauthorized' &&
+      refStatus !== 'cancelled' &&
+      !isScTokenExpiringSoon(token, 0)
+    ) {
+      const { cid } = await ensureScClientId(true);
+      if (scAuthGeneration !== startGen || !getScToken()) return null;
+      if (cid) {
+        res = await bridge.pyCall(command, { ...args, token });
+        if (scAuthGeneration !== startGen) return null;
+      }
+    }
+    if (res?.status === 'unauthorized' && opts.fallbackAnonymous) {
+      res = await bridge.pyCall(command, { ...args, token: '' });
+    }
+  }
+  return res;
 }
 
 function emitScToast(message: string, type: 'error' | 'info' | 'success' = 'error'): void {
@@ -410,11 +593,13 @@ export async function ensureScClientId(force = false): Promise<{ cid: string; ap
   return { cid: scClientId, appVersion: scAppVersion };
 }
 
-async function ensureScUid(token: string): Promise<string> {
+async function ensureScUid(): Promise<string> {
   const existing = getScUid();
   if (existing) return existing;
+  const startGen = scAuthGeneration;
   try {
-    const res = await (window as any).bridge.pyCall('sc_me', { token });
+    const res = await scPyCallWithAuth('sc_me', {}, { requireAuth: true });
+    if (scAuthGeneration !== startGen || !isScAuthed()) return '';
     if (res?.status === 'ok' && res.connected && res.id !== undefined && res.id !== null) {
       const uid = String(res.id);
       if (uid) {
@@ -428,17 +613,29 @@ async function ensureScUid(token: string): Promise<string> {
   return '';
 }
 
-// Надежный вход: окно SoundCloud (логин + DataDome), забираем oauth_token и валидируем.
-export async function scLoginViaWebview(): Promise<ScAccount | null> {
+export type ScWebviewLoginResult =
+  | { status: 'ok'; account: ScAccount }
+  | { status: 'cancelled' }
+  | { status: 'error' };
+
+// Надежный вход: окно SoundCloud (логин + DataDome), забираем oauth_token и валидируем, сохраняя oauth_refresh_token в сессии.
+export async function scLoginViaWebviewDetailed(): Promise<ScWebviewLoginResult> {
   try {
     const res = await (window as any).bridge.scLogin();
+    if (res?.status === 'cancelled') return { status: 'cancelled' };
     if (res?.status === 'ok' && res.token) {
-      return scConnect(res.token);
+      const account = await scConnect(res.token, undefined, { syncSession: false });
+      return account ? { status: 'ok', account } : { status: 'error' };
     }
   } catch (e) {
     console.warn('[soundcloud] scLoginViaWebview failed', e);
   }
-  return null;
+  return { status: 'error' };
+}
+
+export async function scLoginViaWebview(): Promise<ScAccount | null> {
+  const res = await scLoginViaWebviewDetailed();
+  return res.status === 'ok' ? res.account : null;
 }
 
 export function isScAuthed(): boolean {
@@ -446,6 +643,11 @@ export function isScAuthed(): boolean {
 }
 
 export async function scDisconnect(): Promise<void> {
+  scAuthGeneration += 1;
+  clearScRefreshTimer();
+  scRefreshInFlight = null;
+  lastBgRefreshFailAt = 0;
+
   // Сначала сбрасываем in-flight очередь лайков, чтобы отмененные запросы не делали откат поверх выхода.
   for (const hook of scDisconnectHooks) {
     try { hook(); } catch { /* ignore */ }
@@ -465,15 +667,69 @@ export async function scDisconnect(): Promise<void> {
   try { await (window as any).bridge?.scLogout?.(); } catch { /* ignore */ }
 }
 
-// Проверяет токен через api-v2 /me. При успехе сохраняет его и возвращает аккаунт.
-export async function scConnect(token: string): Promise<ScAccount | null> {
+// Проверяет токен через api-v2 /me (при просроченном oauth_token + валидном oauth_refresh_token пробует обновить).
+// При успехе сохраняет токены и возвращает аккаунт.
+export async function scConnect(
+  token: string,
+  refreshToken?: string,
+  opts?: { syncSession?: boolean }
+): Promise<ScAccount | null> {
   const t = (token || '').trim();
+  const rt = (refreshToken || '').trim();
+  const syncSession = opts?.syncSession !== false;
   if (!t) return null;
+
+  const bridge = (window as any).bridge;
   try {
-    const res = await (window as any).bridge.pyCall('sc_me', { token: t });
+    let effectiveToken = t;
+    let syncedViaRefresh = false;
+    let res = await bridge.pyCall('sc_me', { token: effectiveToken });
+
+    // Если токен не просроченный JWT и sc_me вернул 401, сначала обновляем client_id в Python, чтобы не сжечь refresh_token зря.
+    if (res?.status === 'unauthorized' && !isScTokenExpiringSoon(effectiveToken, 0)) {
+      const { cid } = await ensureScClientId(true);
+      if (cid) {
+        res = await bridge.pyCall('sc_me', { token: effectiveToken });
+      }
+    }
+
+    if (
+      res?.status === 'unauthorized' &&
+      rt &&
+      typeof bridge?.scSetTokens === 'function' &&
+      typeof bridge?.scRefresh === 'function'
+    ) {
+      const seeded = await bridge.scSetTokens({ oauthToken: t, refreshToken: rt });
+      if (seeded?.status === 'ok') {
+        const ref = await bridge.scRefresh({
+          failedToken: t,
+          clientId: scClientId || undefined,
+          force: true,
+        });
+        if (ref?.status === 'ok' && ref.token) {
+          effectiveToken = ref.token;
+          syncedViaRefresh = true;
+          res = await bridge.pyCall('sc_me', { token: effectiveToken });
+        }
+      }
+    }
+
     if (res?.status === 'ok' && res.connected) {
-      localStorage.setItem(SC_TOKEN_KEY, t);
+      const prevToken = getScToken();
+      if (prevToken && prevToken !== effectiveToken) {
+        scAuthGeneration += 1;
+      }
+      localStorage.setItem(SC_TOKEN_KEY, effectiveToken);
       localStorage.setItem(SC_UID_KEY, String(res.id));
+      if (syncSession && !syncedViaRefresh && typeof bridge?.scSetTokens === 'function') {
+        try {
+          await bridge.scSetTokens({
+            oauthToken: effectiveToken,
+            ...(rt ? { refreshToken: rt } : {}),
+          });
+        } catch { /* ignore */ }
+      }
+      scheduleProactiveScRefresh(effectiveToken);
       loadScLikedIds();
       return { id: res.id, username: res.username || '', avatarUrl: res.avatarUrl || '', permalinkUrl: res.permalinkUrl || '' };
     }
@@ -483,23 +739,37 @@ export async function scConnect(token: string): Promise<ScAccount | null> {
   return null;
 }
 
-// Перепроверяет уже сохранённый токен (для отображения статуса при открытии настроек).
+// Перепроверяет уже сохраненный токен с автоматическим refresh (для отображения статуса при открытии настроек).
 export async function getScAccount(): Promise<ScAccount | null> {
-  const t = getScToken();
-  if (!t) return null;
-  return scConnect(t);
+  if (!getScToken()) return null;
+  const startGen = scAuthGeneration;
+  try {
+    const res = await scPyCallWithAuth('sc_me', {}, { requireAuth: true });
+    if (scAuthGeneration !== startGen || !isScAuthed()) return null;
+    if (res?.status === 'ok' && res.connected) {
+      if (res.id !== undefined && res.id !== null) {
+        localStorage.setItem(SC_UID_KEY, String(res.id));
+      }
+      scheduleProactiveScRefresh(getScToken());
+      return { id: res.id, username: res.username || '', avatarUrl: res.avatarUrl || '', permalinkUrl: res.permalinkUrl || '' };
+    }
+  } catch (e) {
+    console.warn('[soundcloud] getScAccount failed', e);
+  }
+  return null;
 }
 
 // --- Лайки на SoundCloud (только в авторизованном режиме) ---
-// Множество permalink-URL'ов лайкнутых треков — для статуса лайков в радио/поиске.
+// Множество ID лайкнутых треков - для статуса лайков в радио/поиске.
 let scLikedSet = new Set<string>();
 let scLocalOnlySet = new Set<string>();
 
 export async function loadScLikedIds(): Promise<void> {
-  const t = getScToken();
-  if (!t) { scLikedSet = new Set(); return; }
+  if (!getScToken()) { scLikedSet = new Set(); return; }
+  const startGen = scAuthGeneration;
   try {
-    const res = await (window as any).bridge.pyCall('sc_liked_ids', { token: t });
+    const res = await scPyCallWithAuth('sc_liked_ids', {}, { requireAuth: true });
+    if (scAuthGeneration !== startGen || !isScAuthed()) return;
     if (res?.status === 'ok' && Array.isArray(res.ids)) {
       scLikedSet = new Set(res.ids);
       window.dispatchEvent(new CustomEvent('sc-likes-loaded'));
@@ -545,8 +815,19 @@ export function removeScLocalOnlyId(scId: string): void {
 
 // Ставит/снимает лайк на SoundCloud через Electron session.fetch() или legacy nodriver.
 export async function scSetLiked(scId: string | undefined, scUrl: string | undefined, liked: boolean): Promise<boolean> {
-  const token = getScToken();
-  if (!token || !scId) return false;
+  const startGen = scAuthGeneration;
+  const tokenInfo = await getValidScTokenWithMeta();
+  let token = tokenInfo.token;
+  if (scAuthGeneration !== startGen || !token || !scId) return false;
+
+  if (
+    tokenInfo.attemptedRefresh &&
+    tokenInfo.refreshStatus === 'unauthorized' &&
+    isScTokenExpiringSoon(token, 0)
+  ) {
+    emitScToast('Сессия SoundCloud истекла. Войдите заново в Настройках', 'error');
+    return false;
+  }
 
   const trackUrl = (scUrl && scUrl.startsWith('https://soundcloud.com/'))
     ? scUrl
@@ -571,7 +852,7 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
     });
     if (res?.status === 'ok') {
       const actualLiked = res.liked === 'liked';
-      if (getScToken() === token) {
+      if (scAuthGeneration === startGen && isScAuthed()) {
         setScLikedInMemory(scId, actualLiked);
       }
       return actualLiked === liked;
@@ -583,31 +864,40 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
     return false;
   }
 
-  const uid = await ensureScUid(token);
+  const uid = await ensureScUid();
+  if (scAuthGeneration !== startGen || !isScAuthed()) return false;
   if (!uid) {
     emitScToast('Не удалось определить аккаунт SoundCloud. Войдите заново в Настройках', 'error');
     return false;
   }
+  token = getScToken() || token;
 
   let { cid, appVersion } = await ensureScClientId(false);
+  if (scAuthGeneration !== startGen || !isScAuthed()) return false;
   if (!cid) {
     emitScToast('Не удалось получить client_id SoundCloud', 'error');
     return false;
   }
 
-  const invokeScLike = async (clientId: string, version: string) => bridge.scLike({
+  const invokeScLike = async (
+    oauthToken: string,
+    clientId: string,
+    version: string,
+    skipRefresh?: boolean
+  ) => bridge.scLike({
     uid,
     scId,
     scUrl: trackUrl,
     liked,
-    oauthToken: token,
+    oauthToken,
     clientId,
     appVersion: version,
+    ...(skipRefresh ? { skipRefresh: true } : {}),
   });
 
-  let res: { status?: string; message?: string } | undefined;
+  let res: { status?: string; message?: string; refreshedToken?: string } | undefined;
   try {
-    res = await invokeScLike(cid, appVersion);
+    res = await invokeScLike(token, cid, appVersion, tokenInfo.attemptedRefresh);
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : '';
     emitScToast(
@@ -617,14 +907,18 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
     return false;
   }
 
+  if (res?.refreshedToken && applyRefreshedScToken(res.refreshedToken, startGen)) {
+    token = res.refreshedToken;
+  }
+
   // При 401 один раз принудительно обновляем client_id и повторяем запрос без сброса сессии.
-  if (res?.status === 'unauthorized') {
+  if (res?.status === 'unauthorized' && scAuthGeneration === startGen && isScAuthed()) {
     const refreshed = await ensureScClientId(true);
     cid = refreshed.cid;
     appVersion = refreshed.appVersion;
-    if (cid) {
+    if (cid && scAuthGeneration === startGen && isScAuthed()) {
       try {
-        res = await invokeScLike(cid, appVersion);
+        res = await invokeScLike(token, cid, appVersion, true);
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : '';
         emitScToast(
@@ -633,11 +927,14 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
         );
         return false;
       }
+      if (res?.refreshedToken && applyRefreshedScToken(res.refreshedToken, startGen)) {
+        token = res.refreshedToken;
+      }
     }
   }
 
   if (res?.status === 'ok') {
-    if (getScToken() === token) {
+    if (scAuthGeneration === startGen && isScAuthed()) {
       setScLikedInMemory(scId, liked);
     }
     return true;
@@ -661,14 +958,14 @@ export async function scSetLiked(scId: string | undefined, scUrl: string | undef
 }
 
 // Открывает Chrome с кастомным профилем, юзер логинится в SC руками,
-// забираем oauth_token и сохраняем.
+// забираем oauth_token (и oauth_refresh_token через CDP) и сохраняем.
 export async function scEnsureProfile(): Promise<boolean> {
   try {
     const bridge = (window as any).bridge;
     const profileDir = await bridge.getScProfileDir();
     const res = await bridge.pyCall('sc_setup_profile', { profileDir, browserPath: getScBrowserPath() || undefined });
     if (res?.status === 'ok' && res.token) {
-      const acc = await scConnect(res.token);
+      const acc = await scConnect(res.token, res.refreshToken);
       if (acc) return true;
     }
     if (res?.message) {
@@ -682,12 +979,24 @@ export async function scEnsureProfile(): Promise<boolean> {
   return false;
 }
 
-// При старте подтягиваем SC-лайки, если есть токен (чтобы статус был в радио/поиске).
+// При старте подтягиваем SC-лайки и планируем проактивное обновление JWT (если он истекающий).
 // Всегда загружаем local-only лайки, даже без SC-авторизации.
 // Гард по window: в node-окружении тестов localStorage отсутствует.
 if (typeof window !== 'undefined') {
-  if (getScToken()) loadScLikedIds();
-  loadScLocalOnlyIds();  // always — even without SC auth
+  const initialToken = getScToken();
+  if (initialToken) {
+    scheduleProactiveScRefresh(initialToken);
+    loadScLikedIds();
+  }
+  loadScLocalOnlyIds();  // always - even without SC auth
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('focus', () => {
+      const t = getScToken();
+      if (!t || !isScTokenExpiringSoon(t, SC_PROACTIVE_REFRESH_LEEWAY_SEC)) return;
+      if (Date.now() - lastBgRefreshFailAt < SC_BG_REFRESH_RETRY_COOLDOWN_MS) return;
+      void refreshScTokenInternal(t);
+    });
+  }
 }
 
 export interface ScArtistDetail {
@@ -825,12 +1134,16 @@ export async function getSoundCloudPlaylist(url: string): Promise<ScPlaylistDeta
   return null;
 }
 
-// SC-радио от трека (api-v2 /tracks/{id}/related; с токеном — персонализировано).
+// SC-радио от трека (api-v2 /tracks/{id}/related; с токеном - персонализировано).
 export async function getScRecommendations(opts: { scId?: string; url?: string }): Promise<YTMTrack[]> {
   if (!isSoundCloudEnabled()) return [];
   if (!opts.scId && !opts.url) return [];
   try {
-    const res = await (window as any).bridge.pyCall('sc_recommendations', { token: getScToken(), scId: opts.scId || '', url: opts.url || '' });
+    const res = await scPyCallWithAuth(
+      'sc_recommendations',
+      { scId: opts.scId || '', url: opts.url || '' },
+      { fallbackAnonymous: true }
+    );
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: ScSearchEntry) => scEntryToTrack(e));
       tracks.forEach((t: YTMTrack) => { if (t.scUrl) registerSoundCloudTrack(t.id, t.scUrl); });
@@ -842,12 +1155,11 @@ export async function getScRecommendations(opts: { scId?: string; url?: string }
   return [];
 }
 
-// Полная выгрузка лайкнутых SC-треков с временем лайка (для локального стора/вкладки лайков).
-export async function getScLikedEntries(): Promise<ScLikedEntry[]> {
-  const token = getScToken();
-  if (!token) return [];
+// Полная выгрузка лайкнутых SC-треков с временем лайка (null при ошибке/401, чтобы sync не стер зеркало).
+export async function getScLikedEntries(): Promise<ScLikedEntry[] | null> {
+  if (!getScToken()) return null;
   try {
-    const res = await (window as any).bridge.pyCall('sc_liked_tracks', { token });
+    const res = await scPyCallWithAuth('sc_liked_tracks', {}, { requireAuth: true });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const entries = res.results
         .filter((e: any) => e.scId)
@@ -862,15 +1174,14 @@ export async function getScLikedEntries(): Promise<ScLikedEntry[]> {
   } catch (e) {
     console.warn('[soundcloud] getScLikedEntries failed', e);
   }
-  return [];
+  return null;
 }
 
-// Дёшево: число SC-лайков + первые id, для сверки без полной загрузки (как virtualCount у YT).
+// Дешево: число SC-лайков + первые id, для сверки без полной загрузки (как virtualCount у YT).
 export async function getScLikedMeta(): Promise<{ count: number; headIds: string[] } | null> {
-  const token = getScToken();
-  if (!token) return null;
+  if (!getScToken()) return null;
   try {
-    const res = await (window as any).bridge.pyCall('sc_liked_meta', { token });
+    const res = await scPyCallWithAuth('sc_liked_meta', {}, { requireAuth: true });
     if (res?.status === 'ok') return { count: res.count || 0, headIds: res.headIds || [] };
   } catch (e) {
     console.warn('[soundcloud] getScLikedMeta failed', e);
@@ -884,7 +1195,7 @@ export interface ScWaveStation { id: string; title: string; thumbUrl: string; }
 export async function getScWaveStations(): Promise<ScWaveStation[]> {
   if (!isSoundCloudEnabled()) return [];
   try {
-    const res = await (window as any).bridge.pyCall('sc_wave_stations', { token: getScToken() });
+    const res = await scPyCallWithAuth('sc_wave_stations', {}, { fallbackAnonymous: true });
     if (res?.status === 'ok' && Array.isArray(res.stations)) {
       return res.stations.map((s: any) => ({ id: String(s.id), title: s.title || '', thumbUrl: s.thumbUrl || '' }));
     }
@@ -898,7 +1209,7 @@ export async function getScWaveStations(): Promise<ScWaveStation[]> {
 export async function getScStationTracks(id: string): Promise<YTMTrack[]> {
   if (!id) return [];
   try {
-    const res = await (window as any).bridge.pyCall('sc_station_tracks', { id, token: getScToken() });
+    const res = await scPyCallWithAuth('sc_station_tracks', { id }, { fallbackAnonymous: true });
     if (res?.status === 'ok' && Array.isArray(res.results)) {
       const tracks = res.results.map((e: ScSearchEntry) => scEntryToTrack(e));
       tracks.forEach((t: YTMTrack) => { if (t.scUrl) registerSoundCloudTrack(t.id, t.scUrl); });

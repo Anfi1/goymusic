@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { isInterfaceScale } from '../src/utils/interfaceScale'
-import type { ScLikeRequest } from './scLikes'
+import type { ScLikeRequest, ScRefreshRequest, ScSetTokensRequest } from './scLikes'
 
 contextBridge.exposeInMainWorld('bridge', {
   ping: () => ipcRenderer.invoke('ping'),
@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('bridge', {
   scLogin: () => ipcRenderer.invoke('sc:login'),
   scLogout: () => ipcRenderer.invoke('sc:logout'),
   scLike: (payload: ScLikeRequest) => ipcRenderer.invoke('sc:like', payload),
+  scRefresh: (payload?: ScRefreshRequest) => ipcRenderer.invoke('sc:refresh', payload),
+  scSetTokens: (payload: ScSetTokensRequest) => ipcRenderer.invoke('sc:set-tokens', payload),
   winMinimize: () => ipcRenderer.send('win:minimize'),
   winMaximize: () => ipcRenderer.send('win:maximize'),
   winFullscreen: () => ipcRenderer.send('win:fullscreen'),

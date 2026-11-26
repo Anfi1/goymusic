@@ -10,7 +10,7 @@ import { clearAllOverrides, restoreOverridesFromFolder } from '../../api/localOv
 import { tracksStore } from '../../api/tracks';
 import { streamCache } from '../../api/cache';
 import { updateStore, useUpdateState } from '../../api/updateStore';
-import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, scLoginViaWebview, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath, getScLikeMode, setScLikeMode, ScLikeMode } from '../../api/soundcloud';
+import { isSoundCloudEnabled, setSoundCloudEnabled, scConnect, scDisconnect, getScAccount, getScToken, scEnsureProfile, scLoginViaWebviewDetailed, ScAccount, getScLocalOnlyCount, loadScLikedIds, loadScLocalOnlyIds, scSetLiked, getScBrowserPath, setScBrowserPath, getScLikeMode, setScLikeMode, ScLikeMode } from '../../api/soundcloud';
 import { isYandexEnabled, setYandexEnabled, yandexAuthStart, yandexAuthPoll, yandexAuthStatus, yandexLogout, YandexDeviceCode } from '../../api/yandex';
 import { YandexMusicIcon } from '../atoms/YandexMusicIcon';
 import { YandexImportModal } from './YandexImportModal';
@@ -40,6 +40,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
     const [scEnabled, setScEnabled] = useState(isSoundCloudEnabled());
     const [scAccount, setScAccount] = useState<ScAccount | null>(null);
     const [scTokenInput, setScTokenInput] = useState('');
+    const [scRefreshTokenInput, setScRefreshTokenInput] = useState('');
     const [scConnecting, setScConnecting] = useState(false);
     const [scError, setScError] = useState(false);
     const [scLocalCount, setScLocalCount] = useState(0);
@@ -146,10 +147,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         if (scConnecting || !scTokenInput.trim()) return;
         setScConnecting(true);
         setScError(false);
-        const acc = await scConnect(scTokenInput);
+        const acc = await scConnect(scTokenInput, scRefreshTokenInput);
         if (acc) {
             setScAccount(acc);
             setScTokenInput('');
+            setScRefreshTokenInput('');
         } else {
             setScError(true);
         }
@@ -161,13 +163,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
         setScConnecting(true);
         setScError(false);
         if (scLikeMode === 'electron') {
-            const acc = await scLoginViaWebview();
-            if (acc) {
-                setScAccount(acc);
+            const res = await scLoginViaWebviewDetailed();
+            if (res.status === 'ok') {
+                setScAccount(res.account);
                 setScError(false);
                 void scLikedManager.sync();
                 setScLocalCount(getScLocalOnlyCount());
-            } else {
+            } else if (res.status === 'error') {
                 setScError(true);
             }
         } else {
@@ -539,20 +541,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onLogout }) => {
                                     disabled={scConnecting}
                                     style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: 'var(--brand-soundcloud)', color: '#fff', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: scConnecting ? 0.6 : 1, whiteSpace: 'nowrap' }}
                                 >{scConnecting ? '...' : 'Log in to SoundCloud'}</button>
-                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-end' }}>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                        <input
+                                            type="password"
+                                            placeholder="or paste oauth_token"
+                                            value={scTokenInput}
+                                            onChange={(e) => setScTokenInput(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleScConnect(); }}
+                                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.25)', color: 'var(--text-main)', fontSize: 13, width: 180 }}
+                                        />
+                                        <button
+                                            onClick={handleScConnect}
+                                            disabled={scConnecting || !scTokenInput.trim()}
+                                            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-main)', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: (scConnecting || !scTokenInput.trim()) ? 0.6 : 1 }}
+                                        >Use token</button>
+                                    </div>
                                     <input
                                         type="password"
-                                        placeholder="or paste oauth_token"
-                                        value={scTokenInput}
-                                        onChange={(e) => setScTokenInput(e.target.value)}
+                                        placeholder="oauth_refresh_token (optional)"
+                                        value={scRefreshTokenInput}
+                                        onChange={(e) => setScRefreshTokenInput(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter') handleScConnect(); }}
-                                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.25)', color: 'var(--text-main)', fontSize: 13, width: 160 }}
+                                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.25)', color: 'var(--text-main)', fontSize: 13, width: 268 }}
                                     />
-                                    <button
-                                        onClick={handleScConnect}
-                                        disabled={scConnecting || !scTokenInput.trim()}
-                                        style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-main)', cursor: scConnecting ? 'default' : 'pointer', fontSize: 13, opacity: (scConnecting || !scTokenInput.trim()) ? 0.6 : 1 }}
-                                    >Use token</button>
                                 </div>
                             </div>
                         )}

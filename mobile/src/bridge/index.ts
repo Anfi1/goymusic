@@ -86,6 +86,8 @@ export async function installMobileBridge(): Promise<void> {
       }
     },
     scLogin: async () => pyCall('sc_login', {}),
+    scRefresh: async () => ({ status: 'no_refresh_token' as const }),
+    scSetTokens: async () => ({ status: 'ok' as const }),
     winMinimize: noop, winMaximize: noop, winFullscreen: noop, winClose: noop,
     winSetBackgroundMaterial: noop,
     winGetBounds: async () => ({ width: window.innerWidth, height: window.innerHeight }),
