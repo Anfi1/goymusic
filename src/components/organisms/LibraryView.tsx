@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { getLibrary, LibraryTab, LibraryOrder, getAlbum, getPlaylistTracks, shuffleLibrarySongs, YTMTrack } from '../../api/yt';
+import { hydrateTracksLikeStatus, useLikedLookup } from '../../api/likedIndex';
 import { player } from '../../api/player';
 import { MediaCard } from '../molecules/MediaCard';
 import { MediaCardSkeleton } from '../molecules/MediaCardSkeleton';
@@ -48,6 +49,7 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
   const [order, setOrder] = useState<LibraryOrder>(savedOrder);
   const [fetchLimit, setFetchLimit] = useState<number>(30);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const likedLookup = useLikedLookup();
 
   // Artist Liked Songs Modal State & Pagination
   const [artistModalData, setArtistModalData] = useState<{ id: string; artistId?: string; title: string; thumbUrl?: string; subText?: string } | null>(null);
@@ -246,17 +248,23 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
       return copy;
     }
 
-    if (activeTab === 'songs' && order !== 'recently_added') {
-      const copy = [...rawItems];
-      if (order === 'a_to_z') {
-        copy.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      } else if (order === 'z_to_a') {
-        copy.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
-      }
-      return copy;
+    if (activeTab === 'songs') {
+      const sorted = order === 'recently_added'
+        ? rawItems
+        : [...rawItems].sort((a, b) =>
+            order === 'a_to_z'
+              ? (a.title || '').localeCompare(b.title || '')
+              : (b.title || '').localeCompare(a.title || '')
+          );
+      return hydrateTracksLikeStatus(sorted, likedLookup);
     }
     return rawItems;
-  }, [rawItems, activeTab, order]);
+  }, [rawItems, activeTab, order, likedLookup]);
+
+  const resolvedModalTracks = useMemo(
+    () => hydrateTracksLikeStatus(modalTracks, likedLookup),
+    [modalTracks, likedLookup],
+  );
 
   const handleItemClick = useCallback((item: any) => {
     const type = item.type?.toLowerCase();
@@ -324,17 +332,17 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
   }, [items]);
 
   const handleModalPlayAll = useCallback(async () => {
-    if (modalTracks.length > 0 && artistModalData) {
-      await player.playTrackList(modalTracks, 0, artistModalData.id, 'playlist');
+    if (resolvedModalTracks.length > 0 && artistModalData) {
+      await player.playTrackList(resolvedModalTracks, 0, artistModalData.id, 'playlist');
     }
-  }, [modalTracks, artistModalData]);
+  }, [resolvedModalTracks, artistModalData]);
 
   const handleModalShuffle = useCallback(async () => {
-    if (modalTracks.length > 0 && artistModalData) {
-      const shuffled = [...modalTracks].sort(() => Math.random() - 0.5);
+    if (resolvedModalTracks.length > 0 && artistModalData) {
+      const shuffled = [...resolvedModalTracks].sort(() => Math.random() - 0.5);
       await player.playTrackList(shuffled, 0, artistModalData.id, 'playlist');
     }
-  }, [modalTracks, artistModalData]);
+  }, [resolvedModalTracks, artistModalData]);
 
   const yandexItems: any[] = yandexPlaylistsMode ? yandexPlaylists
     : yandexAlbumsMode ? yandexAlbums
@@ -618,12 +626,12 @@ export const LibraryView: React.FC<LibraryViewProps> = memo(({
                   <table className={styles.modalTable}>
                     <TrackColumnGroup />
                     <tbody>
-                      {modalTracks.map((track: YTMTrack, idx: number) => (
+                      {resolvedModalTracks.map((track: YTMTrack, idx: number) => (
                         <TrackRow
                           key={track.id || idx}
                           index={idx + 1}
                           {...track}
-                          onClick={() => player.playTrackList(modalTracks, idx, artistModalData.id, 'playlist')}
+                          onClick={() => player.playTrackList(resolvedModalTracks, idx, artistModalData.id, 'playlist')}
                           onSelectArtist={onSelectArtist}
                           onSelectAlbum={onSelectAlbum}
                         />

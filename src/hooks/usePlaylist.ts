@@ -8,6 +8,7 @@ import { likedStore, HydratedLikedEntry, HydratedScLikedEntry, LikedEntry, YT_IM
 import { likedPlaylistTracks } from './likedPlaylistTracks';
 import { likedManager } from '../api/likedManager';
 import { scLikedManager } from '../api/scLikedManager';
+import { hydrateTracksLikeStatus, useLikedLookup } from '../api/likedIndex';
 import { tracksStore } from '../api/tracks';
 import { LOCAL_PLAYLIST_ID, getAllOverrides, onOverrideChanged } from '../api/localOverrides';
 
@@ -69,6 +70,10 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
   
   const queryKey = playlistQueryKey(type, id);
   const isLiked = type === 'liked' || id === 'LM';
+  // В Liked Songs все треки уже идут из likedStore: не подписываемся на likedIndex,
+  // чтобы обновления не пересобирали 5000+ треков и сортировку по альбомам.
+  const likedLookup = useLikedLookup(!isLiked);
+  const lookupForHydration = isLiked ? null : likedLookup;
   const likedProgress = useSyncExternalStore(
     likedManager.subscribeProgress, () => isLiked ? likedManager.getProgress() : null,
   );
@@ -303,15 +308,19 @@ export const usePlaylist = (type: PlaylistType, id?: string) => {
 
     // Playlist entries have their own setVideoIds. The same recording can occur
     // more than once, or have a different entry ID in another playlist.
-    if (!isLiked && type === 'playlist' && data?.pages[0]?.metadata?.owned) return tracks.filter(track => track.id);
+    if (lookupForHydration && type === 'playlist' && data?.pages[0]?.metadata?.owned) {
+      return hydrateTracksLikeStatus(tracks.filter(track => track.id), lookupForHydration);
+    }
 
     const seen = new Set();
-    return tracks.filter(track => {
+    const deduped = tracks.filter(track => {
       if (!track.id || seen.has(track.id)) return false;
       seen.add(track.id);
       return true;
-    }).map(getStableTrack);
-  }, [data, localTracks, scEntries, useLocalLikes, isLiked, type, getStableTrack]);
+    });
+    const resolved = lookupForHydration ? hydrateTracksLikeStatus(deduped, lookupForHydration) : deduped;
+    return resolved.map(getStableTrack);
+  }, [data, localTracks, scEntries, useLocalLikes, isLiked, type, getStableTrack, lookupForHydration]);
 
   const albumSortedTracks = useMemo(() => {
     if (!isLiked || localTracks.length === 0) return baseTracks;

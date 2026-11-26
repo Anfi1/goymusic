@@ -12,6 +12,7 @@ import { YTMTrack } from '../../api/yt';
 import { TrackSource } from '../../api/source';
 import { isSoundCloudEnabled } from '../../api/soundcloud';
 import { isYandexEnabled } from '../../api/yandex';
+import { hydrateTracksLikeStatus, useLikedLookup } from '../../api/likedIndex';
 import { SourceSwitcher } from '../atoms/SourceSwitcher';
 
 interface QueuePanelProps {
@@ -186,6 +187,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
 
   const [fullQueue, setFullQueue] = useState([...player.queue]);
   const lastQueueRef = useRef(player.queue);
+  const likedLookup = useLikedLookup();
 
   useEffect(() => {
     const update = (event: any) => {
@@ -197,6 +199,15 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
     };
     return player.subscribe(update);
   }, []);
+
+  const hydratedQueue = useMemo(
+    () => hydrateTracksLikeStatus(fullQueue, likedLookup),
+    [fullQueue, likedLookup],
+  );
+  const hydratedRecommendations = useMemo(
+    () => hydrateTracksLikeStatus(recommendations, likedLookup),
+    [recommendations, likedLookup],
+  );
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -256,8 +267,8 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
   }, []);
 
   // Read recommendations through a ref so onSuggestedPlay stays stable
-  const recsRef = useRef(recommendations);
-  recsRef.current = recommendations;
+  const recsRef = useRef(hydratedRecommendations);
+  recsRef.current = hydratedRecommendations;
 
   const onSuggestedPlay = useCallback((index?: number) => {
     const recs = recsRef.current;
@@ -271,7 +282,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
   const components = useMemo(() => ({
     Footer: () => (
       <SuggestedSection
-        tracks={recommendations}
+        tracks={hydratedRecommendations}
         isLoading={isRecommendationsLoading}
         onPlay={onSuggestedPlay}
         onContextMenu={handleContextMenu}
@@ -279,7 +290,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
         onSelectArtist={onSelectArtist}
       />
     )
-  }), [recommendations, isRecommendationsLoading, onSuggestedPlay, handleContextMenu, handleRefreshRecs, onSelectArtist]);
+  }), [hydratedRecommendations, isRecommendationsLoading, onSuggestedPlay, handleContextMenu, handleRefreshRecs, onSelectArtist]);
 
   // Keep refs for callbacks so renderItem stays stable between renders
   const playFromQueueRef = useRef(playFromQueue);
@@ -327,7 +338,7 @@ export const QueuePanel: React.FC<QueuePanelProps> = memo(({
         <Virtuoso
           ref={virtuosoRef}
           style={{ height: '100%', background: waveMode ? 'transparent' : undefined }}
-          data={fullQueue}
+          data={hydratedQueue}
           itemContent={renderItem}
           components={components}
           increaseViewportBy={300}

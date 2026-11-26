@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { searchMusic, searchMore } from '../../api/yt';
 import { searchSoundCloud, mergeTracks, searchSoundCloudExtra } from '../../api/soundcloud';
 import { searchYandex, isYandexEnabled } from '../../api/yandex';
+import { hydrateTrackLikeStatus, hydrateTracksLikeStatus, useLikedLookup } from '../../api/likedIndex';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { player } from '../../api/player';
 import { LazyImage } from '../atoms/LazyImage';
@@ -147,10 +148,8 @@ export const SearchView: React.FC<SearchViewProps> = ({
   // Clear cache when query changes
   useEffect(() => {
     filterCache.current = {};
-    likeOverridesRef.current = {};
     setFilterState({ items: [], offset: 0, hasMore: true });
     setActiveFilter('all');
-    setLikeOverrides({});
   }, [searchQuery]);
 
   // Restore or init state when switching filter
@@ -195,9 +194,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, item: any } | null>(null);
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
   const [isPlaying, setIsPlaying] = useState<boolean>(player.isPlaying);
-  // Синхронные переопределения likeStatus — ref чтобы были доступны сразу при ремаунте Virtuoso
-  const likeOverridesRef = useRef<Record<string, string>>({});
-  const [likeOverrides, setLikeOverrides] = useState<Record<string, string>>({});
+  const likedLookup = useLikedLookup();
 
   useEffect(() => {
     return player.subscribe((event) => {
@@ -207,51 +204,34 @@ export const SearchView: React.FC<SearchViewProps> = ({
     });
   }, []);
 
-  useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      const { id, status, likeStatus: newStatus } = e.detail;
-      if (status !== 'success') return;
-      // Обновляем ref синхронно (доступен при ремаунте элементов Virtuoso до перерендера)
-      likeOverridesRef.current = { ...likeOverridesRef.current, [id]: newStatus };
-      setLikeOverrides({ ...likeOverridesRef.current });
-      // Обновляем filterState и кэш для вкладок songs/videos
-      setFilterState(prev => ({
-        ...prev,
-        items: prev.items.map(item => item.id === id ? { ...item, likeStatus: newStatus } : item)
-      }));
-      Object.keys(filterCache.current).forEach(key => {
-        const cached = filterCache.current[key];
-        if (cached) {
-          filterCache.current[key] = {
-            ...cached,
-            items: cached.items.map(item => item.id === id ? { ...item, likeStatus: newStatus } : item)
-          };
-        }
-      });
-    };
-    window.addEventListener('track-like-updated', handler as EventListener);
-    return () => window.removeEventListener('track-like-updated', handler as EventListener);
-  }, []);
-
   // Reset to 'all' when search query changes
   useEffect(() => {
     setActiveFilter('all');
   }, [searchQuery]);
 
   const topResultRaw = searchData?.top;
-  const topResult = topResultRaw
-    ? { ...topResultRaw, likeStatus: likeOverrides[topResultRaw.id] ?? topResultRaw.likeStatus }
-    : undefined;
+  const topResult = useMemo(() => {
+    if (!topResultRaw) return undefined;
+    if (topResultRaw.resultType === 'song' || topResultRaw.resultType === 'video') {
+      return hydrateTrackLikeStatus(topResultRaw, likedLookup);
+    }
+    return topResultRaw;
+  }, [topResultRaw, likedLookup]);
   const correction = searchData?.correction;
   const tracks = useMemo(
-    () => mergeTracks(mergeTracks(tracksSection, scTracks), yandexTracks),
-    [tracksSection, scTracks, yandexTracks]
+    () => hydrateTracksLikeStatus(mergeTracks(mergeTracks(tracksSection, scTracks), yandexTracks), likedLookup),
+    [tracksSection, scTracks, yandexTracks, likedLookup]
   );
-  // В табе Songs подмешиваем SC и Yandex (2 YT : 1 SC, затем ещё 2:1 Yandex); для videos — без изменений.
-  const displayedItems = useMemo(
-    () => activeFilter === 'songs' ? mergeTracks(mergeTracks(filteredItems, scTracks), yandexTracks) : filteredItems,
-    [activeFilter, filteredItems, scTracks, yandexTracks]
-  );
+  // В табе Songs подмешиваем SC и Yandex (2 YT : 1 SC, затем еще 2:1 Yandex); для videos - без изменений.
+  const displayedItems = useMemo(() => {
+    if (activeFilter === 'songs') {
+      return hydrateTracksLikeStatus(mergeTracks(mergeTracks(filteredItems, scTracks), yandexTracks), likedLookup);
+    }
+    if (activeFilter === 'videos') {
+      return hydrateTracksLikeStatus(filteredItems, likedLookup);
+    }
+    return filteredItems;
+  }, [activeFilter, filteredItems, scTracks, yandexTracks, likedLookup]);
   // Подмешиваем SC-артистов и SC-альбомы (с пометкой источника) в соответствующие секции.
   const artists = useMemo(() => [...artistsSection, ...scExtra.artists], [artistsSection, scExtra.artists]);
   const albums = useMemo(() => [...albumsSection, ...scExtra.albums], [albumsSection, scExtra.albums]);
@@ -421,7 +401,6 @@ export const SearchView: React.FC<SearchViewProps> = ({
                       key={track.id}
                       index={i + 1}
                       {...track}
-                      likeStatus={likeOverrides[track.id] ?? track.likeStatus}
                       isActive={activeTrackId === track.id}
                       isPlaying={isPlaying}
                       onClick={() => player.playTrackList(tracks, i, searchQuery)}
@@ -566,9 +545,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
               data={displayedItems}
               endReached={loadFilteredPage}
               overscan={400}
-              itemContent={(index, track) => {
-                const effectiveLikeStatus = likeOverridesRef.current[track.id] ?? track.likeStatus;
-                return (
+              itemContent={(index, track) => (
                   <div className={styles.queueItemWrapper}>
                     <QueueItem
                       key={track.id}
@@ -579,18 +556,17 @@ export const SearchView: React.FC<SearchViewProps> = ({
                       artistIds={track.artistIds}
                       thumbUrl={track.thumbUrl}
                       duration={track.duration}
-                      likeStatus={effectiveLikeStatus}
+                      likeStatus={track.likeStatus}
                       source={track.source}
                       isActive={activeTrackId === track.id}
-                      trackData={{ ...track, likeStatus: effectiveLikeStatus }}
+                      trackData={track}
                       onClick={() => player.playTrackList(displayedItems, index, searchQuery)}
                       onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item: track }); }}
                       onSelectArtist={onSelectArtist}
                       hideDislike
                     />
                   </div>
-                );
-              }}
+                )}
               components={{
                 Footer: () => isLoadingMore ? (
                   <div className={styles.skeletonTrackList} style={{ paddingInline: 'var(--search-gutter, 1rem)' }}>

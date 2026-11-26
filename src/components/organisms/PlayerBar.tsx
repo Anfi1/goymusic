@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback, memo, useMemo, useRef, useSync
 import {
   Shuffle, SkipBack, Pause, Play, SkipForward, Repeat, Repeat1,
   ListMusic, Mic2, Volume2, Volume1, VolumeX, Heart, HeartCrack, HardDriveDownload, AlertCircle,
-  Infinity as InfinityIcon, Music2
+  Infinity as InfinityIcon
 } from 'lucide-react';
 import { IconButton } from '../atoms/IconButton';
+import { CoverPlaceholder } from '../atoms/CoverPlaceholder';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { ProgressBar, ProgressBarRef } from '../atoms/ProgressBar';
 import { player } from '../../api/player';
+import { resolveTrackLikeStatus, useLikedLookup } from '../../api/likedIndex';
 import { openImageViewer } from '../molecules/ImageViewer';
 import { TrackCredits } from '../molecules/TrackCredits';
 import { getOverride, onOverrideChanged } from '../../api/localOverrides';
@@ -38,6 +40,7 @@ function formatTime(sec: number): string {
 // Общая логика лайка/дизлайка текущего трека (подписка + рейтинг).
 function useLikeControls() {
   const [track, setTrack] = useState(player.currentTrack);
+  const likedLookup = useLikedLookup();
   useEffect(() => {
     return player.subscribe((ev) => {
       if (ev === 'tick') return;
@@ -50,13 +53,14 @@ function useLikeControls() {
   }, []);
 
   const trackId = track?.id;
-  const [likeStatus, setLikeStatus] = useState(track?.likeStatus);
+  const resolvedLikeStatus = track ? resolveTrackLikeStatus(track, likedLookup) : undefined;
+  const [likeStatus, setLikeStatus] = useState(resolvedLikeStatus);
   const [loadingAction, setLoadingAction] = useState<'like' | 'dislike' | null>(null);
 
   useEffect(() => {
-    setLikeStatus(track?.likeStatus);
+    setLikeStatus(resolvedLikeStatus);
     setLoadingAction(null);
-  }, [trackId, track?.likeStatus]);
+  }, [trackId, resolvedLikeStatus]);
 
   useEffect(() => {
     const handleGlobalLikeUpdated = (e: CustomEvent) => {
@@ -78,6 +82,11 @@ function useLikeControls() {
     window.dispatchEvent(new CustomEvent('track-like-start', { detail: { id: trackId } }));
     try {
       const newStatus = likeStatus === target ? 'INDIFFERENT' : target;
+      // Синхронизируем resolved-статус на currentTrack до вызова rateCurrentTrack,
+      // чтобы снятие лайка не превратилось в повторный лайк при пустом track.likeStatus.
+      if (player.currentTrack?.id === trackId && likeStatus && player.currentTrack.likeStatus !== likeStatus) {
+        player.currentTrack.likeStatus = likeStatus;
+      }
       await player.rateCurrentTrack(newStatus);
     } catch {
       window.dispatchEvent(new CustomEvent('track-like-updated', { detail: { id: trackId, status: 'error' } }));
@@ -181,7 +190,7 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onOpe
   };
 
   const handleArtClick = (e: React.MouseEvent) => {
-    if (track?.thumbUrl) {
+    if (track?.thumbUrl?.trim() && track.thumbUrl !== failedThumb) {
       e.stopPropagation();
       openImageViewer(track.thumbUrl, track.title);
     }
@@ -217,12 +226,12 @@ const TrackInfo = memo(({ onSelectArtist, onSelectAlbum, onSelectPlaylist, onOpe
       onKeyDown={openKeyboardMenu}
     >
       <div className={styles.artWrapper} onClick={handleArtClick}>
-        {track?.thumbUrl && track.thumbUrl !== failedThumb ? (
+        {track?.thumbUrl?.trim() && track.thumbUrl !== failedThumb ? (
           <img src={track.thumbUrl} alt="" className={styles.albumArt} onError={() => setFailedThumb(track.thumbUrl)} />
+        ) : track ? (
+          <CoverPlaceholder iconSize={22} className={styles.albumArtEmpty} />
         ) : (
-          <div className={styles.albumArtEmpty}>
-            {!track?.thumbUrl ? null : <Music2 size={22} />}
-          </div>
+          <div className={styles.albumArtEmpty} />
         )}
         {track?.source === 'soundcloud' && (
           <span style={{ position: 'absolute', right: 2, bottom: 2, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '1px 2px', display: 'flex', lineHeight: 0 }}>
@@ -385,7 +394,7 @@ const subscribeVolume = (onChange: () => void) => player.subscribe(onChange);
 const getVolume = () => player.volume;
 
 const VolumeControl = memo(() => {
-  const volume = useSyncExternalStore(subscribeVolume, getVolume);
+  const volume = useSyncExternalStore(subscribeVolume, getVolume, getVolume);
   const [showInput, setShowInput] = useState(false);
   // Until the first edit, the field follows the same live value as the slider.
   const [draft, setDraft] = useState<string | null>(null);
@@ -614,7 +623,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = memo(({
   className
 }) => {
   const [overrideTrack, setOverrideTrack] = useState<YTMTrack | null>(null);
-  const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout);
+  const deck = useSyncExternalStore(subscribeDesktopLayout, isDeckLayout, isDeckLayout);
 
   const infoSection = useMemo(() => (
     <TrackInfo

@@ -26,10 +26,14 @@ import {
 import styles from './ArtistView.module.css';
 import trackStyles from '../molecules/TrackRow.module.css';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
-import { likedStore } from '../../api/likedStore';
 import { SourceBadge } from '../atoms/SourceBadge';
 import { formatStatValue } from '../../utils/formatStatValue';
 import { isDeckLayout, subscribeDesktopLayout } from '../../utils/desktopLayout';
+import { useLikedLookup } from '../../api/likedIndex';
+import {
+  applyArtistTrackLikeStatus,
+  selectDisplayedArtistSongs,
+} from './artistLikeStatus';
 
 function extractDominantColor(url: string): Promise<string> {
   return new Promise((resolve) => {
@@ -109,36 +113,11 @@ export const ArtistView = React.memo<ArtistViewProps>(({
   const [isClosing, setIsClosing] = useState(false);
   const [shadowColor, setShadowColor] = useState('rgba(0,0,0,0.5)');
   const [likesOnly, setLikesOnly] = useState(false);
-  const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
+  const likeLookup = useLikedLookup();
   const trackMenuRef = useRef<TrackContextMenuHandle>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const sheetBackRef = useRef<HTMLButtonElement>(null);
   const sheetOpener = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    likedStore.getAllTracks().then(entries => {
-      if (mounted) {
-        setLikedIds(new Set(entries.map(e => e.trackId)));
-      }
-    });
-    const handleLikeUpdate = (e: any) => {
-      if (e.detail?.id && e.detail?.status === 'success') {
-        const { id, likeStatus } = e.detail;
-        setLikedIds(prev => {
-          const next = new Set(prev);
-          if (likeStatus === 'LIKE') next.add(id);
-          else next.delete(id);
-          return next;
-        });
-      }
-    };
-    window.addEventListener('track-like-updated', handleLikeUpdate as EventListener);
-    return () => {
-      mounted = false;
-      window.removeEventListener('track-like-updated', handleLikeUpdate as EventListener);
-    };
-  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, track: YTMTrack) => {
     e.preventDefault();
@@ -390,10 +369,16 @@ export const ArtistView = React.memo<ArtistViewProps>(({
     return fetchedSongs;
   }, [allSongsPages, detail]);
 
-  const displayedSongs = useMemo(() => {
-    if (!likesOnly) return allSongs;
-    return allSongs.filter((song: YTMTrack) => song.likeStatus === 'LIKE' || (song.id && likedIds.has(song.id)));
-  }, [allSongs, likesOnly, likedIds]);
+  const resolvedTopSongs = useMemo(
+    () => applyArtistTrackLikeStatus(detail?.topSongs || [], likeLookup),
+    [detail?.topSongs, likeLookup],
+  );
+
+  // Резолвим likeStatus до фильтрации, чтобы каждый трек в "Likes only" и в строках имел актуальный статус лайка.
+  const displayedSongs = useMemo(
+    () => selectDisplayedArtistSongs(allSongs, likesOnly, likeLookup),
+    [allSongs, likesOnly, likeLookup],
+  );
 
   // UI State
   const [activeTrackId, setActiveTrackId] = useState<string | undefined>(player.currentTrack?.id);
@@ -495,10 +480,10 @@ export const ArtistView = React.memo<ArtistViewProps>(({
               )}
               {detail.isYandex && (
                 <div className={styles.headerActions}>
-                  <button className={styles.subscribeBtn} onClick={() => player.playTrackList(detail.topSongs, 0, 'yandex-artist-' + artistId)}>
+                  <button className={styles.subscribeBtn} onClick={() => player.playTrackList(resolvedTopSongs, 0, 'yandex-artist-' + artistId)}>
                     <Play size={18} /> Play
                   </button>
-                  <button className={styles.subscribeBtn} onClick={() => { const shuffled = [...detail.topSongs].sort(() => Math.random() - 0.5); player.playTrackList(shuffled, 0, 'yandex-artist-' + artistId); }}>
+                  <button className={styles.subscribeBtn} onClick={() => { const shuffled = [...resolvedTopSongs].sort(() => Math.random() - 0.5); player.playTrackList(shuffled, 0, 'yandex-artist-' + artistId); }}>
                     <Shuffle size={18} /> Shuffle
                   </button>
                 </div>
@@ -521,17 +506,17 @@ export const ArtistView = React.memo<ArtistViewProps>(({
         </section>
       )}
 
-      {!channel && detail.topSongs?.length > 0 && (
+      {!channel && resolvedTopSongs.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Top Songs</h2>
-            {(detail.seeAllSongsId || ((detail.isSoundCloud || detail.isYandex) && detail.allTracks?.length > detail.topSongs?.length)) && (
+            {(detail.seeAllSongsId || ((detail.isSoundCloud || detail.isYandex) && detail.allTracks?.length > resolvedTopSongs.length)) && (
               <button className={styles.seeAllBtn} onClick={e => openSheet('all-songs', e.currentTarget)}>See all <ChevronRight size={16} /></button>
             )}
           </div>
           <table className={styles.trackList}>
             <TrackColumnGroup />
-            <tbody>{detail.topSongs.map((track: YTMTrack, i: number) => (
+            <tbody>{resolvedTopSongs.map((track: YTMTrack, i: number) => (
               <TrackRow 
                 key={track.id} 
                 index={i + 1} 
@@ -541,10 +526,10 @@ export const ArtistView = React.memo<ArtistViewProps>(({
                 onSelectArtist={onSelectArtist} 
                 onSelectAlbum={onSelectAlbum} 
                 onClick={() => detail.isSoundCloud
-                  ? player.playTrackList(detail.topSongs, i, 'sc-artist-' + artistId)
+                  ? player.playTrackList(resolvedTopSongs, i, 'sc-artist-' + artistId)
                   : detail.isYandex
-                  ? player.playTrackList(detail.topSongs, i, 'yandex-artist-' + artistId)
-                  : player.playTrackList(detail.topSongs, i, artistId, 'artist')}
+                  ? player.playTrackList(resolvedTopSongs, i, 'yandex-artist-' + artistId)
+                  : player.playTrackList(resolvedTopSongs, i, artistId, 'artist')}
                 onContextMenu={(e) => handleContextMenu(e, track)}
               />
             ))}</tbody>

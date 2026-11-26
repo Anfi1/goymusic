@@ -9,7 +9,7 @@ import React, {
 import { TableVirtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { player } from '../../api/player';
 import { historyStore, HistoryEntry, HydratedHistoryEntry } from '../../api/history';
-import { likedStore } from '../../api/likedStore';
+import { hydrateTrackLikeStatus, useLikedLookup } from '../../api/likedIndex';
 import { Skeleton } from '../atoms/Skeleton';
 import { TrackRow } from '../molecules/TrackRow';
 import { TrackContextMenu, TrackContextMenuHandle } from './TrackContextMenu';
@@ -474,7 +474,8 @@ interface HistoryViewProps {
 
 export const HistoryView: React.FC<HistoryViewProps> = memo(
   ({ onSelectArtist, onSelectAlbum }) => {
-    const [rawHistory, setHistory] = useState<HydratedHistoryEntry[]>([]);
+    const [historyEntries, setHistory] = useState<HydratedHistoryEntry[]>([]);
+    const likedLookup = useLikedLookup();
     const [isLoading, setIsLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
     const [showCharts, setShowCharts] = useState(false);
@@ -495,33 +496,7 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
       try {
         const data = await historyStore.getHistory();
         const hydratedData = await historyStore.hydrateTracks(data);
-        const allLikedTracks = await likedStore.getAllTracks();
-        const likedIds = new Set(allLikedTracks.map((t) => t.trackId));
-        const allScLikedTracks = await likedStore.getAllScTracks();
-        const scLikedIds = new Set(allScLikedTracks.map((e) => e.scId));
-
-        const withLikeStatus = hydratedData.map((entry) => {
-          const isSCTrack = entry.track.source === 'soundcloud';
-          if (isSCTrack && entry.track.scId && scLikedIds.has(entry.track.scId)) {
-            return {
-              ...entry,
-              track: { ...entry.track, likeStatus: 'LIKE' as const },
-            };
-          } else if (!isSCTrack && likedIds.has(entry.track.id)) {
-            return {
-              ...entry,
-              track: { ...entry.track, likeStatus: 'LIKE' as const },
-            };
-          } else if (entry.track.likeStatus === 'LIKE') {
-            return {
-              ...entry,
-              track: { ...entry.track, likeStatus: 'INDIFFERENT' as const },
-            };
-          }
-          return entry;
-        });
-
-        setHistory(withLikeStatus || []);
+        setHistory(hydratedData || []);
       } catch (e) {
         console.error(e);
         setLoadFailed(true);
@@ -534,38 +509,17 @@ export const HistoryView: React.FC<HistoryViewProps> = memo(
       fetchHistory();
     }, [fetchHistory]);
 
-    useEffect(() => {
-      const handleLikeUpdate = (e: any) => {
-        if (e.detail.status === 'success') {
-          setHistory((prev) => {
-            let changed = false;
-            const next = prev.map((item) => {
-              if (
-                item.track.id === e.detail.id &&
-                item.track.likeStatus !== e.detail.likeStatus
-              ) {
-                changed = true;
-                return {
-                  ...item,
-                  track: { ...item.track, likeStatus: e.detail.likeStatus },
-                };
-              }
-              return item;
-            });
-            return changed ? next : prev;
-          });
-        }
-      };
-      window.addEventListener(
-        'track-like-updated',
-        handleLikeUpdate as EventListener
-      );
-      return () =>
-        window.removeEventListener(
-          'track-like-updated',
-          handleLikeUpdate as EventListener
-        );
-    }, []);
+    // Свежие статусы лайков (YT + SC + Yandex) из общего likedIndex; устаревший LIKE из tracksStore сбрасывается.
+    const rawHistory = useMemo(() => {
+      let changed = false;
+      const next = historyEntries.map((entry) => {
+        const track = hydrateTrackLikeStatus(entry.track, likedLookup, { demoteStaleLike: true });
+        if (track === entry.track) return entry;
+        changed = true;
+        return { ...entry, track };
+      });
+      return changed ? next : historyEntries;
+    }, [historyEntries, likedLookup]);
 
     const minMaxDates = useMemo(() => {
       if (rawHistory.length === 0) return { min: undefined, max: undefined };

@@ -4,6 +4,7 @@ import { player } from '../../api/player';
 import { likedStore } from '../../api/likedStore';
 import { historyStore } from '../../api/history';
 import { likedManager } from '../../api/likedManager';
+import { resolveTrackLikeStatus, useLikedLookup } from '../../api/likedIndex';
 import { YTMTrack, getMixedForYou, getPlaylistTracks } from '../../api/yt';
 import { TrackOverrideDialog } from './TrackOverrideDialog';
 import {
@@ -678,9 +679,10 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
     }
   }, [selectedFilter, stations, activeId, waveActive]);
 
+  const likedLookup = useLikedLookup();
   const track = waveActive ? player.currentTrack : null;
   const isPlaying = waveActive && player.isPlaying;
-  const likeStatus = track?.likeStatus;
+  const likeStatus = track ? resolveTrackLikeStatus(track, likedLookup) : undefined;
   const isSc = track?.source === 'soundcloud';
   const noDislike = isSc || track?.source === 'yandex';
 
