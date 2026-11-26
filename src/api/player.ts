@@ -2,10 +2,10 @@ import { YTMTrack, getQueueRecommendations, rateSong, searchMore } from './yt';
 import type { TrackSource } from './source';
 import { withVideoCredits } from './trackCredits';
 import { streamCache, CacheEntry } from './cache';
-import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, registerYandexTrack, ensureLoudness } from './stream';
+import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, registerYandexTrack, ensureLoudness, ensureLocalLoudness, getLocalOverrideEntry } from './stream';
 import { likedManager } from './likedManager';
 import { deleteOverride, onOverrideChanged, LOCAL_PLAYLIST_ID } from './localOverrides';
-import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, isDuplicateTrack } from './soundcloud';
+import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, createTrackDedupIndex, getQueueDedupIndex } from './soundcloud';
 import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks, yandexRotorFeedback, yandexPlayAudio } from './yandex';
 import { DEFAULT_Q, type Band } from '../utils/equalizer';
 import { EQ_SELECTION_KEY, FLAT_PRESET, SAVED_EQ_KEY, readEqualizerState, savedPreset, type EqualizerPreset, type EqualizerState } from '../utils/equalizerPresets';
@@ -49,6 +49,8 @@ class PlayerStore {
     private audioB: HTMLAudioElement;
     private activePlayer: 'A' | 'B' = 'A';
     private preloadedTrackId: string | null = null;
+    private preloadedEntry: CacheEntry | null = null;
+    private preloadRevision: number = 0;
     private isPreloadingNext: boolean = false;
 
     private audioContext: AudioContext | null = null;
@@ -103,6 +105,19 @@ class PlayerStore {
             this.notify('state');
 
             const video_id = e.detail?.videoId;
+            if (e.detail?.action === 'reset' || !!video_id) {
+                this.preloadRevision++;
+            }
+            if (e.detail?.action === 'reset' || (video_id && video_id === this.preloadedTrackId)) {
+                this.preloadedTrackId = null;
+                this.preloadedEntry = null;
+                const idle = this.idleAudio;
+                if (idle.src) {
+                    idle.pause();
+                    idle.removeAttribute('src');
+                    idle.load();
+                }
+            }
             if (e.detail?.action === 'reset') {
                 if (this.currentTrack) this.startPlayback(this.currentTrack, true);
                 return;
@@ -502,20 +517,27 @@ class PlayerStore {
 
         const now = this.audioContext.currentTime;
         this.normalizationGain.gain.cancelScheduledValues(now);
+        this.normalizationGain.gain.setValueAtTime(this.normalizationGain.gain.value, now);
         this.normalizationGain.gain.linearRampToValueAtTime(gainValue, now + 0.5);
     }
 
-    /** Догоняет громкость для стрима, у которого её не отдал источник. */
+    /** Догоняет громкость для стрима или локального файла, у которого ее еще нет. */
     private ensureLoudnessFor(trackId: string, entry: CacheEntry | null) {
-        if (!entry || entry.loudness != null || entry.url.startsWith('file:///')) return;
+        if (!entry || entry.loudness != null) return;
+        const playbackId = this.playbackId;
         // Пока меряем, стартуем с типичной громкости, а не с гейна 1.0: SC и YT-мастеринг
         // лежит на +6..+9.7 дБ выше цели (замеры 2026-09-25), и без этого трек первые
-        // секунды звучит заметно громче соседей, а потом резко проседает. Берём нижний
+        // секунды звучит заметно громче соседей, а потом резко проседает. Берем нижний
         // край, чтобы не утопить тихий трек.
         this.applyNormalization(6);
-        ensureLoudness(trackId, entry.url).then(l => {
-            // трек мог смениться, пока мерили -- гейн применяем только если он всё ещё играет
-            if (l != null && this.currentTrack?.id === trackId) this.applyNormalization(l);
+        const measure = entry.url.startsWith('file:///')
+            ? ensureLocalLoudness(trackId)
+            : ensureLoudness(trackId, entry.url);
+        measure.then(l => {
+            // трек мог смениться или перезапуститься, пока мерили -- гейн применяем только в той же сессии
+            if (l != null && playbackId === this.playbackId && this.currentTrack?.id === trackId) {
+                this.applyNormalization(l);
+            }
         });
     }
 
@@ -763,19 +785,25 @@ class PlayerStore {
         const nextTrack = this.getNextTrackInQueue();
         if (!nextTrack || nextTrack.id === this.currentTrack?.id) return;
 
+        const playbackId = this.playbackId;
+        const rev = this.preloadRevision;
         this.isPreloadingNext = true;
         try {
             this.ensureScRegistered(nextTrack);
-            let entry = await streamCache.get(nextTrack.id);
+            let entry = await getLocalOverrideEntry(nextTrack.id);
+            if (!entry) {
+                entry = await streamCache.get(nextTrack.id);
+            }
             if (!entry) {
                 await prefetchStreamUrl(nextTrack.id, this.parseDuration(nextTrack.duration) || undefined);
                 entry = await streamCache.get(nextTrack.id);
             }
-            if (entry) {
+            if (entry && rev === this.preloadRevision && playbackId === this.playbackId) {
                 const idle = this.idleAudio;
                 idle.src = entry.url;
                 idle.load();
                 this.preloadedTrackId = nextTrack.id;
+                this.preloadedEntry = entry;
             }
         } catch (e) {
             console.error('[player] Preload failed', e);
@@ -826,26 +854,38 @@ class PlayerStore {
         const availableTracks = tracks.filter(t => t.isAvailable !== false);
         const newIndex = availableTracks.findIndex(t => t.id === targetTrack?.id);
         if (newIndex !== -1) {
+            // Если кликаем по треку в уже загруженном плейлисте с тем же порядком, переиспользуем
+            // массив очереди и рекомендации, чтобы Virtuoso не перестраивал тысячи строк.
+            const sameQueue = !this.shuffle
+                && sourceId != null
+                && this.queueSourceId === sourceId
+                && this.queue.length === availableTracks.length
+                && this.queue.every((t, i) => t.id === availableTracks[i].id);
+
             this.queueSourceId = sourceId;
             this.queueSourceType = sourceType || this.detectSourceType(sourceId);
             this.recommendationPlaylistId = this.resolveContextId(targetTrack, recommendationId, sourceId);
-            this.recommendations = [];
             this.errorSkipCount = 0;
             this.consecutiveErrors = 0;
-            if (this.shuffle) {
-                this.originalQueue = [...availableTracks];
-                this.queue = [...availableTracks];
-                for (let i = this.queue.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
-                }
-                // move selected track to front
-                const si = this.queue.findIndex(t => t.id === targetTrack.id);
-                if (si > 0) [this.queue[0], this.queue[si]] = [this.queue[si], this.queue[0]];
-                this.queueIndex = 0;
-            } else {
-                this.queue = availableTracks;
+            if (sameQueue) {
                 this.queueIndex = newIndex;
+            } else {
+                this.recommendations = [];
+                if (this.shuffle) {
+                    this.originalQueue = [...availableTracks];
+                    this.queue = [...availableTracks];
+                    for (let i = this.queue.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
+                    }
+                    // move selected track to front
+                    const si = this.queue.findIndex(t => t.id === targetTrack.id);
+                    if (si > 0) [this.queue[0], this.queue[si]] = [this.queue[si], this.queue[0]];
+                    this.queueIndex = 0;
+                } else {
+                    this.queue = availableTracks;
+                    this.queueIndex = newIndex;
+                }
             }
             await this.playCurrentTrack();
         }
@@ -872,21 +912,24 @@ class PlayerStore {
             if (this.shuffle) {
                 // Update originalQueue and patch track data in shuffled queue without reordering
                 this.originalQueue = availableTracks;
-                // Preserve in-memory likeStatus — API data may be stale
+                const freshById = new Map<string, YTMTrack>();
+                for (const u of availableTracks) if (!freshById.has(u.id)) freshById.set(u.id, u);
+                // Preserve in-memory likeStatus, API data may be stale
                 this.queue = this.queue.map(t => {
-                    const fresh = availableTracks.find(u => u.id === t.id);
+                    const fresh = freshById.get(t.id);
                     return fresh ? { ...fresh, likeStatus: t.likeStatus ?? fresh.likeStatus } : t;
                 });
-                // queueIndex stays — it refers to position in the shuffled queue
+                // queueIndex stays, it refers to position in the shuffled queue
             } else {
                 if (this.currentTrack) {
                     const newIndex = availableTracks.findIndex(t => t.id === this.currentTrack?.id);
                     if (newIndex !== -1) this.queueIndex = newIndex;
                 }
-                // Preserve in-memory likeStatus — API data may be stale
-                const prevQueue = this.queue;
+                // Preserve in-memory likeStatus, API data may be stale
+                const prevById = new Map<string, YTMTrack>();
+                for (const u of this.queue) if (!prevById.has(u.id)) prevById.set(u.id, u);
                 this.queue = availableTracks.map(t => {
-                    const existing = prevQueue.find(u => u.id === t.id);
+                    const existing = prevById.get(t.id);
                     return existing ? { ...t, likeStatus: existing.likeStatus ?? t.likeStatus } : t;
                 });
             }
@@ -1051,11 +1094,13 @@ class PlayerStore {
 
         this.activePlayer = 'A';
         this.preloadedTrackId = null;
+        this.preloadedEntry = null;
+        this.preloadRevision++;
         this.isPreloadingNext = false;
         this.isCurrentTrackLocal = false;
 
-        // Предыдущий трек закрываем ДО сброса currentTime -- в нём ещё лежит доигранная
-        // позиция. На ретрае того же трека отчёт не шлём: прослушивание не прерывалось.
+        // Предыдущий трек закрываем ДО сброса currentTime -- в нем еще лежит доигранная
+        // позиция. На ретрае того же трека отчет не шлем: прослушивание не прерывалось.
         if (!isRetry) this.yaFinish('skip');
 
         await this.initAudioContext();
@@ -1070,7 +1115,11 @@ class PlayerStore {
         this.saveState();
         this.notify('state');
 
-        if (this.recommendations.length < 5 && !this.isRecommendationsLoading) {
+        const nearQueueEnd = (this.queue.length - this.queueIndex) <= 20
+            || this.queueSourceId === 'MLCT'
+            || this.recommendationPlaylistId === 'MLCT'
+            || !!this.recommendationPlaylistId?.startsWith('RD');
+        if (nearQueueEnd && this.recommendations.length < 5 && !this.isRecommendationsLoading) {
             this.fetchRecommendations(track.id);
         }
 
@@ -1463,24 +1512,23 @@ class PlayerStore {
 
     private applyRecommendations(fresh: YTMTrack[], forceReplace: boolean) {
         if (fresh.length === 0) return;
-        const queueAndRecs = [...this.queue, ...(forceReplace ? [] : this.recommendations)];
+        const queueIndex = getQueueDedupIndex(this.queue);
+        const recsIndex = forceReplace ? null : createTrackDedupIndex(this.recommendations);
+        const batchIndex = createTrackDedupIndex();
         const batchDeduped: YTMTrack[] = [];
         for (const t of fresh) {
-            if (!batchDeduped.some(existing => isDuplicateTrack(existing, t)) &&
-                !queueAndRecs.some(qt => isDuplicateTrack(qt, t))) {
+            if (!batchIndex.has(t) && !queueIndex.has(t) && (!recsIndex || !recsIndex.has(t))) {
+                batchIndex.add(t);
                 batchDeduped.push(t);
             }
         }
         if (batchDeduped.length < fresh.length) {
-            console.log(`[dedup] ${fresh.length} → ${batchDeduped.length} (removed ${fresh.length - batchDeduped.length} cross-platform dups)`);
+            console.log(`[dedup] ${fresh.length} -> ${batchDeduped.length} (removed ${fresh.length - batchDeduped.length} cross-platform dups)`);
         }
         if (forceReplace || this.recommendations.length === 0) {
             this.recommendations = batchDeduped.slice(0, 200);
         } else {
-            const existing = new Set(this.recommendations.map(t => t.id));
-            const deduped = batchDeduped.filter(t => !existing.has(t.id) &&
-                !this.recommendations.some(r => isDuplicateTrack(r, t)));
-            this.recommendations = [...this.recommendations, ...deduped].slice(0, 150);
+            this.recommendations = [...this.recommendations, ...batchDeduped].slice(0, 150);
         }
 
         // Auto-expand queue for MLCT supermix
@@ -1527,6 +1575,7 @@ class PlayerStore {
 
     private async fetchSoundCloudRadio(videoId: string, forceReplace: boolean) {
         const scTracks = await this.scRadioTracks(videoId);
+        if (this.currentTrack?.id !== videoId) return;
         const qIds = new Set(this.queue.map(t => t.id));
         const fresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
         this.applyRecommendations(fresh, forceReplace);
@@ -1555,12 +1604,13 @@ class PlayerStore {
     }
 
     private async fetchYandexRadio(videoId: string, forceReplace: boolean) {
-        // Волна Яндекса продолжается своей же станцией: rotor отдаёт по 5 треков, и без
-        // этого после первой пятёрки поток подменялся радио по похожим (tracks_similar).
+        // Волна Яндекса продолжается своей же станцией: rotor отдает по 5 треков, и без
+        // этого после первой пятерки поток подменялся радио по похожим (tracks_similar).
         const station = this.recommendationPlaylistId;
         if (station && YANDEX_STATION_RE.test(station)) {
             const seed = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
             const next = await getYandexWaveTracks(station, seed?.yandexId);
+            if (this.currentTrack?.id !== videoId) return;
             const qIds = new Set(this.queue.map(t => t.id));
             const fresh = next.filter(t => t.id !== videoId && !qIds.has(t.id));
             if (fresh.length > 0) {
@@ -1569,12 +1619,13 @@ class PlayerStore {
             }
         }
         const yandexTracks = await this.yandexRadioTracks(videoId);
+        if (this.currentTrack?.id !== videoId) return;
         const qIds = new Set(this.queue.map(t => t.id));
         const fresh = yandexTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
         this.applyRecommendations(fresh, forceReplace);
     }
 
-    // 2+ источников одновременно (замена старого жёсткого fetchHybridRecommendations):
+    // 2+ источников одновременно (замена старого жесткого fetchHybridRecommendations):
     // тянем каждый активный источник параллельно, чистим кросс-платформенные дубли,
     // чередуем round-robin через interleaveMany.
     private async fetchMultiSourceRecommendations(videoId: string, forceReplace: boolean, sources: Set<TrackSource>) {
@@ -1588,8 +1639,9 @@ class PlayerStore {
             let ytSeedId: string | null = videoId;
             let rid: string | null = null;
             if (seedIsForeign) {
-                // От SC/Yandex-id YT-рекомендаций нет — матчим к YouTube по «artist title».
+                // От SC/Yandex-id YT-рекомендаций нет: матчим к YouTube по "artist title".
                 ytSeedId = query ? await this.findYouTubeSeed(query, track) : null;
+                if (this.currentTrack?.id !== videoId) return;
             } else {
                 rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
             }
@@ -1599,17 +1651,17 @@ class PlayerStore {
         const yandexPromise = sources.has('yandex') ? this.yandexRadioTracks(videoId) : Promise.resolve([]);
 
         const [ytRes, scTracks, yandexTracks] = await Promise.all([ytPromise, scPromise, yandexPromise]);
+        if (this.currentTrack?.id !== videoId) return;
         const qIds = new Set(this.queue.map(t => t.id));
         const ytFresh = ytRes.filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
         const scFresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
         const yandexFresh = yandexTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
 
         // Убираем кросс-платформенные дубли: SC/Yandex сверяем с YT и друг с другом.
-        const scDeduped = scFresh.filter(sc => !ytFresh.some(yt => isDuplicateTrack(yt, sc)));
-        const yandexDeduped = yandexFresh.filter(yx =>
-            !ytFresh.some(yt => isDuplicateTrack(yt, yx)) &&
-            !scDeduped.some(sc => isDuplicateTrack(sc, yx))
-        );
+        const ytIndex = createTrackDedupIndex(ytFresh);
+        const scDeduped = scFresh.filter(sc => !ytIndex.has(sc));
+        const scIndex = createTrackDedupIndex(scDeduped);
+        const yandexDeduped = yandexFresh.filter(yx => !ytIndex.has(yx) && !scIndex.has(yx));
 
         if (forceReplace) this.recommendations = [];
         this.applyRecommendations(interleaveMany([ytFresh, scDeduped, yandexDeduped]), forceReplace);
@@ -1694,6 +1746,8 @@ class PlayerStore {
         const nextTrack = this.queue[nextIndex];
 
         if (!this.shuffle && this.preloadedTrackId === nextTrack.id) {
+            this.playbackId++;
+            this.preloadRevision++;
             const prevAudio = this.activeAudio;
             this.playingYouTubeAlternate = false;
             this.wtFlush('paused');
@@ -1710,10 +1764,13 @@ class PlayerStore {
             this.duration = this.parseDuration(nextTrack.duration);
             this.currentTime = 0;
             if (nextTrack.source === 'yandex' && nextTrack.yandexId) this.yaStart(nextTrack);
+            const preloadedEntry = this.preloadedEntry;
             this.preloadedTrackId = null;
+            this.preloadedEntry = null;
 
             nextAudio.volume = this.volume / 100;
-            const entry = await streamCache.get(nextTrack.id);
+            const entry = preloadedEntry ?? await getLocalOverrideEntry(nextTrack.id) ?? await streamCache.get(nextTrack.id);
+            this.isCurrentTrackLocal = !!entry?.url.startsWith('file:///');
             this.applyNormalization(entry?.loudness ?? null);
             this.ensureLoudnessFor(nextTrack.id, entry);
 
@@ -1896,7 +1953,9 @@ class PlayerStore {
         this.recommendations = []; this.isPlaying = false; this.currentTime = 0; this.duration = 0;
         this.activePlayer = 'A';
         this.preloadedTrackId = null;
-        
+        this.preloadedEntry = null;
+        this.preloadRevision++;
+
         localStorage.removeItem('ytm-last-track');
         localStorage.removeItem('ytm-queue');
         localStorage.removeItem('ytm-queue-index');

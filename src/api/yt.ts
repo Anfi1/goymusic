@@ -177,12 +177,14 @@ export interface YTMHomeSection {
 
 async function pyCall(command: string, args: any = {}, signal?: AbortSignal) {
     const callId = createCallId();
-    
+    let onAbort: (() => void) | null = null;
+
     if (signal) {
         if (signal.aborted) return { status: 'error', message: 'Aborted' };
-        signal.addEventListener('abort', () => {
+        onAbort = () => {
             (window as any).bridge.pyCancel(callId);
-        }, { once: true });
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
     }
 
     try {
@@ -199,6 +201,10 @@ async function pyCall(command: string, args: any = {}, signal?: AbortSignal) {
         return res;
     } catch (e) {
         return { status: 'error', message: String(e) };
+    } finally {
+        if (signal && onAbort) {
+            signal.removeEventListener('abort', onAbort);
+        }
     }
 }
 
@@ -494,8 +500,16 @@ export async function getTrackCard(videoId: string): Promise<YTMTrack | null> {
     };
 }
 
-export async function getLyrics(artist: string, title: string, duration?: number, videoId?: string, yandexId?: string): Promise<{ plainLyrics?: string, syncedLyrics?: string, instrumental?: boolean } | null> {
-    const res = await pyCall('get_lyrics', { artist, title, duration, videoId, yandexId });
+export async function getLyrics(
+    artist: string,
+    title: string,
+    duration?: number,
+    videoId?: string,
+    yandexId?: string,
+    signal?: AbortSignal,
+): Promise<{ plainLyrics?: string, syncedLyrics?: string, instrumental?: boolean } | null> {
+    if (signal?.aborted) return null;
+    const res = await pyCall('get_lyrics', { artist, title, duration, videoId, yandexId }, signal);
     if (res.status === 'ok') {
         return {
             plainLyrics: res.plainLyrics,

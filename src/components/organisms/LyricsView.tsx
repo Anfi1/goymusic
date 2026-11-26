@@ -2,9 +2,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { player } from '../../api/player';
 import { getLyrics, getComments } from '../../api/yt';
-import { useQueue } from '../../hooks/useQueue';
 import { Music, AlertCircle, Loader2, AlignLeft, Timer, RefreshCw, MessageSquare, Heart } from 'lucide-react';
 import styles from './LyricsView.module.css';
+
+// Подписка только на currentTrack: изменения очереди/рекомендаций не перерендеривают текст.
+function useCurrentTrack() {
+  const [track, setTrack] = useState(() => player.currentTrack);
+  useEffect(() => {
+    setTrack(prev => (prev === player.currentTrack ? prev : player.currentTrack));
+    return player.subscribe((ev) => {
+      if (ev === 'state') {
+        setTrack(prev => (prev === player.currentTrack ? prev : player.currentTrack));
+      }
+    });
+  }, []);
+  return track;
+}
 
 interface LyricLine {
   time: number;
@@ -39,12 +52,13 @@ interface LyricsViewProps {
 }
 
 export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMode = false }) => {
-  // Use useQueue to make nowPlaying reactive
-  const { nowPlaying: track } = useQueue();
+  const track = useCurrentTrack();
   const currentTrackId = track?.id;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const scrollTimeout = useRef<any>(null);
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const activeIndexRef = useRef(-1);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>('synced');
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -52,19 +66,19 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['lyrics', currentTrackId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!track) return null;
       const artist = track.artists?.[0] || '';
       const title = track.title;
       const durParts = track.duration.split(':').map(Number);
       const duration = durParts.length === 2 ? durParts[0] * 60 + durParts[1] : undefined;
 
-      // videoId нужен для текстов самого YT Music — у SC/Yandex-треков id чужой.
+      // videoId нужен для текстов самого YT Music: у SC/Yandex-треков id чужой.
       // Для яндексового трека бэкенд сначала спросит сам Яндекс: он ищет по id трека
-      // и отдаёт готовый LRC, где текстовый поиск по "артист - название" промахивается.
+      // и отдает готовый LRC, где текстовый поиск по "артист - название" промахивается.
       const isForeign = track.source === 'soundcloud' || track.source === 'yandex';
       const videoId = isForeign ? undefined : track.id;
-      const res = await getLyrics(artist, title, duration, videoId, track.yandexId);
+      const res = await getLyrics(artist, title, duration, videoId, track.yandexId, signal);
 
       if (!res) return { notFound: true, instrumental: false };
 
@@ -82,14 +96,24 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
     gcTime: 10 * 60 * 1000
   });
 
+  const syncedLines = data?.hasSynced ? data.synced : null;
+
   // Reset scroll and state when track ID changes
   useEffect(() => {
+    activeIndexRef.current = -1;
     setActiveIndex(-1);
     setUserIsScrolling(false);
+    lineRefs.current = [];
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
   }, [currentTrackId]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+    };
+  }, []);
 
   // Sync view mode when data arrives; открытые комментарии при смене трека не сбиваем
   useEffect(() => {
@@ -100,42 +124,44 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
 
   // Synchronization with player time
   useEffect(() => {
-    const unsubscribe = player.subscribe(() => {
-      if (data?.hasSynced && viewMode === 'synced') {
-        const currentTime = player.currentTime;
-        const lyrics = data.synced;
-        let index = -1;
-        for (let i = 0; i < lyrics.length; i++) {
-          if (lyrics[i].time <= currentTime) {
-            index = i;
-          } else {
-            break;
-          }
-        }
-        if (index !== activeIndex) {
-          setActiveIndex(index);
+    if (!isVisible || !syncedLines || viewMode !== 'synced') return;
+
+    const syncActiveLine = () => {
+      const currentTime = player.currentTime;
+      let index = -1;
+      for (let i = 0; i < syncedLines.length; i++) {
+        if (syncedLines[i].time <= currentTime) {
+          index = i;
+        } else {
+          break;
         }
       }
-    }, { tick: true }); // Enable ticks using new options object
-    return unsubscribe;
-  }, [data, viewMode, activeIndex]);
+      if (index !== activeIndexRef.current) {
+        activeIndexRef.current = index;
+        setActiveIndex(index);
+      }
+    };
+
+    syncActiveLine();
+    return player.subscribe(syncActiveLine, { tick: true });
+  }, [isVisible, syncedLines, viewMode]);
 
   // Centering logic
   useEffect(() => {
-    if (viewMode === 'synced' && activeIndex !== -1 && !userIsScrolling && containerRef.current) {
-      const container = containerRef.current;
-      const lines = container.querySelectorAll(`.${styles.line}`);
-      const activeElement = lines[activeIndex] as HTMLElement;
-
-      if (activeElement) {
-        const targetScroll = activeElement.offsetTop - (container.offsetHeight * 0.35);
-        container.scrollTo({
-          top: targetScroll,
-          behavior: 'smooth'
-        });
-      }
+    if (!isVisible || viewMode !== 'synced' || activeIndex === -1 || userIsScrolling || !containerRef.current) {
+      return;
     }
-  }, [activeIndex, userIsScrolling, viewMode, data?.synced?.length]);
+    const container = containerRef.current;
+    const activeElement = lineRefs.current[activeIndex];
+
+    if (activeElement) {
+      const targetScroll = activeElement.offsetTop - (container.offsetHeight * 0.35);
+      container.scrollTo({
+        top: targetScroll,
+        behavior: 'smooth'
+      });
+    }
+  }, [isVisible, activeIndex, userIsScrolling, viewMode, syncedLines]);
 
   // Ловим именно жест пользователя. Раньше висел onScroll, но его же дёргает наша
   // собственная плавная прокрутка и сброс scrollTop при смене трека: автоскролл замирал
@@ -202,6 +228,7 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
           data.synced.map((line, i) => (
             <div
               key={i}
+              ref={(el) => { lineRefs.current[i] = el; }}
               className={`${styles.line} ${i === activeIndex ? styles.active : ''}`}
               onClick={() => player.seek(line.time)}
             >
@@ -268,7 +295,7 @@ const WithTimestamps: React.FC<{ text: string }> = ({ text }) => {
 const formatSec = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 const CommentsContent: React.FC<{ isVisible: boolean }> = ({ isVisible }) => {
-  const { nowPlaying: track } = useQueue();
+  const track = useCurrentTrack();
   const [descOpen, setDescOpen] = useState(false);
   const supported = !!track && track.source !== 'yandex';
 

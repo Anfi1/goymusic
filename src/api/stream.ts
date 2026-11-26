@@ -1,5 +1,5 @@
 import { streamCache, CacheEntry } from './cache';
-import { getOverride, setOverride } from './localOverrides';
+import { getOverride, isOverrideGainMeasured, setOverride, updateOverrideGain, type LocalOverride } from './localOverrides';
 import { createCallId } from './callId';
 
 /**
@@ -100,6 +100,74 @@ async function fetchSoundCloudStream(id: string, scUrl: string): Promise<CacheEn
 }
 
 const pendingLoudness = new Map<string, Promise<number | null>>();
+// Запоминаем файлы, которые не удалось замерить (тишина/ошибка), чтобы не зацикливать ffmpeg в рамках сессии.
+const failedLocalLoudness = new Set<string>();
+
+async function toLocalOverrideEntry(override: LocalOverride): Promise<CacheEntry | null> {
+    const fileExists = await (window as any).bridge.songFileExists(override.filename);
+    if (!fileExists) return null;
+    const fileUrl = await (window as any).bridge.getSongFileUrl(override.filename);
+    return {
+        url: fileUrl,
+        expires: 9999999999,
+        loudness: isOverrideGainMeasured(override) ? override.gainDb : null,
+    };
+}
+
+export async function getLocalOverrideEntry(videoId: string): Promise<CacheEntry | null> {
+    const override = await getOverride(videoId);
+    if (!override) return null;
+    return toLocalOverrideEntry(override);
+}
+
+/**
+ * Домеряет громкость локального override-файла через analyze_file и тихо сохраняет результат
+ * в IndexedDB + manifest без перезапуска воспроизведения.
+ */
+export async function ensureLocalLoudness(videoId: string): Promise<number | null> {
+    const override = await getOverride(videoId);
+    if (!override) return null;
+    if (isOverrideGainMeasured(override)) return override.gainDb;
+
+    const failKey = `${videoId}:${override.filename}`;
+    if (failedLocalLoudness.has(failKey)) return null;
+
+    // Ключ включает filename, чтобы замена локального файла не склеивалась со старым замером.
+    const pendingKey = `local:${videoId}:${override.filename}`;
+    if (pendingLoudness.has(pendingKey)) return pendingLoudness.get(pendingKey)!;
+
+    const requestPromise = (async () => {
+        try {
+            const songsPath = await (window as any).bridge.getSongsPath();
+            const res = await (window as any).bridge.pyCall('analyze_file', {
+                filename: override.filename,
+                songsPath,
+            });
+            if (
+                res?.status === 'ok' &&
+                typeof res.gainDb === 'number' &&
+                Number.isFinite(res.gainDb) &&
+                res.measured !== false
+            ) {
+                const updated = await updateOverrideGain(videoId, override.filename, res.gainDb);
+                if (!updated) return null;
+                console.log(`[stream] Local loudness measured: ${videoId} -> ${res.gainDb.toFixed(2)}dB`);
+                return res.gainDb;
+            }
+            failedLocalLoudness.add(failKey);
+            console.warn(`[stream] Local loudness measure failed: ${videoId}`, res);
+        } catch (e) {
+            failedLocalLoudness.add(failKey);
+            console.error(`[stream] Local loudness measure error: ${videoId}`, e);
+        } finally {
+            pendingLoudness.delete(pendingKey);
+        }
+        return null;
+    })();
+
+    pendingLoudness.set(pendingKey, requestPromise);
+    return requestPromise;
+}
 
 /**
  * Громкость для стримов, у которых источник её не отдал: SoundCloud (всегда) и редкие
@@ -230,14 +298,13 @@ async function fetchStreamFromPython(videoId: string, signal?: AbortSignal, expe
 export async function getStreamUrl(videoId: string, forceBypassCache: boolean = false, expectedSec?: number): Promise<CacheEntry | null> {
     await streamCache.init();
 
-    // Приоритет 1: локальный файл — проверяем ПЕРВЫМ делом
+    // Приоритет 1: локальный файл проверяем первым делом
     const override = await getOverride(videoId);
     if (override) {
-        const fileExists = await (window as any).bridge.songFileExists(override.filename);
-        if (fileExists) {
-            const fileUrl = await (window as any).bridge.getSongFileUrl(override.filename);
+        const localEntry = await toLocalOverrideEntry(override);
+        if (localEntry) {
             console.log(`[stream] SOURCE: local (${videoId}): ${override.filename}`);
-            return { url: fileUrl, expires: 9999999999, loudness: override.gainDb };
+            return localEntry;
         }
         console.warn(`[stream] Local file missing for ${videoId}, falling back to stream`);
         if (override.sourceType !== 'local' && override.sourceType !== 'youtube' && override.sourceUrl) {
@@ -251,7 +318,18 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
                         callId: createCallId(),
                     });
                     if (res.status === 'ok') {
-                        await setOverride({ ...override, filename: res.filename });
+                        const hasFiniteGain = typeof res.gainDb === 'number' && Number.isFinite(res.gainDb);
+                        const explicitMeasured = typeof res.gainMeasured === 'boolean'
+                            ? res.gainMeasured
+                            : (typeof res.measured === 'boolean' ? res.measured : undefined);
+                        const gainMeasured = hasFiniteGain
+                            ? (explicitMeasured ?? res.gainDb !== 0)
+                            : undefined;
+                        await setOverride({
+                            ...override,
+                            filename: res.filename,
+                            ...(hasFiniteGain ? { gainDb: res.gainDb, gainMeasured } : {}),
+                        });
                         console.log(`[stream] Re-downloaded missing file for ${videoId}`);
                     }
                 } catch (e) {
@@ -322,10 +400,14 @@ export async function getStreamUrl(videoId: string, forceBypassCache: boolean = 
  * Мгновенный префетч. Используется плеером для подгрузки очереди.
  */
 export async function prefetchStreamUrl(videoId: string, expectedSec?: number) {
+    // Локальный override проверяем до реестров SC/Yandex, чтобы не префетчить лишние удаленные стримы.
+    const override = await getOverride(videoId);
+    if (override) return;
+
     await streamCache.init();
 
-    // Yandex-ссылка живёт ~60с -- префетч заранее почти гарантированно протухнет
-    // к моменту реального воспроизведения, поэтому просто ждём getStreamUrl() при play.
+    // Yandex-ссылка живет ~60с, префетч заранее почти гарантированно протухнет
+    // к моменту реального воспроизведения, поэтому просто ждем getStreamUrl() при play.
     if (yandexRegistry.has(videoId)) return;
 
     const scUrlPrefetch = scRegistry.get(videoId);
@@ -336,9 +418,6 @@ export async function prefetchStreamUrl(videoId: string, expectedSec?: number) {
         }
         return;
     }
-
-    const override = await getOverride(videoId);
-    if (override) return;
 
     const isFresh = await streamCache.isFresh(videoId);
     const isPending = pendingRequests.has(videoId);

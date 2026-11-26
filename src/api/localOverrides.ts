@@ -6,7 +6,16 @@ export interface LocalOverride {
   sourceUrl: string;
   sourceType: 'soundcloud' | 'youtube' | 'direct' | 'local';
   gainDb: number;
+  gainMeasured?: boolean;
   addedAt: number;
+}
+
+// Старые привязки с gainDb=0 без флага gainMeasured считаем незамеренными, чтобы автодомерить их на лету.
+export function isOverrideGainMeasured(override: Pick<LocalOverride, 'gainDb' | 'gainMeasured'>): boolean {
+  if (typeof override.gainDb !== 'number' || !Number.isFinite(override.gainDb)) return false;
+  if (override.gainMeasured === true) return true;
+  if (override.gainMeasured === false) return false;
+  return override.gainDb !== 0;
 }
 
 // Вкладка Local в сайдбаре: виртуальный плейлист из треков с привязкой
@@ -107,6 +116,28 @@ class LocalOverridesStore {
     });
   }
 
+  async updateOverrideGain(videoId: string, expectedFilename: string, gainDb: number): Promise<boolean> {
+    await this.init();
+    if (!this.db) return false;
+    return new Promise((resolve) => {
+      let updated = false;
+      const tx = this.db!.transaction('overrides', 'readwrite');
+      const objStore = tx.objectStore('overrides');
+      const request = objStore.get(videoId);
+      request.onsuccess = () => {
+        const existing = request.result as LocalOverride | undefined;
+        if (!existing || existing.filename !== expectedFilename) return;
+        updated = true;
+        objStore.put({ ...existing, gainDb, gainMeasured: true });
+      };
+      request.onerror = () => { updated = false; };
+      // Тихое обновление без emitOverrideChanged: иначе PlayerStore перезапустит текущий трек.
+      tx.oncomplete = () => resolve(updated);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+  }
+
   async getAllOverrides(): Promise<LocalOverride[]> {
     await this.init();
     if (!this.db) return [];
@@ -137,6 +168,17 @@ export const setOverride = (override: LocalOverride) => store.setOverride(overri
 export const deleteOverride = (videoId: string) => store.deleteOverride(videoId).then(saveManifest);
 export const getAllOverrides = () => store.getAllOverrides();
 export const clearAllOverrides = () => store.clearAllOverrides();
+
+export async function updateOverrideGain(
+  videoId: string,
+  expectedFilename: string,
+  gainDb: number,
+): Promise<boolean> {
+  if (typeof gainDb !== 'number' || !Number.isFinite(gainDb)) return false;
+  const updated = await store.updateOverrideGain(videoId, expectedFilename, gainDb);
+  if (updated) await saveManifest();
+  return updated;
+}
 
 // Как sanitize в python/api.py: так id трека попадает в имя файла.
 export function songFileId(id: string): string {
@@ -190,7 +232,10 @@ export async function restoreOverridesFromFolder(knownTrackIds: string[], onProg
   for (const o of toRestore) {
     if (fromNames.includes(o)) {
       const res = await bridge().pyCall('analyze_file', { filename: o.filename, songsPath });
-      if (res?.status === 'ok') o.gainDb = res.gainDb ?? 0;
+      if (res?.status === 'ok' && typeof res.gainDb === 'number' && Number.isFinite(res.gainDb) && res.measured !== false) {
+        o.gainDb = res.gainDb;
+        o.gainMeasured = true;
+      }
     }
     await store.setOverride(o);
     onProgress?.(++done, toRestore.length);

@@ -68,98 +68,250 @@ export function interleaveMany(lists: YTMTrack[][]): YTMTrack[] {
   return out;
 }
 
-// "M:SS" / "H:MM:SS" → секунды (0 при пустом/битом значении).
+// "M:SS" / "H:MM:SS" -> секунды (0 при пустом/битом значении). Без аллокаций split/map.
 function durationToSeconds(d: string | undefined | null): number {
   if (!d) return 0;
-  const parts = d.split(':').map(p => parseInt(p, 10));
-  if (parts.some(isNaN)) return 0;
-  return parts.reduce((acc, v) => acc * 60 + v, 0);
+  let total = 0;
+  let part = 0;
+  let hasDigit = false;
+  for (let i = 0; i < d.length; i++) {
+    const c = d.charCodeAt(i);
+    if (c >= 48 && c <= 57) {
+      part = part * 10 + (c - 48);
+      hasDigit = true;
+    } else if (c === 58) {
+      if (!hasDigit) return 0;
+      total = total * 60 + part;
+      part = 0;
+      hasDigit = false;
+    } else {
+      return 0;
+    }
+  }
+  return hasDigit ? total * 60 + part : 0;
 }
 
-// --- Cross-platform dedup (YouTube ↔ SoundCloud) ---
+// --- Cross-platform dedup (YouTube <-> SoundCloud) ---
+
+const NON_ALNUM_RE = /[^a-zа-яё0-9]/g;
+const ART_MIN_LEN = 8;
+const DUR_TOLERANCE_SEC = 5;
+
+function normalizeText(raw: string): string {
+  return raw ? raw.toLowerCase().replace(NON_ALNUM_RE, '') : '';
+}
+
+function artistsText(artists: string[] | undefined): string {
+  if (!artists || artists.length === 0) return '';
+  return artists.length === 1 ? (artists[0] || '') : artists.join(' ');
+}
 
 /** Нормализованная сигнатура трека: title + artists, нижний регистр, без пунктуации/пробелов. */
 export function normalizeSignature(t: YTMTrack): string {
-  const raw = [t.title, ...(t.artists || [])].join(' ');
-  return raw.toLowerCase().replace(/[^a-zа-яё0-9]/gi, '').replace(/\s+/g, '');
+  const title = normalizeText(t.title || '');
+  const artists = normalizeText(artistsText(t.artists));
+  return title + artists;
 }
 
-/** Нормализованная сигнатура только артистов (без названия). */
-function artistSignature(t: YTMTrack): string {
-  return normalizeSignature({ ...t, title: '' } as YTMTrack);
+interface PreparedTrackDedup {
+  readonly id: string;
+  readonly sig: string;
+  readonly art: string;
+  readonly title: string;
+  readonly durSec: number;
 }
 
-/** Нормализованная сигнатура только заголовка (без артистов). */
-function titleSignature(t: YTMTrack): string {
-  return normalizeSignature({ ...t, artists: [] } as YTMTrack);
+function prepareTrackDedup(t: YTMTrack): PreparedTrackDedup {
+  const title = normalizeText(t.title || '');
+  const art = normalizeText(artistsText(t.artists));
+  return {
+    id: t.id || '',
+    sig: title + art,
+    art,
+    title,
+    durSec: durationToSeconds(t.duration),
+  };
 }
 
-/** Расстояние Левенштейна (нужно для нечёткого сравнения сигнатур). */
-function levenshtein(a: string, b: string): number {
-  const al = a.length, bl = b.length;
+// Переиспользуемые буферы для banded Levenshtein без аллокаций на каждую пару.
+let levPrev = new Int32Array(256);
+let levCurr = new Int32Array(256);
+
+function ensureLevCapacity(size: number) {
+  if (levPrev.length >= size) return;
+  let next = levPrev.length;
+  while (next < size) next *= 2;
+  levPrev = new Int32Array(next);
+  levCurr = new Int32Array(next);
+}
+
+/**
+ * Banded Levenshtein с ранним прерыванием: возвращает точное расстояние, если оно <= maxDist,
+ * иначе maxDist + 1. Любой путь стоимостью <= maxDist лежит внутри полосы |i - j| <= maxDist.
+ */
+function levenshteinWithin(a: string, b: string, maxDist: number): number {
+  const al = a.length;
+  const bl = b.length;
+  const inf = maxDist + 1;
+  if (Math.abs(al - bl) > maxDist) return inf;
+  if (maxDist === 0) return a === b ? 0 : 1;
   if (al === 0) return bl;
   if (bl === 0) return al;
-  const dp: number[] = Array.from({ length: bl + 1 }, (_, i) => i);
+
+  ensureLevCapacity(bl + 1);
+  let prev = levPrev;
+  let curr = levCurr;
+
+  const initEnd = bl < maxDist ? bl : maxDist;
+  for (let j = 0; j <= initEnd; j++) prev[j] = j;
+
   for (let i = 1; i <= al; i++) {
-    let prev = dp[0];
-    dp[0] = i;
-    for (let j = 1; j <= bl; j++) {
-      const tmp = dp[j];
-      dp[j] = a[i - 1] === b[j - 1]
-        ? prev
-        : 1 + Math.min(prev, dp[j], dp[j - 1]);
-      prev = tmp;
+    const jStart = i > maxDist ? i - maxDist : 1;
+    const jEnd = i + maxDist < bl ? i + maxDist : bl;
+    const prevBandEnd = i - 1 + maxDist;
+
+    curr[jStart - 1] = jStart === 1 ? i : inf;
+    let rowMin = curr[jStart - 1];
+    const ca = a.charCodeAt(i - 1);
+
+    for (let j = jStart; j <= jEnd; j++) {
+      const diag = prev[j - 1] + (ca === b.charCodeAt(j - 1) ? 0 : 1);
+      const above = j <= prevBandEnd ? prev[j] + 1 : inf;
+      const left = curr[j - 1] + 1;
+      let val = diag < above ? diag : above;
+      if (left < val) val = left;
+      curr[j] = val;
+      if (val < rowMin) rowMin = val;
+    }
+
+    if (rowMin > maxDist) return inf;
+    const swap = prev;
+    prev = curr;
+    curr = swap;
+  }
+
+  return prev[bl];
+}
+
+function isFuzzyOrArtistDuplicate(a: PreparedTrackDedup, b: PreparedTrackDedup): boolean {
+  if (a.durSec > 0 && b.durSec > 0 && Math.abs(a.durSec - b.durSec) > DUR_TOLERANCE_SEC) {
+    return false;
+  }
+
+  // Этап 2: нечеткое совпадение >= 85% с отсечением по разнице длин и banded Levenshtein.
+  const al = a.sig.length;
+  const bl = b.sig.length;
+  const maxLen = al > bl ? al : bl;
+  const maxDist = Math.floor(maxLen * 0.15 + 1e-9);
+  if (Math.abs(al - bl) <= maxDist) {
+    const dist = levenshteinWithin(a.sig, b.sig, maxDist);
+    if (dist <= maxDist && 1 - dist / maxLen >= 0.85) return true;
+  }
+
+  // Этап 3: заголовок одного трека содержит артистов другого (SC-перезаливы без названия песни).
+  if (a.art.length >= ART_MIN_LEN && b.title.length >= a.art.length && b.title.includes(a.art)) return true;
+  if (b.art.length >= ART_MIN_LEN && a.title.length >= b.art.length && a.title.includes(b.art)) return true;
+
+  return false;
+}
+
+export interface TrackDedupIndex {
+  has(track: YTMTrack): boolean;
+  add(track: YTMTrack): void;
+}
+
+/**
+ * Индекс дедупликации: O(1) проверка по id и точной сигнатуре, 5-секундные корзины длительности
+ * для нечеткого сравнения. Сохраняет точную семантику isDuplicateTrack за доли миллисекунды.
+ */
+export function createTrackDedupIndex(tracks?: readonly YTMTrack[]): TrackDedupIndex {
+  const ids = new Set<string>();
+  const sigs = new Set<string>();
+  const buckets = new Map<number, PreparedTrackDedup[]>();
+  const unknownDur: PreparedTrackDedup[] = [];
+  const allNonEmpty: PreparedTrackDedup[] = [];
+
+  const addPrepared = (p: PreparedTrackDedup) => {
+    if (p.id) ids.add(p.id);
+    sigs.add(p.sig);
+    if (p.sig.length === 0) return;
+    allNonEmpty.push(p);
+    if (p.durSec > 0) {
+      const bin = Math.floor(p.durSec / DUR_TOLERANCE_SEC);
+      let list = buckets.get(bin);
+      if (!list) {
+        list = [];
+        buckets.set(bin, list);
+      }
+      list.push(p);
+    } else {
+      unknownDur.push(p);
+    }
+  };
+
+  if (tracks) {
+    for (let i = 0; i < tracks.length; i++) {
+      addPrepared(prepareTrackDedup(tracks[i]));
     }
   }
-  return dp[bl];
+
+  const checkList = (p: PreparedTrackDedup, list: PreparedTrackDedup[] | undefined): boolean => {
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      if (isFuzzyOrArtistDuplicate(p, list[i])) return true;
+    }
+    return false;
+  };
+
+  return {
+    add(track: YTMTrack) {
+      addPrepared(prepareTrackDedup(track));
+    },
+    has(track: YTMTrack): boolean {
+      if (track.id && ids.has(track.id)) return true;
+      const p = prepareTrackDedup(track);
+      if (sigs.has(p.sig)) return true;
+      if (p.sig.length === 0) return false;
+
+      if (p.durSec > 0) {
+        const bin = Math.floor(p.durSec / DUR_TOLERANCE_SEC);
+        if (checkList(p, buckets.get(bin))) return true;
+        if (checkList(p, buckets.get(bin - 1))) return true;
+        if (checkList(p, buckets.get(bin + 1))) return true;
+        return checkList(p, unknownDur);
+      }
+
+      // При неизвестной длительности запроса он может совпасть с треком из любой корзины.
+      return checkList(p, allNonEmpty);
+    },
+  };
 }
 
-function similarity(a: string, b: string): number {
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1;
-  return 1 - levenshtein(a, b) / maxLen;
-}
+const queueDedupCache = new WeakMap<readonly YTMTrack[], TrackDedupIndex>();
 
-function durationsClose(a: YTMTrack, b: YTMTrack, tol = 5): boolean {
-  const durA = durationToSeconds(a.duration);
-  const durB = durationToSeconds(b.duration);
-  if (durA <= 0 || durB <= 0) return true; // неизвестна — не отсеиваем
-  return Math.abs(durA - durB) <= tol;
+export function getQueueDedupIndex(tracks: readonly YTMTrack[]): TrackDedupIndex {
+  let index = queueDedupCache.get(tracks);
+  if (!index) {
+    index = createTrackDedupIndex(tracks);
+    queueDedupCache.set(tracks, index);
+  }
+  return index;
 }
 
 /**
  * Проверяет, являются ли два трека дубликатами (одна и та же песня на разных платформах).
  *
- * Этап 1: точное совпадение нормализованных сигнатур (title+artists) → дубль.
- * Этап 2: нечёткое совпадение ≥85% + длительность ±5 сек → дубль.
- * Этап 3: артисты одного трека совпадают с полной сигнатурой другого + длительность ±5 сек → дубль.
- *         (ловит случай когда SC-аплоадер назвал трек именами артистов без названия песни)
+ * Этап 1: точное совпадение id или нормализованных сигнатур (title+artists) -> дубль.
+ * Этап 2: нечеткое совпадение >= 85% + длительность +-5 сек -> дубль.
+ * Этап 3: заголовок одного трека содержит артистов другого (>= 8 симв.) + длительность +-5 сек -> дубль.
  */
 export function isDuplicateTrack(a: YTMTrack, b: YTMTrack): boolean {
-  const sigA = normalizeSignature(a);
-  const sigB = normalizeSignature(b);
-
-  // Этап 1: точное совпадение
-  if (sigA === sigB) return true;
-  if (sigA.length === 0 || sigB.length === 0) return false;
-
-  // Этап 2: нечёткое совпадение ≥85%
-  const sim = similarity(sigA, sigB);
-  if (sim >= 0.85 && durationsClose(a, b)) return true;
-
-  // Этап 3: заголовок одного трека содержит артистов другого
-  // Ловит случай когда SC-аплоадер назвал трек именами артистов (без названия песни).
-  const artA = artistSignature(a);
-  const artB = artistSignature(b);
-  const titleA = titleSignature(a);
-  const titleB = titleSignature(b);
-  const artMinLen = 8;
-  // Заголовок B содержит артистов A → B назван именами артистов A
-  if (artA.length >= artMinLen && titleB.includes(artA) && durationsClose(a, b)) return true;
-  // Заголовок A содержит артистов B → A назван именами артистов B
-  if (artB.length >= artMinLen && titleA.includes(artB) && durationsClose(a, b)) return true;
-
-  return false;
+  if (a.id && b.id && a.id === b.id) return true;
+  const pa = prepareTrackDedup(a);
+  const pb = prepareTrackDedup(b);
+  if (pa.sig === pb.sig) return true;
+  if (pa.sig.length === 0 || pb.sig.length === 0) return false;
+  return isFuzzyOrArtistDuplicate(pa, pb);
 }
 
 /**

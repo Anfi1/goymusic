@@ -6,9 +6,23 @@ const { searchMore, searchSoundCloud, getStreamUrl, toggleLike } = vi.hoisted(()
   searchMore: vi.fn(), searchSoundCloud: vi.fn(), getStreamUrl: vi.fn(), toggleLike: vi.fn(),
 }));
 vi.mock('./yt', () => ({ searchMore, getQueueRecommendations: async () => ({ tracks: [] }) }));
-vi.mock('./soundcloud', () => ({ searchSoundCloud, isSoundCloudEnabled: () => true, isSoundCloudId: () => false, pickBestScMatch: (tracks: YTMTrack[]) => tracks[0] }));
+vi.mock('./soundcloud', () => ({
+  searchSoundCloud,
+  isSoundCloudEnabled: () => true,
+  isSoundCloudId: () => false,
+  pickBestScMatch: (tracks: YTMTrack[]) => tracks[0],
+  createTrackDedupIndex: () => ({ has: () => false, add: () => {} }),
+  getQueueDedupIndex: () => ({ has: () => false, add: () => {} }),
+}));
 vi.mock('./yandex', () => ({ isYandexEnabled: () => false }));
-vi.mock('./stream', () => ({ getStreamUrl, prefetchStreamUrl: vi.fn(), registerSoundCloudTrack: vi.fn() }));
+vi.mock('./stream', () => ({
+  getStreamUrl,
+  prefetchStreamUrl: vi.fn(),
+  registerSoundCloudTrack: vi.fn(),
+  ensureLoudness: vi.fn().mockResolvedValue(null),
+  ensureLocalLoudness: vi.fn().mockResolvedValue(null),
+  getLocalOverrideEntry: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('./cache', () => ({ streamCache: { init: async () => {}, clearExpired: async () => {} } }));
 vi.mock('./likedManager', () => ({ likedManager: { toggleLike } }));
 vi.mock('./localOverrides', () => ({ onOverrideChanged: vi.fn() }));
