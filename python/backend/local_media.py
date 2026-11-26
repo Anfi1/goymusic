@@ -1,7 +1,8 @@
 """Local audio metadata and ffmpeg loudness measurements."""
-import json
+import math
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -64,21 +65,119 @@ def measure_loudness_full(stream_url):
     if not d:
         return None, None
     i, tp = d
-    if i <= -70:  # тишина / -inf
+    if not math.isfinite(i) or i <= -70:  # тишина / -inf / NaN
         return None, None
 
     loudness = i + 14.0
-    # При усилении (loudness < 0) не даём пикам вылезти выше -1 dBTP: пик после гейна
+    # При усилении (loudness < 0) не даем пикам вылезти выше -1 dBTP: пик после гейна
     # равен tp - loudness, значит loudness не должен опускаться ниже tp + 1.
-    if loudness < 0:
+    if loudness < 0 and math.isfinite(tp):
         loudness = max(loudness, tp + 1.0)
-    return loudness, tp
+    safe_tp = tp if math.isfinite(tp) else None
+    return loudness, safe_tp
+
+
+def _safe_fallback_gain(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return v if math.isfinite(v) else 0.0
+
+
+def _wait_file_stable(filepath: str) -> None:
+    """Ждем стабилизации размера свежезаписанного/импортированного файла на диске."""
+    try:
+        last_size = -1
+        stable_ticks = 0
+        for _ in range(10):
+            try:
+                size = os.path.getsize(filepath)
+            except OSError:
+                size = -1
+            if size == last_size and size > 0:
+                stable_ticks += 1
+            else:
+                stable_ticks = 0
+            last_size = size
+            if stable_ticks >= 2:
+                break
+            time.sleep(0.1)
+    except Exception:
+        pass
+
+
+def _volumedetect_full(filepath: str, timeout: int = 120) -> float | None:
+    """Запасной замер по всему файлу без -ss 30, чтобы короткие треки не уходили в тишину."""
+    vd_proc = subprocess.run(
+        [
+            get_ffmpeg_exe(),
+            '-hide_banner',
+            '-nostats',
+            '-vn', '-sn', '-dn',
+            '-i', filepath,
+            '-af', 'volumedetect',
+            '-f', 'null', '-',
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+        encoding='utf-8',
+        errors='ignore',
+    )
+    stderr = vd_proc.stderr or ''
+    m_mean = re.search(r'mean_volume:\s*([+-]?[\d.]+|-inf|inf|nan)\s*dB', stderr, re.IGNORECASE)
+    if not m_mean:
+        return None
+    mean_db = float(m_mean.group(1))
+    if not math.isfinite(mean_db) or mean_db <= -70.0:
+        return None
+    gain = mean_db + 14.0
+    m_max = re.search(r'max_volume:\s*([+-]?[\d.]+|-inf|inf|nan)\s*dB', stderr, re.IGNORECASE)
+    if m_max:
+        max_db = float(m_max.group(1))
+        if gain < 0 and math.isfinite(max_db):
+            gain = max(gain, max_db + 1.0)
+    return float(gain)
+
+
+def measure_local_gain_db(
+    filepath: str,
+    fallback_gain_db: float | None = 0.0,
+    wait_stable: bool = False,
+) -> tuple[float | None, bool]:
+    """Единый замер громкости локального файла через полный EBU R128 с фолбэком на volumedetect."""
+    fallback = _safe_fallback_gain(fallback_gain_db)
+    if not filepath or not os.path.exists(filepath):
+        return fallback, False
+
+    if wait_stable:
+        _wait_file_stable(filepath)
+
+    try:
+        loud, _ = measure_loudness_full(filepath)
+        if loud is not None and math.isfinite(loud):
+            return float(loud), True
+    except Exception as e:
+        print(f"[warn] ffmpeg ebur128 failed: {e}", file=sys.stderr)
+
+    try:
+        vd_gain = _volumedetect_full(filepath)
+        if vd_gain is not None and math.isfinite(vd_gain):
+            return float(vd_gain), True
+    except Exception as e2:
+        print(f"[warn] ffmpeg volumedetect failed: {e2}", file=sys.stderr)
+
+    return fallback, False
 
 
 def measure_loudness(request, ctx):
     # Фоновый замер для стримов без метаданных громкости (SoundCloud и редкие
     # YT-треки, где YouTube не отдал perceptualLoudnessDb). Каждый запрос и так
-    # обрабатывается в своём потоке, воспроизведение не ждёт.
+    # обрабатывается в своем потоке, воспроизведение не ждет.
     t0 = time.time()
     loud, tp = measure_loudness_full(request.get('url'))
     print(f"[perf] measure_loudness: {time.time() - t0:.1f}s (loudness: {loud}, tp: {tp})", file=sys.stderr)
@@ -92,88 +191,5 @@ def analyze_file(request, ctx):
     filename = request.get('filename', '')
     songs_path = request.get('songsPath', '')
     filepath = os.path.join(songs_path, filename)
-    gain_db = 0.0
-
-    if os.path.exists(filepath):
-        try:
-            import subprocess
-            try:
-                last_size = -1
-                stable_ticks = 0
-                for _ in range(10):
-                    try:
-                        size = os.path.getsize(filepath)
-                    except OSError:
-                        size = -1
-                    if size == last_size and size > 0:
-                        stable_ticks += 1
-                    else:
-                        stable_ticks = 0
-                    last_size = size
-                    if stable_ticks >= 2:
-                        break
-                    time.sleep(0.1)
-            except Exception:
-                print(f"[warn] loudnorm failed", file=sys.stderr)
-
-            # Use subprocess.PIPE to avoid deadlocks on Windows
-            ffmpeg_proc = subprocess.run(
-                [
-                    get_ffmpeg_exe(),
-                    '-hide_banner',
-                    '-nostats',
-                    '-probesize', '32k',
-                    '-analyzeduration', '0',
-                    '-vn', '-sn', '-dn',
-                    '-ss', '30',
-                    '-t', '12',
-                    '-i', filepath,
-                    '-af', 'loudnorm=print_format=json',
-                    '-f', 'null', '-'
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=20,
-                encoding='utf-8',
-                errors='ignore'
-            )
-            stderr_text = ffmpeg_proc.stderr
-            json_start = stderr_text.rfind('{')
-            json_end = stderr_text.rfind('}') + 1
-            if json_start != -1 and json_end > json_start:
-                loudnorm_data = json.loads(stderr_text[json_start:json_end])
-                input_i = float(loudnorm_data.get('input_i', -14.0))
-                gain_db = input_i + 14.0
-        except Exception as e:
-            print(f"[warn] ffmpeg loudnorm failed: {e}", file=sys.stderr)
-
-            # Fast fallback: volumedetect
-            try:
-                vd_proc = subprocess.run(
-                    [
-                        get_ffmpeg_exe(),
-                        '-hide_banner',
-                        '-nostats',
-                        '-vn', '-sn', '-dn',
-                        '-ss', '30',
-                        '-t', '20',
-                        '-i', filepath,
-                        '-af', 'volumedetect',
-                        '-f', 'null', '-'
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=15,
-                    encoding='utf-8',
-                    errors='ignore'
-                )
-                m = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", vd_proc.stderr)
-                if m:
-                    mean_db = float(m.group(1))
-                    gain_db = mean_db + 14.0
-            except Exception as e2:
-                print(f"[warn] ffmpeg volumedetect failed: {e2}", file=sys.stderr)
-
-    ctx.emit({'status': 'ok', 'gainDb': gain_db})
+    gain_db, measured = measure_local_gain_db(filepath, fallback_gain_db=0.0, wait_stable=True)
+    ctx.emit({'status': 'ok', 'gainDb': gain_db, 'measured': measured})

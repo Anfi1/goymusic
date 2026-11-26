@@ -25,7 +25,8 @@ sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import api
-from backend.local_media import _parse_ebur128
+from backend import local_media
+from backend.local_media import _parse_ebur128, measure_local_gain_db, measure_loudness_full
 
 # id из реального лога воспроизведения
 DEFAULT_IDS = ['Ar_vJ10NQHg', 'FDdkK8s87N0', 'JVilaNmHPLY', 'wsG5WtD7DAE', 'Ek_aNdxhTBQ', 'L5j7xQzgTNM']
@@ -122,6 +123,24 @@ def selfcheck():
     assert _parse_ebur128(summary) == (-7.0, 3.1), _parse_ebur128(summary)
     assert _parse_ebur128('I: -70.0 LUFS\nPeak: -inf dBFS') is None  # нет Summary
     assert _parse_ebur128('Summary:\n I: -70.0 LUFS\n Peak: -inf dBFS')[1] == float('-inf')
+
+    # защита measure_loudness_full от NaN / -inf и безопасный потолок пиков
+    orig_ffmpeg = local_media._ffmpeg_loudness
+    try:
+        local_media._ffmpeg_loudness = lambda *a, **kw: (float('nan'), -1.0)
+        assert measure_loudness_full('x') == (None, None)
+        local_media._ffmpeg_loudness = lambda *a, **kw: (-20.0, float('-inf'))
+        loud_inf, tp_inf = measure_loudness_full('x')
+        assert abs(loud_inf - (-6.0)) < 1e-9 and tp_inf is None
+        local_media._ffmpeg_loudness = lambda *a, **kw: (-20.0, -0.5)
+        loud_clamp, tp_clamp = measure_loudness_full('x')
+        assert abs(loud_clamp - 0.5) < 1e-9 and abs(tp_clamp - (-0.5)) < 1e-9
+    finally:
+        local_media._ffmpeg_loudness = orig_ffmpeg
+
+    # отсутствующий файл -> (fallback, False) без падения
+    assert measure_local_gain_db('', fallback_gain_db=0.0) == (0.0, False)
+    assert measure_local_gain_db('', fallback_gain_db=float('nan')) == (0.0, False)
 
     # бот-чек ставит путь быстрого резолва на паузу, обычный отказ -- нет
     api._bot_check_until.update(auth=0.0, anon=0.0)

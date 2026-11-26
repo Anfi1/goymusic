@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(BASE_DIR, 'python', 'fork'))
 import copy
 import json
 import logging
+import math
 import threading
 import concurrent.futures
 import time
@@ -31,7 +32,7 @@ from pytubefix.sig_nsig.node_runner import NodeRunner as _PtfNodeRunner
 
 from backend import catalog, discovery, history, imports, library, local_media, lyrics, yandex
 from backend.context import CommandContext
-from backend.local_media import _ffmpeg_loudness_i, get_ffmpeg_exe
+from backend.local_media import _ffmpeg_loudness_i, get_ffmpeg_exe, measure_local_gain_db, measure_loudness_full
 from backend.soundcloud import SoundCloudCommands, _sc_extract_track_id
 
 # Force UTF-8 for communication to handle Russian text on Windows
@@ -2315,18 +2316,26 @@ def _download_googlevideo_chunked(
                     pass
 
 
+def _measure_local_gain(
+    filepath: str,
+    fallback_gain_db: float | None = None,
+    wait_stable: bool = False,
+) -> tuple[float, bool]:
+    gain_db, measured = measure_local_gain_db(filepath, fallback_gain_db=None, wait_stable=wait_stable)
+    if measured and gain_db is not None and math.isfinite(gain_db):
+        return float(gain_db), True
+    if fallback_gain_db is not None:
+        try:
+            fb = float(fallback_gain_db)
+            if math.isfinite(fb):
+                return fb, True
+        except (TypeError, ValueError):
+            pass
+    return 0.0, False
+
+
 def _measure_local_gain_db(filepath: str, fallback_gain_db: float = 0.0) -> float:
-    if not filepath or not os.path.exists(filepath):
-        return fallback_gain_db
-    try:
-        res = _ffmpeg_loudness_i(filepath, ss=30, t=12)
-        if res is None:
-            res = _ffmpeg_loudness_i(filepath, ss=0, t=12)
-        if res is not None:
-            return float(res) + 14.0
-    except Exception:
-        print("[warn] loudnorm failed", file=sys.stderr)
-    return fallback_gain_db
+    return _measure_local_gain(filepath, fallback_gain_db=fallback_gain_db)[0]
 
 
 def get_preview_url(request, ctx):
@@ -2514,9 +2523,14 @@ def download_track(request, ctx):
                         'status': "Download complete, analyzing loudness...",
                         'progress': '100%',
                     })
-                    fallback_gain = float(fast_loudness) if fast_loudness is not None else 0.0
-                    gain_db = _measure_local_gain_db(filepath, fallback_gain_db=fallback_gain)
-                    safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
+                    gain_db, gain_measured = _measure_local_gain(filepath, fallback_gain_db=fast_loudness)
+                    safe_print({
+                        'status': 'ok',
+                        'filename': filename,
+                        'gainDb': gain_db,
+                        'gainMeasured': gain_measured,
+                        'callId': call_id,
+                    })
                     return
             except _DownloadCancelled as e:
                 safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
@@ -2560,100 +2574,14 @@ def download_track(request, ctx):
                     filepath = os.path.join(songs_path, f)
                     break
 
-        gain_db = 0.0
-        if os.path.exists(filepath):
-            try:
-                import subprocess
-                try:
-                    last_size = -1
-                    stable_ticks = 0
-                    for _ in range(10):
-                        try:
-                            size = os.path.getsize(filepath)
-                        except:
-                            size = -1
-                        if size == last_size and size > 0:
-                            stable_ticks += 1
-                        else:
-                            stable_ticks = 0
-                        last_size = size
-                        if stable_ticks >= 2:
-                            break
-                        time.sleep(0.1)
-                except:
-                    pass
-
-                safe_print({
-                    'event': 'download_progress',
-                    'callId': call_id,
-                    'status': "Analyzing loudness (quick pass)...",
-                    'progress': '100%'
-                })
-                ffmpeg_proc = subprocess.run(
-                    [
-                        get_ffmpeg_exe(),
-                        '-hide_banner',
-                        '-nostats',
-                        '-probesize', '32k',
-                        '-analyzeduration', '0',
-                        '-vn', '-sn', '-dn',
-                        '-ss', '30',
-                        '-t', '12',
-                        '-i', filepath,
-                        '-af', 'loudnorm=print_format=json',
-                        '-f', 'null', '-'
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=20,
-                    encoding='utf-8',
-                    errors='ignore'
-                )
-                stderr_text = ffmpeg_proc.stderr
-                json_start = stderr_text.rfind('{')
-                json_end = stderr_text.rfind('}') + 1
-                if json_start != -1 and json_end > json_start:
-                    loudnorm_data = json.loads(stderr_text[json_start:json_end])
-                    input_i = float(loudnorm_data.get('input_i', -14.0))
-                    gain_db = input_i + 14.0
-            except Exception as e:
-                print(f"[warn] ffmpeg loudnorm failed: {e}", file=sys.stderr)
-
-                try:
-                    safe_print({
-                        'event': 'download_progress',
-                        'callId': call_id,
-                        'status': "Analyzing loudness (fallback)...",
-                        'progress': '100%'
-                    })
-                    vd_proc = subprocess.run(
-                        [
-                            get_ffmpeg_exe(),
-                            '-hide_banner',
-                            '-nostats',
-                            '-vn', '-sn', '-dn',
-                            '-ss', '30',
-                            '-t', '20',
-                            '-i', filepath,
-                            '-af', 'volumedetect',
-                            '-f', 'null', '-'
-                        ],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        timeout=15,
-                        encoding='utf-8',
-                        errors='ignore'
-                    )
-                    m = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", vd_proc.stderr)
-                    if m:
-                        mean_db = float(m.group(1))
-                        gain_db = mean_db + 14.0
-                except Exception as e2:
-                    print(f"[warn] ffmpeg volumedetect failed: {e2}", file=sys.stderr)
-
-        safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
+        gain_db, gain_measured = _measure_local_gain(filepath, wait_stable=True)
+        safe_print({
+            'status': 'ok',
+            'filename': filename,
+            'gainDb': gain_db,
+            'gainMeasured': gain_measured,
+            'callId': call_id,
+        })
     except Exception as e:
         print(f"[error] download_track: {e}", file=sys.stderr)
         safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
@@ -2719,8 +2647,14 @@ def download_direct(request, ctx):
                 'status': "Download complete, analyzing loudness...",
                 'progress': '100%',
             })
-            gain_db = _measure_local_gain_db(filepath)
-            safe_print({'status': 'ok', 'filename': os.path.basename(filepath), 'gainDb': gain_db, 'callId': call_id})
+            gain_db, gain_measured = _measure_local_gain(filepath)
+            safe_print({
+                'status': 'ok',
+                'filename': os.path.basename(filepath),
+                'gainDb': gain_db,
+                'gainMeasured': gain_measured,
+                'callId': call_id,
+            })
             return
         except _DownloadCancelled as e:
             safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
@@ -2777,8 +2711,14 @@ def download_direct(request, ctx):
                             })
 
             safe_print({'event': 'download_progress', 'callId': call_id, 'status': "Download complete, analyzing loudness...", 'progress': '100%'})
-            gain_db = _measure_local_gain_db(filepath)
-            safe_print({'status': 'ok', 'filename': os.path.basename(filepath), 'gainDb': gain_db, 'callId': call_id})
+            gain_db, gain_measured = _measure_local_gain(filepath)
+            safe_print({
+                'status': 'ok',
+                'filename': os.path.basename(filepath),
+                'gainDb': gain_db,
+                'gainMeasured': gain_measured,
+                'callId': call_id,
+            })
             return
         except _DownloadCancelled as e:
             try:
@@ -2829,8 +2769,14 @@ def download_direct(request, ctx):
                 filepath = os.path.join(songs_path, f)
                 break
 
-        gain_db = _measure_local_gain_db(filepath)
-        safe_print({'status': 'ok', 'filename': filename, 'gainDb': gain_db, 'callId': call_id})
+        gain_db, gain_measured = _measure_local_gain(filepath)
+        safe_print({
+            'status': 'ok',
+            'filename': filename,
+            'gainDb': gain_db,
+            'gainMeasured': gain_measured,
+            'callId': call_id,
+        })
     except Exception as e:
         print(f"[error] download_direct: {e}", file=sys.stderr)
         safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
@@ -3040,26 +2986,33 @@ def handle_request(request):
         return
 
     # Register task and set context
+    cancel_event = None
     if call_id:
         thread_local.call_id = call_id
+        cancel_event = threading.Event()
         with tasks_lock:
-            active_tasks[call_id] = threading.Event()
+            active_tasks[call_id] = cancel_event
+
+    def _call_is_cancelled():
+        if cancel_event is not None and cancel_event.is_set():
+            return True
+        return is_cancelled()
 
     try:
         handler = COMMANDS.get(command) if isinstance(command, str) else None
         if handler is None:
             safe_print({'status': 'error', 'message': f'Unknown command: {command}', 'callId': call_id})
         else:
-            context = CommandContext(call_id, safe_print, get_api, get_yandex_client, is_cancelled)
+            context = CommandContext(call_id, safe_print, get_api, get_yandex_client, _call_is_cancelled)
             handler(request, context)
     except Exception as e:
-        if not is_cancelled():
+        if not _call_is_cancelled():
             traceback.print_exc()
             safe_print({'status': 'error', 'message': str(e), 'callId': call_id})
     finally:
         if call_id:
             with tasks_lock:
-                if call_id in active_tasks:
+                if active_tasks.get(call_id) is cancel_event:
                     del active_tasks[call_id]
 
 def main():

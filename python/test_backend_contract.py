@@ -2,9 +2,11 @@
 import contextlib
 import io
 import json
+import math
 import os
 import tempfile
 from threading import Barrier, Event, Lock, Thread
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
@@ -12,6 +14,8 @@ from urllib.parse import parse_qsl, urlparse
 import requests
 
 import api
+from backend import local_media, lyrics, soundcloud
+from backend.context import CommandContext
 
 
 class CancellationContract(unittest.TestCase):
@@ -371,7 +375,7 @@ class YouTubeDownloadContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.object(api, '_download_googlevideo_chunked', side_effect=fake_chunked), \
                     patch.object(api, '_resolve_youtube_audio_stream', return_value=(fresh_url, -1.5, {})) as mock_resolve, \
-                    patch.object(api, '_ffmpeg_loudness_i', return_value=-12.0), \
+                    patch.object(local_media, '_ffmpeg_loudness', return_value=(-12.0, -1.0)), \
                     patch.object(api.yt_dlp, 'YoutubeDL') as mock_ydl, \
                     contextlib.redirect_stdout(io.StringIO()) as out:
                 api.handle_request({
@@ -393,6 +397,7 @@ class YouTubeDownloadContract(unittest.TestCase):
             self.assertTrue(final['filename'].startswith('dl_direct_dQw4w9WgXcQ_'))
             self.assertTrue(final['filename'].endswith('.webm'))
             self.assertAlmostEqual(final['gainDb'], 2.0)
+            self.assertTrue(final['gainMeasured'])
 
     def test_download_track_routes_youtube_to_fast_chunked_and_soundcloud_to_ytdlp(self):
         yt_stream = 'https://rr1---sn-yt.googlevideo.com/videoplayback?clen=4096&mime=audio%2Fwebm'
@@ -406,7 +411,7 @@ class YouTubeDownloadContract(unittest.TestCase):
             # 1) YouTube URL -> fast resolve + chunked download, без yt-dlp
             with patch.object(api, '_resolve_youtube_audio_stream', return_value=(yt_stream, -2.0, {})) as mock_resolve, \
                     patch.object(api, '_download_googlevideo_chunked', side_effect=fake_chunked) as mock_chunked, \
-                    patch.object(api, '_ffmpeg_loudness_i', return_value=-15.0), \
+                    patch.object(local_media, '_ffmpeg_loudness', return_value=(-15.0, -3.0)), \
                     patch.object(api.yt_dlp, 'YoutubeDL') as mock_ydl, \
                     contextlib.redirect_stdout(io.StringIO()) as out:
                 api.handle_request({
@@ -424,6 +429,7 @@ class YouTubeDownloadContract(unittest.TestCase):
             self.assertTrue(final_yt['filename'].startswith('7IzOHlMCkSw_'))
             self.assertTrue(final_yt['filename'].endswith('.webm'))
             self.assertAlmostEqual(final_yt['gainDb'], -1.0)
+            self.assertTrue(final_yt['gainMeasured'])
 
             # 2) SoundCloud URL -> существующий yt-dlp путь не тронут
             def fake_ydl_factory(opts):
@@ -631,7 +637,7 @@ class YouTubeDownloadContract(unittest.TestCase):
 
             with patch.object(api.requests, 'get', return_value=MidStreamFailResponse()), \
                     patch.object(api.yt_dlp, 'YoutubeDL', side_effect=fake_ydl_factory), \
-                    patch.object(api, '_ffmpeg_loudness_i', return_value=-14.0), \
+                    patch.object(local_media, '_ffmpeg_loudness', return_value=(-14.0, -1.0)), \
                     contextlib.redirect_stdout(io.StringIO()) as out:
                 api.handle_request({
                     'command': 'download_direct',
@@ -644,6 +650,7 @@ class YouTubeDownloadContract(unittest.TestCase):
             replies = [json.loads(line) for line in out.getvalue().splitlines()]
             final = [r for r in replies if r.get('status') == 'ok'][-1]
             self.assertTrue(final['filename'].endswith('.webm'))
+            self.assertTrue(final['gainMeasured'])
 
         # 2) Отмена при ошибке в yt_api: частичный файл удален, yt-dlp не запускается
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -684,7 +691,7 @@ class YouTubeDownloadContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.object(api, '_download_googlevideo_chunked', side_effect=IOError('chunk failed')), \
                     patch.object(api.yt_dlp, 'YoutubeDL', side_effect=fake_ydl_factory), \
-                    patch.object(api, '_ffmpeg_loudness_i', return_value=-14.0), \
+                    patch.object(local_media, '_ffmpeg_loudness', return_value=(-14.0, -1.0)), \
                     contextlib.redirect_stdout(io.StringIO()) as out:
                 api.handle_request({
                     'command': 'download_direct',
@@ -697,6 +704,7 @@ class YouTubeDownloadContract(unittest.TestCase):
             replies = [json.loads(line) for line in out.getvalue().splitlines()]
             final = [r for r in replies if r.get('status') == 'ok'][-1]
             self.assertTrue(final['filename'].startswith('dl_direct_dQw4w9WgXcQ_'))
+            self.assertTrue(final['gainMeasured'])
 
     def test_download_track_cancelled_during_fast_resolve_skips_ytdlp(self):
         def fake_resolve_and_cancel(vid):
@@ -715,6 +723,509 @@ class YouTubeDownloadContract(unittest.TestCase):
                     'callId': 'dt-cancel-resolve',
                 })
             mock_ydl.assert_not_called()
+
+
+class LocalLoudnessContract(unittest.TestCase):
+    def test_measure_loudness_full_guards_non_finite_and_clamps_tp_safely(self):
+        with patch.object(local_media, '_ffmpeg_loudness', return_value=(-70.0, float('-inf'))):
+            self.assertEqual(local_media.measure_loudness_full('a.mp3'), (None, None))
+        with patch.object(local_media, '_ffmpeg_loudness', return_value=(float('-inf'), float('-inf'))):
+            self.assertEqual(local_media.measure_loudness_full('a.mp3'), (None, None))
+        with patch.object(local_media, '_ffmpeg_loudness', return_value=(float('nan'), -1.0)):
+            self.assertEqual(local_media.measure_loudness_full('a.mp3'), (None, None))
+        with patch.object(local_media, '_ffmpeg_loudness', return_value=(-20.0, -0.5)):
+            loud, tp = local_media.measure_loudness_full('a.mp3')
+            self.assertAlmostEqual(loud, 0.5)
+            self.assertAlmostEqual(tp, -0.5)
+        with patch.object(local_media, '_ffmpeg_loudness', return_value=(-20.0, float('-inf'))):
+            loud, tp = local_media.measure_loudness_full('a.mp3')
+            self.assertAlmostEqual(loud, -6.0)
+            self.assertTrue(tp is None or math.isfinite(tp))
+
+    def test_measure_local_gain_db_uses_full_ebur128_and_skips_volumedetect_on_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'short.mp3')
+            with open(path, 'wb') as f:
+                f.write(b'fake-audio')
+            with patch.object(local_media, '_ffmpeg_loudness', return_value=(-20.0, -0.5)) as mock_ebur, \
+                    patch('subprocess.run') as mock_run:
+                gain, measured = local_media.measure_local_gain_db(path)
+            mock_ebur.assert_called_once_with(path, timeout=300)
+            mock_run.assert_not_called()
+            self.assertTrue(measured)
+            self.assertAlmostEqual(gain, 0.5)
+
+    def test_measure_local_gain_db_volumedetect_fallback_has_no_ss30_and_clamps_peak(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'short.mp3')
+            with open(path, 'wb') as f:
+                f.write(b'fake-audio')
+
+            seen_cmds = []
+
+            def fake_run(cmd, **kwargs):
+                seen_cmds.append(cmd)
+                res = MagicMock()
+                res.stderr = (
+                    '[Parsed_volumedetect_0 @ 000] mean_volume: -20.0 dB\n'
+                    '[Parsed_volumedetect_0 @ 000] max_volume: -0.5 dB\n'
+                )
+                return res
+
+            with patch.object(local_media, 'measure_loudness_full', return_value=(None, None)), \
+                    patch('subprocess.run', side_effect=fake_run):
+                gain, measured = local_media.measure_local_gain_db(path)
+
+            self.assertTrue(measured)
+            self.assertAlmostEqual(gain, 0.5)
+            self.assertEqual(len(seen_cmds), 1)
+            self.assertNotIn('-ss', seen_cmds[0])
+            self.assertNotIn('-t', seen_cmds[0])
+            self.assertIn('volumedetect', seen_cmds[0])
+
+            # Тишина (<= -70 dB) отбрасывается и возвращает fallback + measured=False
+            def fake_silent(cmd, **kwargs):
+                res = MagicMock()
+                res.stderr = '[Parsed_volumedetect_0 @ 000] mean_volume: -91.0 dB\n'
+                return res
+
+            with patch.object(local_media, 'measure_loudness_full', side_effect=RuntimeError('boom')), \
+                    patch('subprocess.run', side_effect=fake_silent):
+                gain_s, measured_s = local_media.measure_local_gain_db(path, fallback_gain_db=0.0)
+            self.assertFalse(measured_s)
+            self.assertAlmostEqual(gain_s, 0.0)
+
+        # Отсутствующий файл -> fallback + measured=False без запуска ffmpeg
+        gain_m, measured_m = local_media.measure_local_gain_db('/nonexistent/file.mp3', fallback_gain_db=-1.25)
+        self.assertFalse(measured_m)
+        self.assertAlmostEqual(gain_m, -1.25)
+
+    def test_analyze_file_emits_measured_flag_and_uses_unified_helper(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'song.mp3')
+            with open(path, 'wb') as f:
+                f.write(b'fake-audio')
+            with patch.object(local_media, 'measure_local_gain_db', return_value=(1.75, True)) as mock_m, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                api.handle_request({
+                    'command': 'analyze_file',
+                    'filename': 'song.mp3',
+                    'songsPath': tmpdir,
+                    'callId': 'an-1',
+                })
+            mock_m.assert_called_once_with(path, fallback_gain_db=0.0, wait_stable=True)
+            replies = [json.loads(line) for line in out.getvalue().splitlines()]
+            self.assertEqual(replies, [{
+                'status': 'ok',
+                'gainDb': 1.75,
+                'measured': True,
+                'callId': 'an-1',
+            }])
+
+    def test_api_measure_local_gain_and_soundcloud_download_use_unified_ebur128(self):
+        # _measure_local_gain: при провале локального замера конечный fallback считается измеренным
+        with patch.object(api, 'measure_local_gain_db', return_value=(None, False)):
+            self.assertEqual(api._measure_local_gain('x.mp3', fallback_gain_db=-2.5), (-2.5, True))
+            self.assertEqual(api._measure_local_gain('x.mp3', fallback_gain_db=None), (0.0, False))
+            self.assertEqual(api._measure_local_gain('x.mp3', fallback_gain_db=float('nan')), (0.0, False))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            def fake_ydl_factory(opts):
+                ydl = MagicMock()
+                def extract(u, download=True):
+                    out_path = opts['outtmpl'].replace('%%(', '%(').replace('%(ext)s', 'mp3')
+                    with open(out_path, 'wb') as f:
+                        f.write(b'sc-short-audio')
+                    return {'ext': 'mp3'}
+                ydl.__enter__.return_value.extract_info.side_effect = extract
+                return ydl
+
+            with patch.object(api.yt_dlp, 'YoutubeDL', side_effect=fake_ydl_factory), \
+                    patch.object(local_media, 'measure_loudness_full', return_value=(-1.25, -2.0)) as mock_full, \
+                    patch('subprocess.run') as mock_subproc, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                api.handle_request({
+                    'command': 'download_track',
+                    'url': 'https://soundcloud.com/artist/short-track',
+                    'videoId': 'sc-short',
+                    'songsPath': tmpdir,
+                    'callId': 'dt-sc-unified',
+                })
+            mock_full.assert_called_once()
+            mock_subproc.assert_not_called()
+            replies = [json.loads(line) for line in out.getvalue().splitlines()]
+            final = [r for r in replies if r.get('status') == 'ok'][-1]
+            self.assertAlmostEqual(final['gainDb'], -1.25)
+            self.assertTrue(final['gainMeasured'])
+
+            # При провале замера download_track YouTube с fast_loudness=None -> gainMeasured=False
+            yt_stream = 'https://rr1---sn-yt.googlevideo.com/videoplayback?clen=1024&mime=audio%2Fwebm'
+            def fake_chunked(url, filepath, headers, call_id, is_cancelled, **kwargs):
+                with open(filepath, 'wb') as f:
+                    f.write(b'yt-audio')
+                return 8
+
+            with patch.object(api, '_resolve_youtube_audio_stream', return_value=(yt_stream, None, {})), \
+                    patch.object(api, '_download_googlevideo_chunked', side_effect=fake_chunked), \
+                    patch.object(api, 'measure_local_gain_db', return_value=(None, False)), \
+                    contextlib.redirect_stdout(io.StringIO()) as out_yt:
+                api.handle_request({
+                    'command': 'download_track',
+                    'url': 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+                    'videoId': 'dQw4w9WgXcQ',
+                    'songsPath': tmpdir,
+                    'callId': 'dt-yt-unmeasured',
+                })
+            final_yt = [json.loads(line) for line in out_yt.getvalue().splitlines() if '"status": "ok"' in line][-1]
+            self.assertEqual(final_yt['gainDb'], 0.0)
+            self.assertFalse(final_yt['gainMeasured'])
+
+            # download_direct yt_api success path тоже отдает gainMeasured
+            with patch.object(api.requests, 'get', return_value=_FakeResponse(b'yt-api-audio', 200, {'Content-Length': '12'})), \
+                    patch.object(local_media, 'measure_loudness_full', return_value=(1.25, -1.0)), \
+                    contextlib.redirect_stdout(io.StringIO()) as out_ytapi:
+                api.handle_request({
+                    'command': 'download_direct',
+                    'url': 'https://www.youtube.com/api/timedtext?foo=1',
+                    'videoId': 'dQw4w9WgXcQ',
+                    'songsPath': tmpdir,
+                    'callId': 'dd-ytapi-ok',
+                })
+            final_ytapi = [json.loads(line) for line in out_ytapi.getvalue().splitlines() if '"status": "ok"' in line][-1]
+            self.assertAlmostEqual(final_ytapi['gainDb'], 1.25)
+            self.assertTrue(final_ytapi['gainMeasured'])
+
+
+class SoundCloudThumbFallbackContract(unittest.TestCase):
+    def test_sc_pick_track_thumb_fallback_order_and_default_avatar_filter(self):
+        pick = soundcloud._sc_pick_track_thumb
+        self.assertEqual(
+            pick({
+                'artwork_url': 'https://i1.sndcdn.com/artworks-1-large.jpg',
+                'user': {'avatar_url': 'https://i1.sndcdn.com/avatars-1-large.jpg'},
+            }),
+            'https://i1.sndcdn.com/artworks-1-t500x500.jpg',
+        )
+        self.assertEqual(
+            pick({
+                'artwork_url': None,
+                'user': {'avatar_url': 'https://i1.sndcdn.com/avatars-1-large.jpg'},
+            }),
+            'https://i1.sndcdn.com/avatars-1-t500x500.jpg',
+        )
+        self.assertEqual(
+            pick({'artwork_url': ''}, fallback_user={'avatar_url': 'https://i1.sndcdn.com/avatars-2-large.jpg'}),
+            'https://i1.sndcdn.com/avatars-2-t500x500.jpg',
+        )
+        self.assertEqual(
+            pick({
+                'artwork_url': None,
+                'user': {'avatar_url': 'https://a1.sndcdn.com/images/default_avatar_large.png'},
+            }),
+            '',
+        )
+        self.assertEqual(
+            pick({'artwork_url': None}, fallback_user={'avatar_url': 'https://a1.sndcdn.com/images/default_avatar_large.png'}),
+            '',
+        )
+
+    def test_sc_pick_track_thumb_guards_non_dict_users_and_non_string_urls(self):
+        pick = soundcloud._sc_pick_track_thumb
+        av_large = 'https://i1.sndcdn.com/avatars-safe-large.jpg'
+        av_500 = 'https://i1.sndcdn.com/avatars-safe-t500x500.jpg'
+
+        # Не-строковый truthy artwork_url игнорируется и откатывается к аватару автора
+        self.assertEqual(
+            pick({'artwork_url': 12345, 'user': {'avatar_url': av_large}}),
+            av_500,
+        )
+        self.assertEqual(
+            pick({'artwork_url': {'nested': True}, 'user': {'avatar_url': 999}}, fallback_user={'avatar_url': av_large}),
+            av_500,
+        )
+        # Не-dict truthy user / fallback_user не падают с AttributeError
+        self.assertEqual(
+            pick({'artwork_url': None, 'user': 'invalid-user'}, fallback_user={'avatar_url': av_large}),
+            av_500,
+        )
+        self.assertEqual(
+            pick({'artwork_url': None, 'user': ['bad']}, fallback_user=42),
+            '',
+        )
+        self.assertEqual(
+            pick({'artwork_url': 777, 'user': None}, fallback_user='not-a-dict'),
+            '',
+        )
+        self.assertEqual(pick('not-a-dict', fallback_user={'avatar_url': av_large}), '')
+
+    def test_soundcloud_builders_apply_avatar_fallback(self):
+        avatar_large = 'https://i1.sndcdn.com/avatars-artist-large.jpg'
+        avatar_500 = 'https://i1.sndcdn.com/avatars-artist-t500x500.jpg'
+        default_av = 'https://a1.sndcdn.com/images/default_avatar_large.png'
+
+        def fake_get(path, params, oauth_token=None):
+            if path == '/resolve' and params.get('url') == 'https://soundcloud.com/artist':
+                return {'id': 1, 'username': 'Art', 'permalink_url': 'https://soundcloud.com/artist', 'avatar_url': avatar_large}
+            if path.startswith('/users/1/tracks'):
+                return {'collection': [
+                    {'id': 10, 'permalink_url': 'https://soundcloud.com/artist/t1', 'title': 'T1', 'duration': 60000, 'artwork_url': None, 'user': {'username': 'Art'}},
+                    {'id': 11, 'permalink_url': 'https://soundcloud.com/artist/t2', 'title': 'T2', 'duration': 60000, 'artwork_url': None, 'user': {'username': 'Art', 'avatar_url': default_av}},
+                ]}
+            if path == '/users/1/albums':
+                return {'collection': [{'permalink_url': 'https://soundcloud.com/artist/sets/a1', 'title': 'A1', 'artwork_url': None, 'track_count': 2, 'created_at': '2025-01-01'}]}
+            if path == '/users/1/playlists':
+                return {'collection': [{'permalink_url': 'https://soundcloud.com/artist/sets/p1', 'title': 'P1', 'artwork_url': None, 'track_count': 3}]}
+            if path == '/users/1/followings':
+                return {'collection': []}
+            if path == '/search/users':
+                return {'collection': []}
+            if path == '/search/albums':
+                return {'collection': [{'permalink_url': 'https://soundcloud.com/artist/sets/sa', 'title': 'SA', 'artwork_url': None, 'user': {'username': 'Art', 'avatar_url': avatar_large}}]}
+            if path == '/me':
+                return {'id': 42}
+            if path == '/playlists/99':
+                return {'title': 'PL', 'artwork_url': None, 'user': {'avatar_url': avatar_large}, 'tracks': [
+                    {'id': 20, 'permalink_url': 'https://soundcloud.com/artist/pt', 'title': 'PT', 'duration': 30000, 'artwork_url': None, 'user': {'username': 'Art', 'avatar_url': avatar_large}},
+                ]}
+            if path == '/tracks' and params.get('ids') == '20':
+                return [{'id': 20, 'permalink_url': 'https://soundcloud.com/artist/pt', 'title': 'PT', 'duration': 30000, 'artwork_url': None, 'user': {'username': 'Art', 'avatar_url': avatar_large}}]
+            if path == '/tracks/10/related':
+                return {'collection': [{'id': 30, 'permalink_url': 'https://soundcloud.com/artist/rel', 'title': 'Rel', 'duration': 45000, 'artwork_url': None, 'user': {'username': 'Art', 'avatar_url': avatar_large}}]}
+            if path == '/resolve' and params.get('url') == 'https://soundcloud.com/artist/sets/pl':
+                return {'id': 99, 'user': {'avatar_url': avatar_large}}
+            if path == '/resolve' and params.get('url') == 'https://soundcloud.com/artist/t1':
+                return {'kind': 'track', 'id': 10, 'title': 'T1', 'duration': 60000, 'artwork_url': None, 'user': {'username': 'Art', 'avatar_url': avatar_large, 'permalink_url': 'https://soundcloud.com/artist'}}
+            return None
+
+        sc = soundcloud.SoundCloudCommands(fake_get, lambda tok=None: {}, lambda: 'cid')
+
+        def run_cmd(fn, req):
+            emitted = []
+            ctx = CommandContext('c1', emitted.append, lambda: None, lambda: None, lambda: False)
+            fn(req, ctx)
+            return emitted[-1]
+
+        art = run_cmd(sc.get_soundcloud_artist, {'url': 'https://soundcloud.com/artist'})
+        by_id = {t['scId']: t for t in art['results']}
+        self.assertEqual(by_id['10']['thumbUrl'], avatar_500)
+        self.assertEqual(by_id['11']['thumbUrl'], '')
+        self.assertEqual(art['albums'][0]['thumbUrl'], avatar_500)
+        self.assertEqual(art['playlists'][0]['thumbUrl'], avatar_500)
+
+        extra = run_cmd(sc.search_soundcloud_extra, {'query': 'art'})
+        self.assertEqual(extra['albums'][0]['thumbUrl'], avatar_500)
+
+        st = run_cmd(sc.sc_station_tracks, {'id': '99'})
+        self.assertEqual(st['results'][0]['thumbUrl'], avatar_500)
+
+        rec = run_cmd(sc.sc_recommendations, {'scId': '10'})
+        self.assertEqual(rec['results'][0]['thumbUrl'], avatar_500)
+
+        pl = run_cmd(sc.get_soundcloud_playlist, {'url': 'https://soundcloud.com/artist/sets/pl'})
+        self.assertEqual(pl['thumbUrl'], avatar_500)
+        self.assertEqual(pl['tracks'][0]['thumbUrl'], avatar_500)
+
+        res = run_cmd(sc.resolve_sc_track, {'url': 'https://soundcloud.com/artist/t1'})
+        self.assertEqual(res['thumbUrl'], avatar_500)
+
+        fake_likes_resp = MagicMock(ok=True)
+        fake_likes_resp.json.return_value = {
+            'collection': [{
+                'created_at': '2026-01-01T00:00:00Z',
+                'track': {
+                    'id': 50,
+                    'permalink_url': 'https://soundcloud.com/artist/liked',
+                    'title': 'Liked',
+                    'duration': 50000,
+                    'artwork_url': None,
+                    'user': {'username': 'Art', 'avatar_url': avatar_large, 'permalink_url': 'https://soundcloud.com/artist'},
+                },
+            }],
+            'next_href': None,
+        }
+        with patch.object(soundcloud.requests, 'get', return_value=fake_likes_resp):
+            liked = run_cmd(sc.sc_liked_tracks, {'token': 'tok'})
+        self.assertEqual(liked['results'][0]['thumbUrl'], avatar_500)
+
+
+class LyricsCancellationContract(unittest.TestCase):
+    def test_get_lyrics_returns_cancelled_immediately_when_already_cancelled(self):
+        emitted = []
+        ctx = CommandContext('lyr-pre', emitted.append, MagicMock(), MagicMock(), lambda: True)
+        with patch.object(lyrics.requests, 'get') as mock_get, \
+                patch.object(lyrics, 'fetch_genius_lyrics') as mock_genius, \
+                patch.object(lyrics, 'fetch_lyrics_ovh') as mock_ovh:
+            lyrics.get_lyrics({'artist': 'Radiohead', 'title': 'Creep', 'videoId': 'vid1', 'yandexId': '123'}, ctx)
+        mock_get.assert_not_called()
+        mock_genius.assert_not_called()
+        mock_ovh.assert_not_called()
+        ctx.get_yandex_client.assert_not_called()
+        self.assertEqual(emitted, [{'status': 'error', 'message': 'Cancelled by client', 'callId': 'lyr-pre'}])
+
+    def test_get_lyrics_cancels_parallel_race_without_blocking_on_slow_providers(self):
+        entered = Event()
+        release = Event()
+        cancelled = Event()
+        emitted = []
+
+        def slow_get(*args, **kwargs):
+            entered.set()
+            release.wait(timeout=5)
+            return MagicMock(status_code=404)
+
+        class SlowYT:
+            def get_watch_playlist(self, **kwargs):
+                entered.set()
+                release.wait(timeout=5)
+                return None
+
+        ctx = CommandContext('lyr-race', emitted.append, lambda: SlowYT(), lambda: None, cancelled.is_set)
+        fake_sl = MagicMock()
+        fake_sl.search.side_effect = lambda *a, **kw: (entered.set(), release.wait(timeout=5), None)[-1]
+
+        t0 = time.monotonic()
+        try:
+            with patch.object(lyrics.requests, 'get', side_effect=slow_get), \
+                    patch.dict('sys.modules', {'syncedlyrics': fake_sl}), \
+                    patch.object(lyrics, 'fetch_genius_lyrics') as mock_genius, \
+                    patch.object(lyrics, 'fetch_lyrics_ovh') as mock_ovh:
+                worker = Thread(
+                    target=lyrics.get_lyrics,
+                    args=({'artist': 'Artist', 'title': 'Song', 'videoId': 'vid1'}, ctx),
+                )
+                worker.start()
+                self.assertTrue(entered.wait(timeout=2))
+                cancelled.set()
+                worker.join(timeout=1.5)
+                elapsed = time.monotonic() - t0
+                self.assertFalse(worker.is_alive(), 'get_lyrics hung waiting for slow providers after cancel')
+                self.assertLess(elapsed, 1.5)
+                mock_genius.assert_not_called()
+                mock_ovh.assert_not_called()
+        finally:
+            release.set()
+
+        self.assertEqual(emitted, [{'status': 'error', 'message': 'Cancelled by client', 'callId': 'lyr-race'}])
+
+    def test_get_lyrics_returns_synced_hit_without_waiting_for_slow_providers(self):
+        release = Event()
+        emitted = []
+
+        def fast_exact_slow_search(url, *args, **kwargs):
+            if '/api/get' in url:
+                resp = MagicMock(status_code=200)
+                resp.json.return_value = {'plainLyrics': 'hello', 'syncedLyrics': '[00:01.00]hello'}
+                return resp
+            release.wait(timeout=5)
+            return MagicMock(status_code=404)
+
+        class SlowYT:
+            def get_watch_playlist(self, **kwargs):
+                release.wait(timeout=5)
+                return None
+
+        ctx = CommandContext('lyr-fast', emitted.append, lambda: SlowYT(), lambda: None, lambda: False)
+        fake_sl = MagicMock()
+        fake_sl.search.side_effect = lambda *a, **kw: (release.wait(timeout=5), None)[-1]
+
+        t0 = time.monotonic()
+        try:
+            with patch.object(lyrics.requests, 'get', side_effect=fast_exact_slow_search), \
+                    patch.dict('sys.modules', {'syncedlyrics': fake_sl}):
+                lyrics.get_lyrics({'artist': 'Artist', 'title': 'Song', 'videoId': 'vid1'}, ctx)
+            elapsed = time.monotonic() - t0
+        finally:
+            release.set()
+
+        self.assertLess(elapsed, 1.5)
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]['status'], 'ok')
+        self.assertEqual(emitted[0]['syncedLyrics'], '[00:01.00]hello')
+
+    def test_fetch_genius_lyrics_stops_between_queries_when_cancelled(self):
+        calls = []
+        cancelled = Event()
+
+        def fake_get(url, *args, **kwargs):
+            calls.append((url, kwargs.get('params')))
+            cancelled.set()
+            resp = MagicMock(status_code=200)
+            resp.json.return_value = {'response': {'sections': []}}
+            return resp
+
+        with patch.object(lyrics.requests, 'get', side_effect=fake_get):
+            res = lyrics.fetch_genius_lyrics('Artist', 'Title (Alt)', is_cancelled=cancelled.is_set)
+        self.assertIsNone(res)
+        self.assertEqual(len(calls), 1)
+
+    def test_api_cancel_command_propagates_to_get_lyrics_via_handle_request(self):
+        entered = Event()
+        release = Event()
+
+        def slow_get(*args, **kwargs):
+            entered.set()
+            release.wait(timeout=5)
+            return MagicMock(status_code=404)
+
+        fake_sl = MagicMock()
+        fake_sl.search.side_effect = lambda *a, **kw: (entered.set(), release.wait(timeout=5), None)[-1]
+
+        try:
+            with patch.object(lyrics.requests, 'get', side_effect=slow_get), \
+                    patch.dict('sys.modules', {'syncedlyrics': fake_sl}), \
+                    patch.object(lyrics, 'fetch_genius_lyrics') as mock_genius, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                worker = Thread(
+                    target=api.handle_request,
+                    args=({'command': 'get_lyrics', 'artist': 'A', 'title': 'T', 'callId': 'lyr-api-cancel'},),
+                )
+                worker.start()
+                self.assertTrue(entered.wait(timeout=2))
+                api.handle_request({'command': 'cancel', 'callId': 'lyr-api-cancel'})
+                worker.join(timeout=1.5)
+                self.assertFalse(worker.is_alive())
+                mock_genius.assert_not_called()
+            # Отмененный вызов не должен ничего писать в stdout
+            self.assertEqual(out.getvalue().strip(), '')
+        finally:
+            release.set()
+
+    def test_get_lyrics_cancels_after_yandex_and_before_ovh_fallback(self):
+        # 1) Отмена во время Yandex lookup не идет дальше в параллельные провайдеры
+        cancelled = Event()
+        emitted = []
+
+        class FakeYandexClient:
+            def tracks_lyrics(self, track_id, format_='LRC'):
+                cancelled.set()
+                return MagicMock(download_url='https://yandex.example/lrc')
+
+        ctx = CommandContext('lyr-ya', emitted.append, MagicMock(), lambda: FakeYandexClient(), cancelled.is_set)
+        with patch.object(lyrics.requests, 'get') as mock_get, \
+                patch.object(lyrics, 'fetch_genius_lyrics') as mock_genius:
+            lyrics.get_lyrics({'artist': 'A', 'title': 'T', 'yandexId': '777'}, ctx)
+        mock_get.assert_not_called()
+        mock_genius.assert_not_called()
+        self.assertEqual(emitted, [{'status': 'error', 'message': 'Cancelled by client', 'callId': 'lyr-ya'}])
+
+        # 2) Отмена во время Genius не запускает lyrics.ovh
+        cancelled2 = Event()
+        emitted2 = []
+        ctx2 = CommandContext('lyr-ovh', emitted2.append, lambda: None, lambda: None, cancelled2.is_set)
+
+        def fake_genius(artist, title, is_cancelled=None):
+            cancelled2.set()
+            return None
+
+        fake_sl = MagicMock()
+        fake_sl.search.return_value = None
+        with patch.object(lyrics.requests, 'get', return_value=MagicMock(status_code=404)), \
+                patch.dict('sys.modules', {'syncedlyrics': fake_sl}), \
+                patch.object(lyrics, 'fetch_genius_lyrics', side_effect=fake_genius), \
+                patch.object(lyrics, 'fetch_lyrics_ovh') as mock_ovh:
+            lyrics.get_lyrics({'artist': 'A', 'title': 'T'}, ctx2)
+        mock_ovh.assert_not_called()
+        self.assertEqual(emitted2, [{'status': 'error', 'message': 'Cancelled by client', 'callId': 'lyr-ovh'}])
 
 
 if __name__ == '__main__':

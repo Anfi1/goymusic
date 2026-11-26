@@ -11,6 +11,22 @@ def _sc_pick_thumb(url):
         return ''
     return url.replace('-large.', '-t500x500.')
 
+
+def _sc_pick_track_thumb(item, fallback_user=None):
+    """Обложка трека/альбома/плейлиста SC с фолбэком на аватар автора (игнорируя default_avatar)."""
+    if not isinstance(item, dict):
+        return ''
+    item_user = item.get('user')
+    candidates = (
+        item.get('artwork_url'),
+        item_user.get('avatar_url') if isinstance(item_user, dict) else None,
+        fallback_user.get('avatar_url') if isinstance(fallback_user, dict) else None,
+    )
+    url = next((c for c in candidates if isinstance(c, str) and c.strip()), '')
+    if not url or 'default_avatar' in url:
+        return ''
+    return _sc_pick_thumb(url)
+
 def _sc_iso_to_ms(value):
     """ISO-время лайка SoundCloud ('2026-06-27T14:09:54Z') → epoch ms. 0 при ошибке."""
     if not value:
@@ -75,7 +91,7 @@ class SoundCloudCommands:
                                 'title': t.get('title', ''),
                                 'artist': tuser.get('username', '') or username,
                                 'duration': int((t.get('duration') or 0) / 1000),
-                                'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                                'thumbUrl': _sc_pick_track_thumb(t, user),
                                 'source': 'soundcloud',
                                 'scId': str(tid or ''),
                                 'uploaderUrl': permalink_url,
@@ -101,7 +117,7 @@ class SoundCloudCommands:
                             'url': a.get('permalink_url', ''),
                             'title': a.get('title', ''),
                             'artist': username,
-                            'thumbUrl': _sc_pick_thumb(a.get('artwork_url') or ''),
+                            'thumbUrl': _sc_pick_track_thumb(a, user),
                             'trackCount': a.get('track_count', 0),
                             'year': year,
                         })
@@ -118,7 +134,7 @@ class SoundCloudCommands:
                             'url': p.get('permalink_url', ''),
                             'title': p.get('title', ''),
                             'artist': username,
-                            'thumbUrl': _sc_pick_thumb(p.get('artwork_url') or ''),
+                            'thumbUrl': _sc_pick_track_thumb(p, user),
                             'trackCount': p.get('track_count', 0),
                         })
                     return playlist_list
@@ -203,7 +219,7 @@ class SoundCloudCommands:
                     albums.append({
                         'url': a.get('permalink_url', ''),
                         'title': a.get('title', ''),
-                        'thumbUrl': _sc_pick_thumb(a.get('artwork_url') or ''),
+                        'thumbUrl': _sc_pick_track_thumb(a),
                         'artist': user.get('username', ''),
                         'uploaderUrl': user.get('permalink_url', ''),
                         'source': 'soundcloud',
@@ -286,7 +302,7 @@ class SoundCloudCommands:
                             'title': t.get('title', ''),
                             'artist': user.get('username', ''),
                             'duration': int((t.get('duration') or 0) / 1000),
-                            'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                            'thumbUrl': _sc_pick_track_thumb(t),
                             'source': 'soundcloud',
                             'scId': str(t.get('id') or ''),
                             'uploaderUrl': user.get('permalink_url', ''),
@@ -376,7 +392,7 @@ class SoundCloudCommands:
                         'title': t.get('title', ''),
                         'artist': user.get('username', ''),
                         'duration': int((t.get('duration') or 0) / 1000),
-                        'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                        'thumbUrl': _sc_pick_track_thumb(t),
                         'source': 'soundcloud',
                         'scId': str(t.get('id') or ''),
                         'uploaderUrl': user.get('permalink_url', ''),
@@ -408,7 +424,7 @@ class SoundCloudCommands:
                         'title': t.get('title', ''),
                         'artist': user.get('username', ''),
                         'duration': int((t.get('duration') or 0) / 1000),  # api-v2 отдаёт мс
-                        'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                        'thumbUrl': _sc_pick_track_thumb(t),
                         'source': 'soundcloud',
                         'scId': str(t.get('id') or ''),
                         'uploaderUrl': user.get('permalink_url', ''),
@@ -440,7 +456,7 @@ class SoundCloudCommands:
                         'title': t.get('title', ''),
                         'artist': tuser.get('username', ''),
                         'duration': int((t.get('duration') or 0) / 1000),
-                        'thumbUrl': _sc_pick_thumb(t.get('artwork_url') or ''),
+                        'thumbUrl': _sc_pick_track_thumb(t),
                         'source': 'soundcloud',
                         'scId': str(t.get('id') or ''),
                         'uploaderUrl': tuser.get('permalink_url', ''),
@@ -451,7 +467,7 @@ class SoundCloudCommands:
                     'status': 'ok',
                     'title': (data or {}).get('title', ''),
                     'description': (data or {}).get('description', ''),
-                    'thumbUrl': _sc_pick_thumb((data or {}).get('artwork_url') or ''),
+                    'thumbUrl': _sc_pick_track_thumb(data or {}, resolved.get('user') if isinstance(resolved, dict) else None),
                     'trackCount': len(tracks),
                     'tracks': tracks,
                 })
@@ -466,13 +482,13 @@ class SoundCloudCommands:
             if not data or data.get('kind') != 'track':
                 ctx.emit({'status': 'error', 'message': 'Not a SC track'})
                 return
-            user = data.get('user', {})
+            user = data.get('user') or {}
             ctx.emit({
                 'status': 'ok',
                 'title': data.get('title', ''),
                 'artist': user.get('username', ''),
                 'duration': int((data.get('duration') or 0) / 1000),
-                'thumbUrl': _sc_pick_thumb(data.get('artwork_url') or ''),
+                'thumbUrl': _sc_pick_track_thumb(data),
                 'scId': str(data.get('id') or ''),
                 'uploaderUrl': user.get('permalink_url', ''),
             })

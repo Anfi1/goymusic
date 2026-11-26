@@ -3,6 +3,7 @@ import concurrent.futures
 import html as html_lib
 import re
 import sys
+import time
 
 import requests
 
@@ -98,7 +99,12 @@ def _pick_lrclib(candidates, title, artist, duration):
     return best
 
 
-def fetch_genius_lyrics(artist, title):
+def fetch_genius_lyrics(artist, title, is_cancelled=None):
+    def _cancelled():
+        return bool(is_cancelled and is_cancelled())
+
+    if _cancelled():
+        return None
     try:
         # 1. Ищем URL именно ПЕСНИ (не страницы артиста), пробуя несколько запросов.
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
@@ -164,6 +170,8 @@ def fetch_genius_lyrics(artist, title):
         song_url = None
         seen_q = set()
         for q in queries:
+            if _cancelled():
+                return None
             q = (q or '').strip()
             if not q or q in seen_q:
                 continue
@@ -172,11 +180,13 @@ def fetch_genius_lyrics(artist, title):
             if song_url:
                 break
 
-        if not song_url: return None
+        if not song_url or _cancelled():
+            return None
 
         # 2. Fetch the page and extract ALL containers
         r = requests.get(song_url, headers=headers, timeout=5)
-        if r.status_code != 200: return None
+        if _cancelled() or r.status_code != 200:
+            return None
         html_text = r.text
         
         # We find all starts of lyrics containers
@@ -247,13 +257,23 @@ def fetch_lyrics_ovh(artist, title):
 
 
 def get_lyrics(request, ctx):
+    def _cancelled():
+        return bool(ctx.is_cancelled and ctx.is_cancelled())
+
+    def _emit_cancelled():
+        ctx.emit({'status': 'error', 'message': 'Cancelled by client'})
+
+    if _cancelled():
+        _emit_cancelled()
+        return
+
     artist = _clean_artist(request.get('artist'))
     title = _normalize_lyric_title(request.get('title'))
     duration = request.get('duration')
     video_id = request.get('videoId')
 
     def _lrclib_exact():
-        if not (artist and title):
+        if _cancelled() or not (artist and title):
             return None
         try:
             params = {'artist_name': artist, 'track_name': title}
@@ -263,7 +283,7 @@ def get_lyrics(request, ctx):
                 d = r.json()
                 if d.get('plainLyrics') or d.get('syncedLyrics'):
                     return {'plainLyrics': d.get('plainLyrics'), 'syncedLyrics': d.get('syncedLyrics'), 'source': 'lrclib'}
-                # У трека без вокала lrclib отдаёт instrumental: true и пустые поля.
+                # У трека без вокала lrclib отдает instrumental: true и пустые поля.
                 # Это не "не нашли", а "текста нет" -- в UI это разные экраны.
                 if d.get('instrumental'):
                     return {'instrumental': True, 'source': 'lrclib'}
@@ -271,7 +291,7 @@ def get_lyrics(request, ctx):
         return None
 
     def _lrclib_search():
-        if not title:
+        if _cancelled() or not title:
             return None
         try:
             q = f"{artist} {title}".strip() if artist else title
@@ -284,7 +304,7 @@ def get_lyrics(request, ctx):
         return None
 
     def _netease():
-        if not title:
+        if _cancelled() or not title:
             return None
         try:
             import syncedlyrics
@@ -306,12 +326,12 @@ def get_lyrics(request, ctx):
     def _ytmusic():
         """Тексты самого YT Music (Musixmatch) -- часто с таймкодами там, где lrclib пуст.
                 browseId лежит в watch-плейлисте трека, отдельный поиск не нужен."""
-        if not video_id:
+        if _cancelled() or not video_id:
             return None
         try:
             yt = ctx.get_api()
             browse_id = (yt.get_watch_playlist(videoId=video_id, limit=1) or {}).get('lyrics')
-            if not browse_id:
+            if not browse_id or _cancelled():
                 return None
             ly = yt.get_lyrics(browse_id, timestamps=True)
             if not ly:
@@ -331,16 +351,22 @@ def get_lyrics(request, ctx):
         return None
 
     # Для трека из Яндекса сначала спрашиваем сам Яндекс: он ищет по id трека,
-    # а не по строке "артист - название", и отдаёт готовый LRC с таймкодами.
+    # а не по строке "артист - название", и отдает готовый LRC с таймкодами.
     yandex_id = request.get('yandexId')
     if yandex_id:
+        if _cancelled():
+            _emit_cancelled()
+            return
         try:
             yclient = ctx.get_yandex_client()
-            if yclient:
+            if yclient and not _cancelled():
                 info = yclient.tracks_lyrics(str(yandex_id), format_='LRC')
                 link = getattr(info, 'download_url', None) if info else None
-                if link:
+                if link and not _cancelled():
                     lrc = requests.get(link, timeout=8).text.strip()
+                    if _cancelled():
+                        _emit_cancelled()
+                        return
                     if lrc:
                         plain = '\n'.join(
                             re.sub(r'^\[\d+:\d+(?:\.\d+)?\]\s*', '', line).strip()
@@ -355,36 +381,76 @@ def get_lyrics(request, ctx):
                         return
         except Exception as e:
             print(f"[lyrics] yandex source failed: {e}", file=sys.stderr)
+        if _cancelled():
+            _emit_cancelled()
+            return
 
     # LRCLIB (точный + поиск), NetEase и YT Music -- параллельно.
-    # Как только один вернул synced -- берём его и отменяем остальные.
+    # Не используем context manager, чтобы shutdown(wait=False) не ждал зависшие источники
+    # после отмены запроса или получения synced-текста.
     result = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {
-            pool.submit(_lrclib_exact): 'lrclib_exact',
-            pool.submit(_lrclib_search): 'lrclib_search',
-            pool.submit(_netease): 'netease',
-            pool.submit(_ytmusic): 'ytmusic',
+    cancelled = False
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    try:
+        pending = {
+            pool.submit(_lrclib_exact),
+            pool.submit(_lrclib_search),
+            pool.submit(_netease),
+            pool.submit(_ytmusic),
         }
-        for future in concurrent.futures.as_completed(futures, timeout=15):
-            try:
-                r = future.result(timeout=0)
-            except: continue
-            if not r: continue
-            # Приоритет: synced > plain > instrumental
-            if r.get('syncedLyrics'):
-                result = r
-                for f in futures: f.cancel()
+        deadline = time.monotonic() + 15.0
+        while pending:
+            if _cancelled():
+                cancelled = True
                 break
-            if result is None or (result.get('instrumental') and r.get('plainLyrics')):
-                result = r
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=min(0.2, remaining),
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if _cancelled():
+                cancelled = True
+                break
+            got_synced = False
+            for future in done:
+                try:
+                    r = future.result(timeout=0)
+                except Exception:
+                    continue
+                if not r:
+                    continue
+                # Приоритет: synced > plain > instrumental
+                if r.get('syncedLyrics'):
+                    result = r
+                    got_synced = True
+                    break
+                if result is None or (result.get('instrumental') and r.get('plainLyrics')):
+                    result = r
+            if got_synced:
+                break
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    if cancelled or _cancelled():
+        _emit_cancelled()
+        return
 
     if result and not result.get('instrumental'):
         ctx.emit({'status': 'ok', **result})
         return
 
+    if _cancelled():
+        _emit_cancelled()
+        return
+
     # Фолбэк: Genius (plain only).
-    genius = fetch_genius_lyrics(artist, title)
+    genius = fetch_genius_lyrics(artist, title, is_cancelled=_cancelled)
+    if _cancelled():
+        _emit_cancelled()
+        return
     if genius:
         ctx.emit({
             'status': 'ok',
@@ -396,7 +462,13 @@ def get_lyrics(request, ctx):
 
     # Фолбэк: lyrics.ovh (plain only).
     if artist:
+        if _cancelled():
+            _emit_cancelled()
+            return
         ovh = fetch_lyrics_ovh(artist, title)
+        if _cancelled():
+            _emit_cancelled()
+            return
         if ovh:
             ctx.emit({
                 'status': 'ok',
@@ -405,6 +477,10 @@ def get_lyrics(request, ctx):
                 'source': 'lyrics.ovh',
             })
             return
+
+    if _cancelled():
+        _emit_cancelled()
+        return
 
     # Текста нет не потому что не нашли, а потому что его нет.
     if result and result.get('instrumental'):
