@@ -216,8 +216,11 @@ npm run test:watch
 - `webSecurity: false` в renderer используется для воспроизведения стримов.
 
 ### SoundCloud и DataDome
-- Для обхода защиты DataDome при лайках SoundCloud используется webview с реальным Chromium-контекстом: согласованный UA, client-hints, stealth-патч `navigator` через CDP.
-- В `sc:write` лайк выполняется внутри страницы `soundcloud.com`, чтобы несли действительные DataDome-куки.
+- Авторизация, лайки и refresh токена SoundCloud реализованы в `electron/scLikes.ts` поверх сессии `persist:soundcloud` (IPC: `sc:login`, `sc:logout`, `sc:like`, `sc:refresh`, `sc:set-tokens`); при DataDome 403 открывается одноразовое single-flight окно проверки.
+- Веб-токен `oauth_token` - короткоживущий JWT (`exp`, `client_id`), в паре с одноразовой `HttpOnly` кукой `oauth_refresh_token`. Обновление идет строго single-flight через `POST https://soundcloud.com/n/api/refresh-token` (fallback `POST https://secure.soundcloud.com/oauth/token` с `jwt.client_id` только при 403/404 без расхода refresh-токена).
+- Не вызывать `/n/api/refresh-token` при отсутствии `oauth_refresh_token` (сервер отвечает 500 и присылает `Set-Cookie` с очисткой `oauth_token`). Единое окно проактивного обновления (`SC_PROACTIVE_REFRESH_LEEWAY_SEC` в `src/utils/scJwt.ts`) должно совпадать в main и renderer.
+- В Chromium `session.cookies.remove(url, name)` удаляет все куки под `url` (и host-only `soundcloud.com`, и `.soundcloud.com`). При дедупликации сначала выбрать победителя, удалить дубликаты, затем записать победителя обратно с явным `expirationDate` (без него кука станет сессионной и пропадет после перезапуска).
+- Авторизованные SC-команды в Python (`python/backend/soundcloud.py`) на 401 поднимают `ScUnauthorizedError` -> `status: 'unauthorized'`, а при сетевой ошибке в `sc_liked_meta`/`sc_liked_tracks` отдают `status: 'error'` (никогда не пустой `status: 'ok'`, чтобы `scLikedManager.sync()` не стер локальное зеркало лайков).
 
 ### Локальные данные
 - `{userData}/window-config.json` — границы окна и путь к папке `songs`.
@@ -262,6 +265,10 @@ npm run test:watch
 - **Папка `songs/`** используется для локальных файлов и скачанных треков; путь настраивается в настройках.
 - **Deep links:** протокол `goymusic://`. В dev не регистрируется (`setAsDefaultProtocolClient` только в packaged); тестировать через `npm run dist`.
 - **Память:** в `main.ts` включены флаги оптимизации Chromium и периодическая очистка кэша/GC каждые 5 минут.
+- **Поиск в worktree (Windows):** не запускать `rg` внутри `.worktrees/*` - junction `python/bin/Lib` вызывает бесконечное зависание `rg`. Использовать `git grep`.
+- **CSS-токены:** `src/styles/tokens.test.ts` запрещает сырые hex-цвета, литеральные `px` в `border-radius` и литеральные `font-size` вне `src/styles/theme.css`.
+- **Инварианты лайков (YT/SC):** визуальный статус лайка по всем экранам берется из `src/api/likedIndex.ts` (`useLikedLookup`), а не только из сырого `track.likeStatus`. `TrackRow.tsx` не должен повторно диспатчить `track-like-updated` после `likedManager.toggleLike/toggleDislike` (это гоняется с `reloadLikedIndex()` `startSeq`). Строки YT `LM` с разным `likeTargetId` группируются в `LikedEntry.likeTargetIds`.
+- **Авторелизы и `origin/main`:** workflow `.github/workflows/deps-watch.yml` раз в 6 часов пересобирает релиз при обновлении `pytubefix`/`yt-dlp-ejs` на PyPI и пушит бот-коммит `chore: bump version to ...`. Перед началом новой ветки или пушем всегда делать `git fetch origin`.
 
 ---
 

@@ -97,7 +97,7 @@ React (src/) ──window.bridge.pyCall──▶ preload ──ipc 'py:call'─�
 
 ## Текущая работа
 
-Эпик **SoundCloud-гибрид + «Моя волна»** влит в `main`: команды `sc_*` в `python/api.py`, UI — `src/components/organisms/MyWaveView.tsx`. Лайки SC идут через nodriver (`sc_like_nodriver`) — прямой api-v2 путь удалён, DataDome его резал.
+Эпик **SoundCloud-гибрид + «Моя волна»** влит в `main`: команды `sc_*` в `python/backend/soundcloud.py`, UI - `src/components/organisms/MyWaveView.tsx`. По умолчанию лайки, вход и автообновление JWT работают через `electron/scLikes.ts` (`persist:soundcloud` + `session.fetch` + одноразовое окно проверки при DataDome 403); `sc_like_nodriver` остался как legacy-режим в настройках.
 
 Открытые планы: [docs/superpowers/plans/](docs/superpowers/plans/) — `2026-07-01-mywave-curate-mix.md`, `2026-07-09-sc-offline-likes-plan.md`.
 
