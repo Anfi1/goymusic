@@ -51,7 +51,7 @@ const MainContentWrapper = memo(
     isAuthenticated,
     isInitializing,
     navigate,
-    waveLyricsLaunch,
+    waveLyricsLaunchNonce,
   }: any) => {
     const activeView = entry.view;
     return (
@@ -93,9 +93,8 @@ const MainContentWrapper = memo(
             onSelectArtist={handleSelectArtist}
             onSelectAlbum={handleSelectAlbum}
             onSelectPlaylist={handleSelectPlaylist}
-            initialShowLyrics={!!waveLyricsLaunch}
-            preserveCurrentQueue={!!waveLyricsLaunch?.preserveQueue}
-            launchNonce={waveLyricsLaunch?.nonce}
+            initialShowLyrics={waveLyricsLaunchNonce !== null}
+            launchNonce={waveLyricsLaunchNonce ?? undefined}
             onCollapseLyrics={historyLength > 0 ? handleBack : undefined}
           />
         ) : activeView.type === 'artist' && activeView.artistId ? (
@@ -171,7 +170,7 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   const [artistSheetBack, setArtistSheetBack] = useState<(() => void) | null>(null);
-  const [waveLyricsLaunch, setWaveLyricsLaunch] = useState<{ nonce: number; preserveQueue: boolean } | null>(null);
+  const [waveLyricsLaunchNonce, setWaveLyricsLaunchNonce] = useState<number | null>(null);
   const onSheetBackChange = useCallback((back: (() => void) | null) => {
     setArtistSheetBack(() => back);
   }, []);
@@ -194,13 +193,13 @@ function App() {
       setRightPanelContent('none');
     } else {
       setRightPanelContent(savedRightPanelRef.current);
-      setWaveLyricsLaunch(null);
+      setWaveLyricsLaunchNonce(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMyWave]);
 
   const handleOpenImmersiveLyrics = useCallback(() => {
-    setWaveLyricsLaunch({ nonce: Date.now(), preserveQueue: true });
+    setWaveLyricsLaunchNonce(Date.now());
     navigate({ type: 'my-wave' });
   }, [navigate]);
 
@@ -669,7 +668,7 @@ function App() {
         isAuthenticated={isAuthenticated}
         isInitializing={isInitializing}
         navigate={navigate}
-        waveLyricsLaunch={waveLyricsLaunch}
+        waveLyricsLaunchNonce={waveLyricsLaunchNonce}
       />
     ),
     [
@@ -690,7 +689,7 @@ function App() {
       isAuthenticated,
       isInitializing,
       navigate,
-      waveLyricsLaunch,
+      waveLyricsLaunchNonce,
     ]
   );
 

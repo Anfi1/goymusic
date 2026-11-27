@@ -243,7 +243,6 @@ interface MyWaveViewProps {
   onSelectAlbum?: (id: string) => void;
   onSelectPlaylist?: (id: string, title: string) => void;
   initialShowLyrics?: boolean;
-  preserveCurrentQueue?: boolean;
   launchNonce?: number;
   onCollapseLyrics?: () => void;
 }
@@ -253,7 +252,6 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({
   onSelectAlbum,
   onSelectPlaylist,
   initialShowLyrics = false,
-  preserveCurrentQueue = false,
   launchNonce,
   onCollapseLyrics,
 }) => {
@@ -673,8 +671,9 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({
 
   const activeStation = allStations.find(s => s.id === activeId) || FORYOU;
   const waveActive = player.queueSourceId === WAVE_SOURCE_ID;
-  // При переходе из боковой панели текстов показываем текущий трек и сохраняем очередь без запуска волны.
-  const useCurrentQueue = preserveCurrentQueue && !waveActive && !!player.currentTrack;
+  // Показываем актуальный трек и сохраняем текущую очередь при любом переходе в «Мою волну»
+  // (и из сайдбара, и по кнопке больших текстов); станция запускается по явному клику.
+  const useCurrentQueue = !waveActive && !!player.currentTrack;
   const stageActive = waveActive || useCurrentQueue;
 
   useEffect(() => {

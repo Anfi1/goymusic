@@ -160,7 +160,7 @@ describe('LyricsView scroll reset & expand controls', () => {
 });
 
 describe('MyWaveView current-queue big lyrics mode', () => {
-  it('с preserveCurrentQueue + initialShowLyrics показывает текущий трек, бейдж Сейчас играет и открытую панель больших текстов без сброса очереди', () => {
+  it('с initialShowLyrics показывает текущий трек, бейдж Сейчас играет и открытую панель больших текстов без сброса очереди', () => {
     (player as any).currentTrack = sampleTrack;
     (player as any).isPlaying = true;
     (player as any).queueSourceId = 'playlist-liked';
@@ -168,7 +168,6 @@ describe('MyWaveView current-queue big lyrics mode', () => {
     const html = renderWithQuery(
       createElement(MyWaveView, {
         initialShowLyrics: true,
-        preserveCurrentQueue: true,
         launchNonce: 1,
         onCollapseLyrics: () => {},
       })
@@ -181,15 +180,27 @@ describe('MyWaveView current-queue big lyrics mode', () => {
     expect(html).not.toContain('Выбери станцию слева');
   });
 
-  it('при обычном открытии Моей волны без preserveCurrentQueue сохраняет прежний стартовый экран волны', () => {
+  it('при обычном переходе в Мою волну с играющим треком тоже переносит текущий трек и очередь (без автооткрытия текстов)', () => {
     (player as any).currentTrack = sampleTrack;
     (player as any).isPlaying = true;
     (player as any).queueSourceId = 'playlist-liked';
 
     const html = renderWithQuery(createElement(MyWaveView, {}));
 
+    expect(html).toContain('Night Drive');
+    expect(html).toContain('Сейчас играет');
+    expect(html).not.toContain('lyricsPanelVisible');
+    expect(html).not.toContain('Выбери станцию слева');
+  });
+
+  it('когда ничего не играет, показывает стартовый экран выбора станции', () => {
+    (player as any).currentTrack = null;
+    (player as any).isPlaying = false;
+    (player as any).queueSourceId = null;
+
+    const html = renderWithQuery(createElement(MyWaveView, {}));
+
     expect(html).toContain('Выбери станцию слева');
     expect(html).not.toContain('Сейчас играет');
-    expect(html).not.toContain('lyricsPanelVisible');
   });
 });
