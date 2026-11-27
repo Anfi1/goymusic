@@ -317,6 +317,13 @@
   --virtual-track-height: var(--deck-list-row-height);
   --search-track-artwork: var(--deck-list-artwork);
   --fs-track-title: var(--fs-lg);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+:root[data-layout="deck"] .table tr[data-index],
+:root[data-layout="deck"] .table tr[data-index] > td {
+  border-radius: 0;
 }
 
 :root[data-layout="deck"] .skeletonTrack { height: var(--virtual-track-height); }
@@ -361,13 +368,18 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* Не задавать opacity на самом td: в Deck подсветка строки рисуется на ячейках,
+   и полупрозрачность ячейки затемняет фон колонки Played относительно остальных. */
 .timeCell {
-  color: var(--text-sub);
+  color: color-mix(in srgb, var(--text-sub) 60%, transparent);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-base);
   padding: 6px 12px;
   white-space: nowrap;
-  opacity: 0.6;
+}
+
+:root[data-layout="deck"] .timeCell {
+  color: var(--text-sub);
 }
 
 .filterGroup {
