@@ -32,12 +32,32 @@
 }
 
 .wrapper.waveMode .container {
-    padding-top: 14rem;
-    padding-bottom: 14rem;
+    padding: 14rem clamp(1.5rem, 6cqi, 3.5rem);
+}
+
+.wrapper.waveMode .container.staticMode {
+    padding: 2.5rem clamp(1.5rem, 6cqi, 3.5rem) 5rem;
 }
 
 .wrapper.waveMode .line {
+    font-size: clamp(1.3rem, 4.2cqi, 2rem);
+    line-height: 1.28;
+    width: 100%;
+    max-width: 34ch;
+    margin-inline: auto;
     text-shadow: none;
+}
+
+.wrapper.waveMode .plainLyrics {
+    max-width: 44ch;
+}
+
+.wrapper.waveMode .plainLine {
+    font-size: clamp(1.15rem, 3.2cqi, 1.55rem);
+    font-weight: 600;
+    line-height: 1.55;
+    opacity: 0.88;
+    margin-bottom: 0.75rem;
 }
 
 .wrapper.waveMode .line.active {
@@ -227,14 +247,24 @@
 
 .plainLyrics {
     text-align: left;
+    width: 100%;
+    max-width: 56ch;
+    margin-inline: auto;
 }
 
 .plainLine {
-    font-size: var(--fs-lg);
-    line-height: 1.6;
+    font-size: clamp(1rem, 4.4cqi, 1.2rem);
+    font-weight: 500;
+    line-height: 1.55;
     color: var(--text-main);
-    opacity: 0.7;
-    margin-bottom: 0.6rem;
+    opacity: 0.86;
+    margin-bottom: 0.65rem;
+    overflow-wrap: break-word;
+    text-wrap: pretty;
+}
+
+.plainLine:empty {
+    min-height: 0.9em;
 }
 
 /* Состояния «грузится / не найдено» под чипами: занимают остаток панели */

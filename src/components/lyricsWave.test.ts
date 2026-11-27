@@ -176,6 +176,8 @@ describe('MyWaveView current-queue big lyrics mode', () => {
     expect(html).toContain('Night Drive');
     expect(html).toContain('Сейчас играет');
     expect(html).toContain('lyricsPanelVisible');
+    expect(html).toContain('lyricsFocusMode');
+    expect(html).toContain('stageLyricsFocus');
     expect(html).toContain('aria-label="Свернуть"');
     expect(html).not.toContain('Выбери станцию слева');
   });

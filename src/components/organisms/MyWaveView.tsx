@@ -801,7 +801,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({
   const panelOpen = showLyrics || showQueue;
 
   return (
-    <div className={`${styles.container} ${panelOpen ? styles.lyricsMode : ''}`}>
+    <div className={`${styles.container} ${panelOpen ? styles.lyricsMode : ''} ${showLyrics ? styles.lyricsFocusMode : ''}`}>
       {/* Иммерсивный фон во всю ширину — список и плеер живут поверх него без границы. */}
       <div
         className={styles.bg}
@@ -896,7 +896,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({
         </div>
       </aside>
 
-      <main className={`${styles.stage} ${panelOpen ? styles.stageLyrics : ''}`}>
+      <main className={`${styles.stage} ${showLyrics ? styles.stageLyricsFocus : showQueue ? styles.stageLyrics : ''}`}>
         <div className={styles.stageInner}>
           <div className={styles.stationBadge}>{useCurrentQueue ? 'Сейчас играет' : activeStation.title}</div>
 
