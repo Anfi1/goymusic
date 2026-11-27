@@ -2,6 +2,8 @@
   position: relative;
   height: 100%;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: wave;
   --wave-panel-width: clamp(300px, 34%, 440px);
   --wave-lyrics-width: clamp(440px, 56%, 860px);
   --text-main: var(--text-main);
@@ -379,11 +381,14 @@
 .stageInner {
   position: relative;
   z-index: 1;
+  box-sizing: border-box;
+  container-type: inline-size;
+  container-name: stage;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: clamp(14px, 2.4vw, 22px);
-  padding: clamp(14px, 3vw, 32px);
+  padding: clamp(14px, 3vw, 32px) clamp(16px, 2.2cqi, 32px);
   width: 100%;
   max-width: 560px;
 }
@@ -450,7 +455,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: min(480px, 60vw);
+  max-width: min(480px, 100%);
 }
 .trackArtist { margin: 0; font-size: var(--fs-base); color: rgba(255, 255, 255, 0.72); }
 
@@ -500,6 +505,7 @@
   align-items: center;
   gap: 4px;
   margin-top: -4px;
+  max-width: 100%;
 }
 .volDivider {
   width: 1px;
@@ -621,6 +627,29 @@
 .ctrlMain:hover { transform: scale(1.05); }
 .ctrlExtra { background: rgba(255, 255, 255, 0.08); }
 
+/* В узкой сцене (маленькое окно с открытыми текстами) масштабируем кнопки от ширины сцены,
+   чтобы ряд из 6 кнопок и громкость не выходили за пределы блока и не наезжали на текст. */
+@container stage (max-width: 470px) {
+  .controls {
+    gap: clamp(6px, 2.5cqi, 16px);
+  }
+  .ctrl {
+    width: clamp(36px, 10cqi, 46px);
+    height: clamp(36px, 10cqi, 46px);
+  }
+  .ctrlMain {
+    width: clamp(48px, 13.5cqi, 60px);
+    height: clamp(48px, 13.5cqi, 60px);
+  }
+  .volumeControl {
+    padding: 5px 10px;
+    gap: 6px;
+  }
+  .volumeBar {
+    width: clamp(48px, 13cqi, 64px);
+  }
+}
+
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -647,7 +676,7 @@
 /* Когда открыты тексты: отдаем им больше ширины и смещаем сцену ближе к центру,
    чтобы обложка и текст стояли сбалансированно рядом, а не разъезжались по краям. */
 .stageLyricsFocus {
-  padding-left: clamp(16px, 5vw, 110px);
+  padding-left: clamp(0px, calc(16cqi - 180px), 110px);
   padding-right: var(--wave-lyrics-width);
 }
 
@@ -713,20 +742,22 @@
   box-sizing: border-box;
 }
 
-@media (max-width: 1150px) {
-  .container {
-    --wave-panel-width: clamp(260px, 32%, 340px);
-    --wave-lyrics-width: clamp(360px, 52%, 520px);
-  }
-  .stageLyrics { justify-content: flex-start; }
-  .stageLyricsFocus {
-    padding-left: 0;
-    padding-right: var(--wave-lyrics-width);
-    justify-content: center;
+@container wave (max-width: 1180px) {
+  .stageLyricsFocus,
+  .lyricsPanel,
+  .lyricsFocusMode .filterStrip {
+    --wave-lyrics-width: clamp(360px, 50cqi, 590px);
   }
   .lyricsPanelInner {
     padding: 20px 24px 20px 14px;
   }
+}
+
+@media (max-width: 1150px) {
+  .container {
+    --wave-panel-width: clamp(260px, 32%, 340px);
+  }
+  .stageLyrics { justify-content: flex-start; }
 }
 
 /* ─── Empty / start state ──────────────────────────────────────────────── */

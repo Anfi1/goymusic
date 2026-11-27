@@ -205,4 +205,14 @@ describe('MyWaveView current-queue big lyrics mode', () => {
     expect(html).toContain('Выбери станцию слева');
     expect(html).not.toContain('Сейчас играет');
   });
+
+  it('MyWaveView.module.css масштабирует кнопки и ширину текстов через container queries, чтобы кнопки не вылезали в узком окне', () => {
+    const css = readFileSync(resolve(__dirname, 'organisms/MyWaveView.module.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+
+    expect(css).toMatch(/\.container\s*\{[^}]*container-type:\s*inline-size;[^}]*container-name:\s*wave;/);
+    expect(css).toMatch(/\.stageInner\s*\{[^}]*box-sizing:\s*border-box;[^}]*container-type:\s*inline-size;[^}]*container-name:\s*stage;/);
+    expect(css).toMatch(/@container\s+stage\s*\(max-width:\s*470px\)/);
+    expect(css).toMatch(/@container\s+wave\s*\(max-width:\s*1180px\)/);
+  });
 });
