@@ -194,15 +194,15 @@ const WaveVolumeControl: React.FC = () => {
   );
 };
 
-// Прогресс-бар с обновлением через ref'ы — нулевое количество ре-рендеров на tick.
-const WaveProgressBar = React.memo(({ onSeek }: { onSeek: (pct: number) => void }) => {
+// Прогресс-бар с обновлением через ref'ы - нулевое количество ре-рендеров на tick.
+const WaveProgressBar = React.memo(({ onSeek, active }: { onSeek: (pct: number) => void; active: boolean }) => {
   const currentRef = useRef<HTMLSpanElement>(null);
   const durationRef = useRef<HTMLSpanElement>(null);
   const progressBarRef = useRef<ProgressBarRef>(null);
 
   useEffect(() => {
     const updateTime = () => {
-      if (player.queueSourceId !== WAVE_SOURCE_ID) return;
+      if (!active) return;
 
       if (currentRef.current) currentRef.current.textContent = formatTime(player.currentTime);
       if (durationRef.current) durationRef.current.textContent = formatTime(player.duration);
@@ -217,7 +217,7 @@ const WaveProgressBar = React.memo(({ onSeek }: { onSeek: (pct: number) => void 
     }, { tick: true, buffer: true });
     updateTime();
     return unsub;
-  }, []);
+  }, [active]);
 
   return (
     <div className={styles.waveProgress}>
@@ -242,9 +242,21 @@ interface MyWaveViewProps {
   onSelectArtist?: (id: string) => void;
   onSelectAlbum?: (id: string) => void;
   onSelectPlaylist?: (id: string, title: string) => void;
+  initialShowLyrics?: boolean;
+  preserveCurrentQueue?: boolean;
+  launchNonce?: number;
+  onCollapseLyrics?: () => void;
 }
 
-export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelectAlbum, onSelectPlaylist }) => {
+export const MyWaveView: React.FC<MyWaveViewProps> = ({
+  onSelectArtist,
+  onSelectAlbum,
+  onSelectPlaylist,
+  initialShowLyrics = false,
+  preserveCurrentQueue = false,
+  launchNonce,
+  onCollapseLyrics,
+}) => {
   const [stations, setStations] = useState<WaveStation[]>(stationsCache || []);
   const [activeId, setActiveId] = useState<string>(getSavedActiveId());
   const [selectedFilter, setSelectedFilter] = useState<string>(
@@ -256,7 +268,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   const [loading, setLoading] = useState<boolean>(!stationsCache);
   const [error, setError] = useState<string | null>(null);
   const [likeAction, setLikeAction] = useState<'like' | 'dislike' | null>(null);
-  const [showLyrics, setShowLyrics] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(initialShowLyrics);
   const [showQueue, setShowQueue] = useState(false);
   const [shuffleOn, setShuffleOn] = useState(player.shuffle);
   const [repeatState, setRepeatState] = useState<'off' | 'all' | 'one'>(player.repeat);
@@ -661,10 +673,20 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
 
   const activeStation = allStations.find(s => s.id === activeId) || FORYOU;
   const waveActive = player.queueSourceId === WAVE_SOURCE_ID;
+  // При переходе из боковой панели текстов показываем текущий трек и сохраняем очередь без запуска волны.
+  const useCurrentQueue = preserveCurrentQueue && !waveActive && !!player.currentTrack;
+  const stageActive = waveActive || useCurrentQueue;
+
+  useEffect(() => {
+    if (initialShowLyrics) {
+      setShowLyrics(true);
+      setShowQueue(false);
+    }
+  }, [initialShowLyrics, launchNonce]);
 
   // При переключении фильтра на платформенную вкладку (SC/Yandex) поднимаем в актив
-  // её реальную станцию вместо общей "Для тебя"; если волна уже играет — перезапускаем
-  // её с новой станцией.
+  // ее реальную станцию вместо общей "Для тебя"; если волна уже играет - перезапускаем
+  // ее с новой станцией.
   useEffect(() => {
     const kind: WaveStation['kind'] | null =
       selectedFilter === 'yandex' ? 'yandex' : (selectedFilter === 'soundcloud' || selectedFilter === 'genre') ? 'sc' : null;
@@ -680,16 +702,16 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   }, [selectedFilter, stations, activeId, waveActive]);
 
   const likedLookup = useLikedLookup();
-  const track = waveActive ? player.currentTrack : null;
-  const isPlaying = waveActive && player.isPlaying;
+  const track = stageActive ? player.currentTrack : null;
+  const isPlaying = stageActive && player.isPlaying;
   const likeStatus = track ? resolveTrackLikeStatus(track, likedLookup) : undefined;
   const isSc = track?.source === 'soundcloud';
   const noDislike = isSc || track?.source === 'yandex';
 
   const onPrimary = useCallback(() => {
-    if (waveActive) player.togglePlay();
+    if (stageActive) player.togglePlay();
     else startStation(activeStation);
-  }, [waveActive, activeStation, startStation]);
+  }, [stageActive, activeStation, startStation]);
 
   const handleSeek = useCallback((pct: number) => {
     if (player.duration) player.seek((pct / 100) * player.duration);
@@ -739,7 +761,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
   }, []);
 
   const renderStation = (st: WaveStation, key: string, ref?: React.Ref<HTMLButtonElement>) => {
-    const isActive = activeId === st.id;
+    const isActive = waveActive && activeId === st.id;
     const playingHere = isActive && isPlaying;
     return (
       <button
@@ -877,7 +899,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
 
       <main className={`${styles.stage} ${panelOpen ? styles.stageLyrics : ''}`}>
         <div className={styles.stageInner}>
-          <div className={styles.stationBadge}>{activeStation.title}</div>
+          <div className={styles.stationBadge}>{useCurrentQueue ? 'Сейчас играет' : activeStation.title}</div>
 
           {track ? (
             <>
@@ -919,7 +941,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
                     </span>
                   )}
                 </div>
-                <WaveProgressBar onSeek={handleSeek} />
+                <WaveProgressBar onSeek={handleSeek} active={stageActive} />
               </div>
 
               <div className={styles.controls}>
@@ -1023,7 +1045,7 @@ export const MyWaveView: React.FC<MyWaveViewProps> = ({ onSelectArtist, onSelect
 
       <aside className={`${styles.lyricsPanel} ${showLyrics ? styles.lyricsPanelVisible : ''}`}>
         <div className={styles.lyricsPanelInner}>
-          <LyricsView isVisible={showLyrics} waveMode={true} />
+          <LyricsView isVisible={showLyrics} waveMode={true} onCollapseFromWave={onCollapseLyrics} />
         </div>
       </aside>
 

@@ -1,9 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { player } from '../../api/player';
 import { getLyrics, getComments } from '../../api/yt';
-import { Music, AlertCircle, Loader2, AlignLeft, Timer, RefreshCw, MessageSquare, Heart } from 'lucide-react';
+import { Music, AlertCircle, Loader2, AlignLeft, Timer, RefreshCw, MessageSquare, Heart, Maximize2, Minimize2 } from 'lucide-react';
 import styles from './LyricsView.module.css';
+
+export function scrollContainerToTop(el: Pick<HTMLDivElement, 'scrollTop'> & { scrollTo?: HTMLDivElement['scrollTo'] } | null): void {
+  if (!el) return;
+  if (typeof el.scrollTo === 'function') {
+    el.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }
+  el.scrollTop = 0;
+}
+
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 // Подписка только на currentTrack: изменения очереди/рекомендаций не перерендеривают текст.
 function useCurrentTrack() {
@@ -49,9 +65,16 @@ const parseLRC = (lrc: string): LyricLine[] => {
 interface LyricsViewProps {
   isVisible?: boolean;
   waveMode?: boolean;
+  onExpandToWave?: () => void;
+  onCollapseFromWave?: () => void;
 }
 
-export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMode = false }) => {
+export const LyricsView: React.FC<LyricsViewProps> = ({
+  isVisible = true,
+  waveMode = false,
+  onExpandToWave,
+  onCollapseFromWave,
+}) => {
   const track = useCurrentTrack();
   const currentTrackId = track?.id;
 
@@ -97,16 +120,18 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
   });
 
   const syncedLines = data?.hasSynced ? data.synced : null;
+  // Подрезаем массив ref'ов под текущие строки на рендере, а не обнуляем в useEffect после commit.
+  lineRefs.current.length = syncedLines ? syncedLines.length : 0;
 
-  // Reset scroll and state when track ID changes
+  // Сбрасываем состояние и пользовательский таймер скролла при смене трека
   useEffect(() => {
+    if (scrollTimeout.current) {
+      clearTimeout(scrollTimeout.current);
+      scrollTimeout.current = null;
+    }
     activeIndexRef.current = -1;
     setActiveIndex(-1);
     setUserIsScrolling(false);
-    lineRefs.current = [];
-    if (containerRef.current) {
-      containerRef.current.scrollTop = 0;
-    }
   }, [currentTrackId]);
 
   useEffect(() => {
@@ -121,6 +146,15 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
       setViewMode(m => m === 'comments' ? m : data.hasSynced ? 'synced' : 'static');
     }
   }, [data]);
+
+  // Гарантируем мгновенный подъем вверх при смене трека/режима/появлении панели,
+  // даже если синхронизация еще не дошла до первой строки (activeIndex === -1).
+  useLayoutEffect(() => {
+    if (!isVisible || !containerRef.current) return;
+    if (viewMode === 'static' || activeIndexRef.current === -1) {
+      scrollContainerToTop(containerRef.current);
+    }
+  }, [isVisible, currentTrackId, viewMode, data]);
 
   // Synchronization with player time
   useEffect(() => {
@@ -148,17 +182,22 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
 
   // Centering logic
   useEffect(() => {
-    if (!isVisible || viewMode !== 'synced' || activeIndex === -1 || userIsScrolling || !containerRef.current) {
+    if (!isVisible || viewMode !== 'synced' || userIsScrolling || !containerRef.current) {
       return;
     }
     const container = containerRef.current;
+    // Перемотка в начало трека (или старт нового до первой строки LRC) должна сразу вернуть скролл наверх.
+    if (activeIndex === -1) {
+      scrollContainerToTop(container);
+      return;
+    }
     const activeElement = lineRefs.current[activeIndex];
 
     if (activeElement) {
-      const targetScroll = activeElement.offsetTop - (container.offsetHeight * 0.35);
+      const targetScroll = Math.max(0, activeElement.offsetTop - (container.offsetHeight * 0.35));
       container.scrollTo({
         top: targetScroll,
-        behavior: 'smooth'
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       });
     }
   }, [isVisible, activeIndex, userIsScrolling, viewMode, syncedLines]);
@@ -219,6 +258,7 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
 
     return (
       <div
+        key={`${currentTrackId}-${viewMode}`}
         className={`${styles.container} ${viewMode === 'static' ? styles.staticMode : ''}`}
         ref={containerRef}
         onWheel={handleUserScroll}
@@ -248,8 +288,8 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
 
   const hasSynced = (data?.synced?.length ?? 0) > 0;
   const hasPlain = !!data?.plain;
-  // В «Моей волне» текст на весь экран: там только переключатель Synced/Static, и то когда есть оба
-  const showControls = !waveMode || (hasSynced && hasPlain);
+  // В «Моей волне» показываем верхние контролы при наличии обоих режимов текста или кнопки возврата.
+  const showControls = !waveMode || (hasSynced && hasPlain) || !!onCollapseFromWave;
 
   const chip = (mode: ViewMode, icon: React.ReactNode, label: string, active = viewMode === mode) => (
     <button className={`${styles.modeBtn} ${active ? styles.active : ''}`} onClick={() => setViewMode(mode)}>
@@ -264,9 +304,31 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ isVisible = true, waveMo
         <div className={styles.viewControls}>
           {hasSynced && chip('synced', <Timer size={14} />, 'Synced')}
           {hasPlain && chip('static', <AlignLeft size={14} />, 'Static')}
-          {/* Текста нет или он ещё грузится: без этого чипа из комментариев не вернуться */}
-          {!hasSynced && !hasPlain && chip('static', <Music size={14} />, 'Lyrics', viewMode !== 'comments')}
+          {/* Текста нет или он еще грузится: без этого чипа из комментариев не вернуться */}
+          {!hasSynced && !hasPlain && !waveMode && chip('static', <Music size={14} />, 'Lyrics', viewMode !== 'comments')}
           {!waveMode && chip('comments', <MessageSquare size={14} />, 'Comments')}
+          {!waveMode && onExpandToWave && (
+            <button
+              type="button"
+              className={`${styles.modeBtn} ${styles.iconBtn}`}
+              onClick={onExpandToWave}
+              title="Открыть большие тексты в Моей волне"
+              aria-label="Открыть большие тексты в Моей волне"
+            >
+              <Maximize2 size={14} />
+            </button>
+          )}
+          {waveMode && onCollapseFromWave && (
+            <button
+              type="button"
+              className={`${styles.modeBtn} ${styles.iconBtn}`}
+              onClick={onCollapseFromWave}
+              title="Свернуть"
+              aria-label="Свернуть"
+            >
+              <Minimize2 size={14} />
+            </button>
+          )}
         </div>
       )}
       {viewMode === 'comments' ? <CommentsContent isVisible={isVisible} /> : renderLyrics()}
@@ -337,7 +399,7 @@ const CommentsContent: React.FC<{ isVisible: boolean }> = ({ isVisible }) => {
   };
 
   return (
-    <div className={styles.comments} onScroll={handleScroll}>
+    <div key={track?.id || 'none'} className={styles.comments} onScroll={handleScroll}>
       {description && (
         <div className={styles.description}>
           <div className={`${styles.descriptionText} ${longDescription && !descOpen ? styles.descriptionClamped : ''}`}>
