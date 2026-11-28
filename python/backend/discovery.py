@@ -269,41 +269,63 @@ def get_mixed_for_you(request, ctx):
         ctx.emit({'status': 'error', 'message': str(e)})
 
 
+def resolve_recommendation_playlist_id(video_id, playlist_id):
+    """Нормализует playlistId для get_watch_playlist: отбрасывает произвольные строки
+    ('history', поисковый запрос, channelId) и не дублирует префикс RDAMPL."""
+    fallback_playlist_id = ('RDAMVM' + video_id) if video_id else None
+    target_playlist_id = None
+
+    if isinstance(playlist_id, str) and playlist_id:
+        normalized = playlist_id[2:] if playlist_id.startswith('VL') else playlist_id
+        if normalized == 'MLCT' or normalized.startswith('RD'):
+            target_playlist_id = normalized
+        elif normalized.startswith(('OLAK', 'PL')):
+            target_playlist_id = 'RDAMPL' + normalized
+
+    if not target_playlist_id:
+        target_playlist_id = fallback_playlist_id
+
+    used_custom_playlist = bool(target_playlist_id and target_playlist_id != fallback_playlist_id)
+    return target_playlist_id, used_custom_playlist, fallback_playlist_id
+
+
 def get_queue_recommendations(request, ctx):
     api = ctx.get_api()
     video_id = request.get('videoId')
     playlist_id = request.get('recommendationPlaylistId')
 
-    # Определяем лучший ID для радио
-    target_playlist_id = None
-
-    if playlist_id:
-        if playlist_id.startswith(('OLAK', 'PL', 'RD', 'VL')):
-            # Для любых плейлистов и альбомов используем RDAMPL префикс
-            target_playlist_id = 'RDAMPL' + playlist_id
-        elif not playlist_id.startswith('MPREb'):
-            target_playlist_id = playlist_id
-
-    # Если плейлиста нет, делаем радио по видео
-    if not target_playlist_id and video_id:
-        target_playlist_id = 'RDAMVM' + video_id
+    target_playlist_id, used_custom_playlist, fallback_playlist_id = resolve_recommendation_playlist_id(
+        video_id, playlist_id
+    )
 
     try:
         print(f"[DEBUG] Fetching recommendations using playlistId: {target_playlist_id}", file=sys.stderr)
-        # Радио по одному треку: первый ответ отдаёт ~50 позиций, limit=100 гнал
-        # ещё две continuation-страницы (+1.3с) ради хвоста, до которого очередь
-        # не доигрывает. Сидинг альбома/плейлиста хвост использует — там 100.
-        limit = 100 if playlist_id else 50
-        watch_data = api.get_watch_playlist(
-            videoId=video_id,
-            playlistId=target_playlist_id,
-            limit=limit,
-            radio=True
-        )
+        # Радио по одному треку: первый ответ отдает ~50 позиций, limit=100 гнал
+        # еще две continuation-страницы (+1.3с) ради хвоста, до которого очередь
+        # не доигрывает. Сидинг альбома/плейлиста хвост использует -- там 100.
+        limit = 100 if used_custom_playlist else 50
+        watch_data = None
+        raw_tracks = []
+        try:
+            watch_data = api.get_watch_playlist(
+                videoId=video_id,
+                playlistId=target_playlist_id,
+                limit=limit,
+                radio=True
+            )
+            raw_tracks = watch_data.get('tracks', [])
+        except Exception as primary_err:
+            # Если специфичный playlistId не принят YouTube (YTMusicServerError),
+            # пробуем обычное радио по videoId вместо немедленного падения.
+            if not video_id or target_playlist_id == fallback_playlist_id:
+                raise
+            print(
+                f"[WARN] Recommendations failed for {target_playlist_id}: {primary_err}; falling back to video radio",
+                file=sys.stderr,
+            )
 
-        raw_tracks = watch_data.get('tracks', [])
-        if not raw_tracks:
-            # Фолбек, если специфичный ID не сработал
+        if not raw_tracks and video_id and target_playlist_id != fallback_playlist_id:
+            # Фолбек, если специфичный ID не сработал или вернул пустой список
             watch_data = api.get_watch_playlist(videoId=video_id, limit=50, radio=True)
             raw_tracks = watch_data.get('tracks', [])
 
@@ -318,7 +340,7 @@ def get_queue_recommendations(request, ctx):
         ctx.emit({
             'status': 'ok',
             'tracks': all_tracks,
-            'relatedId': watch_data.get('related'),
+            'relatedId': (watch_data or {}).get('related'),
         })
     except Exception as e:
         print(f"[ERROR] Recommendations failed: {e}", file=sys.stderr)

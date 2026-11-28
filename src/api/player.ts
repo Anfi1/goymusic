@@ -4,7 +4,7 @@ import { withVideoCredits } from './trackCredits';
 import { streamCache, CacheEntry } from './cache';
 import { getStreamUrl, prefetchStreamUrl, getExpirationFromUrl, registerSoundCloudTrack, registerYandexTrack, ensureLoudness, ensureLocalLoudness, getLocalOverrideEntry } from './stream';
 import { likedManager } from './likedManager';
-import { deleteOverride, onOverrideChanged, LOCAL_PLAYLIST_ID } from './localOverrides';
+import { deleteOverride, onOverrideChanged } from './localOverrides';
 import { searchSoundCloud, isSoundCloudEnabled, interleaveMany, pickBestScMatch, isSoundCloudId, getScRecommendations, createTrackDedupIndex, getQueueDedupIndex } from './soundcloud';
 import { searchYandex, isYandexEnabled, getYandexRecommendations, getYandexWaveTracks, yandexRotorFeedback, yandexPlayAudio } from './yandex';
 import { DEFAULT_Q, type Band } from '../utils/equalizer';
@@ -13,6 +13,25 @@ import { EQ_SELECTION_KEY, FLAT_PRESET, SAVED_EQ_KEY, readEqualizerState, savedP
 // id станции rotor: "<тип>:<тег>" (user:onyourwave, genre:rap, activity:wake-up).
 // Явный список типов, чтобы не спутать с route-id альбома Яндекса ("yandex:123").
 const YANDEX_STATION_RE = /^(user|genre|activity|mood|epoch|personal|theme|author|local|editorial):[\w-]+$/i;
+
+// Допустимые YT-контексты для get_watch_playlist: альбомы/плейлисты/миксы/MLCT.
+// Произвольные sourceId вроде 'history', 'my-wave', поискового запроса или channelId (UC...)
+// отбрасываются, иначе YouTube возвращает YTMusicServerError.
+export function normalizeYouTubeRecommendationId(id: string | null | undefined): string | null {
+    if (!id) return null;
+    if (id === 'MLCT') return 'MLCT';
+    const normalized = id.startsWith('VL') ? id.slice(2) : id;
+    if (!normalized || normalized === 'LM') return null;
+    if (normalized.startsWith('OLAK') || normalized.startsWith('PL') || normalized.startsWith('RD')) {
+        return normalized;
+    }
+    return null;
+}
+
+export function isValidRecommendationContextId(id: string | null | undefined): id is string {
+    if (!id) return false;
+    return normalizeYouTubeRecommendationId(id) !== null || YANDEX_STATION_RE.test(id);
+}
 
 export type PlayerEventType = 'state' | 'tick' | 'buffer';
 type PlayerCallback = (event: PlayerEventType) => void;
@@ -26,6 +45,9 @@ class PlayerStore {
     recommendationPlaylistId: string | null = null; 
     recommendations: YTMTrack[] = [];
     isRecommendationsLoading: boolean = false;
+    private recommendationsRequestId: number = 0;
+    private recommendationsInFlightKey: string | null = null;
+    private recommendationsInFlightPromise: Promise<void> | null = null;
     isStreamLoading: boolean = false;
     hasStreamError: boolean = false;
     errorSkipCount: number = 0;
@@ -377,7 +399,6 @@ class PlayerStore {
             if (savedTrack) {
                 this.currentTrack = JSON.parse(savedTrack);
                 this.duration = this.parseDuration(this.currentTrack?.duration || '0:00');
-                if (this.currentTrack) this.fetchRecommendations(this.currentTrack.id);
             }
 
             const savedQueue = localStorage.getItem('ytm-queue');
@@ -394,6 +415,10 @@ class PlayerStore {
                 const savedOriginalQueue = localStorage.getItem('ytm-original-queue');
                 this.originalQueue = savedOriginalQueue ? JSON.parse(savedOriginalQueue) : [...this.queue];
             }
+
+            // Стартовые рекомендации запускаем после восстановления очереди,
+            // чтобы дедупликация видела загруженные треки.
+            if (this.currentTrack) this.fetchRecommendations(this.currentTrack.id);
         } catch (e) {
             console.error('Failed to load player state:', e);
         }
@@ -813,7 +838,7 @@ class PlayerStore {
     }
 
     private getNextTrackInQueue(): YTMTrack | null {
-        if (this.queue.length - this.queueIndex <= 5 && !this.isRecommendationsLoading) {
+        if (this.queue.length - this.queueIndex <= 5 && this.recommendations.length < 5) {
             const currentId = this.currentTrack?.id || this.queue[this.queueIndex]?.id;
             if (currentId) {
                 this.fetchRecommendations(currentId);
@@ -839,13 +864,19 @@ class PlayerStore {
     }
 
     private resolveContextId(track: YTMTrack, recId: string | null, sourceId: string | null): string | null {
-        if (recId && !recId.startsWith('MPREb') && recId !== 'LM' && recId !== 'library-songs' && recId !== LOCAL_PLAYLIST_ID) return recId;
-        const candidates = [track.audioPlaylistId, track.playlistId, sourceId];
-        for (const id of candidates) {
-            if (id && !id.startsWith('MPREb') && id !== 'LM' && id !== 'library-songs' && id !== LOCAL_PLAYLIST_ID) return id;
+        for (const id of [recId, track.audioPlaylistId, track.playlistId, sourceId]) {
+            if (isValidRecommendationContextId(id)) {
+                return normalizeYouTubeRecommendationId(id) ?? id;
+            }
         }
-        if (sourceId?.startsWith('MPREb') && track.audioPlaylistId) return track.audioPlaylistId;
         return null;
+    }
+
+    private invalidatePendingRecommendations() {
+        this.recommendationsRequestId++;
+        this.recommendationsInFlightKey = null;
+        this.recommendationsInFlightPromise = null;
+        this.isRecommendationsLoading = false;
     }
 
     async playTrackList(tracks: YTMTrack[], startIndex: number = 0, sourceId: string | null = null, sourceType?: 'album' | 'artist' | 'playlist', recommendationId: string | null = null) {
@@ -871,6 +902,7 @@ class PlayerStore {
                 this.queueIndex = newIndex;
             } else {
                 this.recommendations = [];
+                this.invalidatePendingRecommendations();
                 if (this.shuffle) {
                     this.originalQueue = [...availableTracks];
                     this.queue = [...availableTracks];
@@ -1010,6 +1042,7 @@ class PlayerStore {
         this.originalQueue = [track];
         this.queueIndex = 0;
         this.recommendations = [];
+        this.invalidatePendingRecommendations();
         this.errorSkipCount = 0;
         this.consecutiveErrors = 0;
         await this.startPlayback(track);
@@ -1119,7 +1152,7 @@ class PlayerStore {
             || this.queueSourceId === 'MLCT'
             || this.recommendationPlaylistId === 'MLCT'
             || !!this.recommendationPlaylistId?.startsWith('RD');
-        if (nearQueueEnd && this.recommendations.length < 5 && !this.isRecommendationsLoading) {
+        if (nearQueueEnd && this.recommendations.length < 5) {
             this.fetchRecommendations(track.id);
         }
 
@@ -1403,66 +1436,104 @@ class PlayerStore {
         this.originalQueue = [track];
         this.queueIndex = 0;
         this.recommendations = [];
+        this.invalidatePendingRecommendations();
         this.notify('state');
         // Трек уже играет -- не сбрасывать позицию и не перезапрашивать стрим заново.
-        if (!alreadyPlayingThisTrack) await this.startPlayback(track, false, startTime);
-        else if (startTime > 0) this.seek(startTime);
-        await this.fetchRecommendations(track.id, true);
+        if (!alreadyPlayingThisTrack) {
+            await this.startPlayback(track, false, startTime);
+            // startPlayback уже запустил fetchRecommendations для нового трека -- ждем его без дубля.
+            if (this.currentTrack?.id === track.id && this.recommendationsInFlightPromise) {
+                await this.recommendationsInFlightPromise;
+            }
+        } else {
+            if (startTime > 0) this.seek(startTime);
+            await this.fetchRecommendations(track.id, true);
+        }
     }
 
     async refreshRecommendations() {
-        if (!this.currentTrack || this.isRecommendationsLoading) return;
+        if (!this.currentTrack) return;
+        const sources = this.resolveRecommendationSources(this.currentTrack.id);
+        const requestKey = this.getRecommendationsRequestKey(this.currentTrack.id, sources);
+        if (this.isRecommendationsLoading && this.recommendationsInFlightKey === requestKey) return;
         await this.fetchRecommendations(this.currentTrack.id, true);
     }
 
-    private async fetchRecommendations(videoId: string, forceReplace = false) {
-        if (this.isRecommendationsLoading) return;
+    private resolveRecommendationSources(videoId: string): Set<TrackSource> {
+        const isMlct = this.queueSourceId === 'MLCT' || this.recommendationPlaylistId === 'MLCT';
+        const seedTrack = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
+        const seedIsSc = seedTrack?.source === 'soundcloud' || isSoundCloudId(videoId);
+        const seedIsYandex = seedTrack?.source === 'yandex';
+
+        // Реально доступные источники = выбранные пользователем ∩ глобально включенные.
+        const globallyEnabled = new Set<TrackSource>(['youtube']);
+        if (isSoundCloudEnabled()) globallyEnabled.add('soundcloud');
+        if (isYandexEnabled()) globallyEnabled.add('yandex');
+        const sources = new Set(this.radioSources.filter(s => globallyEnabled.has(s)));
+        if (sources.size === 0) sources.add('youtube');
+
+        if (isMlct) {
+            sources.clear();
+            sources.add('youtube');
+        }
+        // От SC/Yandex-трека нельзя построить YT-радио (нет YT videoId) -- платформа сида
+        // участвует всегда, даже если сейчас не выбрана в переключателе.
+        if (seedIsSc) sources.add('soundcloud');
+        if (seedIsYandex) sources.add('yandex');
+        return sources;
+    }
+
+    private getRecommendationsRequestKey(videoId: string, sources: Set<TrackSource>): string {
+        return `${videoId}|${this.recommendationPlaylistId ?? ''}|${Array.from(sources).sort().join(',')}`;
+    }
+
+    private fetchRecommendations(videoId: string, forceReplace = false): Promise<void> {
+        const sources = this.resolveRecommendationSources(videoId);
+        const requestKey = this.getRecommendationsRequestKey(videoId, sources);
+        // Не дублируем уже идущий запрос для того же трека и контекста, но любой новый трек,
+        // смена источников или forceReplace вытесняют устаревший запрос через счетчик reqId.
+        if (this.isRecommendationsLoading && this.recommendationsInFlightKey === requestKey && !forceReplace) {
+            return this.recommendationsInFlightPromise ?? Promise.resolve();
+        }
+
+        const reqId = ++this.recommendationsRequestId;
+        this.recommendationsInFlightKey = requestKey;
         this.isRecommendationsLoading = true;
         this.notify('state');
-        try {
-            const isMlct = this.queueSourceId === 'MLCT' || this.recommendationPlaylistId === 'MLCT';
-            const seedTrack = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
-            const seedIsSc = seedTrack?.source === 'soundcloud' || isSoundCloudId(videoId);
-            const seedIsYandex = seedTrack?.source === 'yandex';
 
-            // Реально доступные источники = выбранные пользователем ∩ глобально включённые.
-            const globallyEnabled = new Set<TrackSource>(['youtube']);
-            if (isSoundCloudEnabled()) globallyEnabled.add('soundcloud');
-            if (isYandexEnabled()) globallyEnabled.add('yandex');
-            const sources = new Set(this.radioSources.filter(s => globallyEnabled.has(s)));
-            if (sources.size === 0) sources.add('youtube');
-
-            if (isMlct) {
-                sources.clear();
-                sources.add('youtube');
+        const task = (async () => {
+            try {
+                if (sources.size === 1) {
+                    const only = sources.values().next().value as TrackSource;
+                    if (only === 'soundcloud') await this.fetchSoundCloudRadio(videoId, forceReplace, reqId);
+                    else if (only === 'yandex') await this.fetchYandexRadio(videoId, forceReplace, reqId);
+                    else await this.fetchYouTubeRecommendations(videoId, forceReplace, reqId);
+                } else {
+                    await this.fetchMultiSourceRecommendations(videoId, forceReplace, sources, reqId);
+                }
+            } catch (e) { console.error('[player] Failed to fetch recommendations:', e); }
+            finally {
+                if (reqId === this.recommendationsRequestId) {
+                    this.isRecommendationsLoading = false;
+                    this.recommendationsInFlightKey = null;
+                    this.recommendationsInFlightPromise = null;
+                    this.notify('state');
+                }
             }
-            // От SC/Yandex-трека нельзя построить YT-радио (нет YT videoId) — платформа сида
-            // участвует всегда, даже если сейчас не выбрана в переключателе.
-            if (seedIsSc) sources.add('soundcloud');
-            if (seedIsYandex) sources.add('yandex');
+        })();
 
-            if (sources.size === 1) {
-                const only = sources.values().next().value as TrackSource;
-                if (only === 'soundcloud') await this.fetchSoundCloudRadio(videoId, forceReplace);
-                else if (only === 'yandex') await this.fetchYandexRadio(videoId, forceReplace);
-                else await this.fetchYouTubeRecommendations(videoId, forceReplace);
-            } else {
-                await this.fetchMultiSourceRecommendations(videoId, forceReplace, sources);
-            }
-        } catch (e) { console.error('[player] Failed to fetch recommendations:', e); }
-        finally {
-            this.isRecommendationsLoading = false;
-            this.notify('state');
-        }
+        this.recommendationsInFlightPromise = task;
+        return task;
     }
 
 
     // Seeding альбома/плейлиста/RD работает только в этом режиме.
-    private async fetchYouTubeRecommendations(videoId: string, forceReplace: boolean) {
+    private async fetchYouTubeRecommendations(videoId: string, forceReplace: boolean, reqId: number) {
         const track = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
-        const rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+        const rawRid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+        const rid = normalizeYouTubeRecommendationId(rawRid);
         const { tracks } = await getQueueRecommendations(videoId, rid);
-        if (this.currentTrack?.id !== videoId) return;
+        if (reqId !== this.recommendationsRequestId || this.currentTrack?.id !== videoId) return;
         if (tracks.length > 0) {
             const qIds = new Set(this.queue.map(t => t.id));
             if (this.queue.length <= 1 && rid && (rid.startsWith('OLAK') || rid.startsWith('PL') || rid.startsWith('RD') || rid === 'MLCT')) {
@@ -1573,9 +1644,9 @@ class PlayerStore {
         return scTracks;
     }
 
-    private async fetchSoundCloudRadio(videoId: string, forceReplace: boolean) {
+    private async fetchSoundCloudRadio(videoId: string, forceReplace: boolean, reqId: number) {
         const scTracks = await this.scRadioTracks(videoId);
-        if (this.currentTrack?.id !== videoId) return;
+        if (reqId !== this.recommendationsRequestId || this.currentTrack?.id !== videoId) return;
         const qIds = new Set(this.queue.map(t => t.id));
         const fresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
         this.applyRecommendations(fresh, forceReplace);
@@ -1603,14 +1674,14 @@ class PlayerStore {
         return yandexTracks;
     }
 
-    private async fetchYandexRadio(videoId: string, forceReplace: boolean) {
+    private async fetchYandexRadio(videoId: string, forceReplace: boolean, reqId: number) {
         // Волна Яндекса продолжается своей же станцией: rotor отдает по 5 треков, и без
         // этого после первой пятерки поток подменялся радио по похожим (tracks_similar).
         const station = this.recommendationPlaylistId;
         if (station && YANDEX_STATION_RE.test(station)) {
             const seed = (this.currentTrack?.id === videoId) ? this.currentTrack : this.queue.find(t => t.id === videoId);
             const next = await getYandexWaveTracks(station, seed?.yandexId);
-            if (this.currentTrack?.id !== videoId) return;
+            if (reqId !== this.recommendationsRequestId || this.currentTrack?.id !== videoId) return;
             const qIds = new Set(this.queue.map(t => t.id));
             const fresh = next.filter(t => t.id !== videoId && !qIds.has(t.id));
             if (fresh.length > 0) {
@@ -1619,7 +1690,7 @@ class PlayerStore {
             }
         }
         const yandexTracks = await this.yandexRadioTracks(videoId);
-        if (this.currentTrack?.id !== videoId) return;
+        if (reqId !== this.recommendationsRequestId || this.currentTrack?.id !== videoId) return;
         const qIds = new Set(this.queue.map(t => t.id));
         const fresh = yandexTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
         this.applyRecommendations(fresh, forceReplace);
@@ -1628,7 +1699,7 @@ class PlayerStore {
     // 2+ источников одновременно (замена старого жесткого fetchHybridRecommendations):
     // тянем каждый активный источник параллельно, чистим кросс-платформенные дубли,
     // чередуем round-robin через interleaveMany.
-    private async fetchMultiSourceRecommendations(videoId: string, forceReplace: boolean, sources: Set<TrackSource>) {
+    private async fetchMultiSourceRecommendations(videoId: string, forceReplace: boolean, sources: Set<TrackSource>, reqId: number) {
         const { track, query } = this.scRadioQuery(videoId);
         const seedIsSc = track?.source === 'soundcloud' || isSoundCloudId(videoId);
         const seedIsYandex = track?.source === 'yandex';
@@ -1641,9 +1712,10 @@ class PlayerStore {
             if (seedIsForeign) {
                 // От SC/Yandex-id YT-рекомендаций нет: матчим к YouTube по "artist title".
                 ytSeedId = query ? await this.findYouTubeSeed(query, track) : null;
-                if (this.currentTrack?.id !== videoId) return;
+                if (reqId !== this.recommendationsRequestId || this.currentTrack?.id !== videoId) return;
             } else {
-                rid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+                const rawRid = track ? this.resolveContextId(track, this.recommendationPlaylistId, this.queueSourceId) : (this.recommendationPlaylistId || this.queueSourceId);
+                rid = normalizeYouTubeRecommendationId(rawRid);
             }
             ytPromise = ytSeedId ? getQueueRecommendations(ytSeedId, rid).then(r => r.tracks || []) : Promise.resolve([]);
         }
@@ -1651,7 +1723,7 @@ class PlayerStore {
         const yandexPromise = sources.has('yandex') ? this.yandexRadioTracks(videoId) : Promise.resolve([]);
 
         const [ytRes, scTracks, yandexTracks] = await Promise.all([ytPromise, scPromise, yandexPromise]);
-        if (this.currentTrack?.id !== videoId) return;
+        if (reqId !== this.recommendationsRequestId || this.currentTrack?.id !== videoId) return;
         const qIds = new Set(this.queue.map(t => t.id));
         const ytFresh = ytRes.filter(t => t.isAvailable !== false && t.id !== videoId && !qIds.has(t.id));
         const scFresh = scTracks.filter(t => t.id !== videoId && !qIds.has(t.id));
